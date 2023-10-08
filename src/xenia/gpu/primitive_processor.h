@@ -717,8 +717,8 @@ class PrimitiveProcessor {
   static constexpr uint32_t kCacheBucketSizeBytesLog2 = 18;
   static constexpr uint32_t kCacheBucketSizeBytes =
       uint32_t(1) << kCacheBucketSizeBytesLog2;
-  static constexpr uint32_t kCacheBucketCount =
-      xe::align(SharedMemory::kBufferSize, kCacheBucketSizeBytes) /
+  static constexpr size_t kCacheBucketCount =
+      xe::align<size_t>(SharedMemory::kBufferSize, kCacheBucketSizeBytes) /
       kCacheBucketSizeBytes;
 
   union CacheKey {

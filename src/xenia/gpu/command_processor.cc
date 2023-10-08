@@ -746,6 +746,9 @@ void CommandProcessor::InitializeTrace() {
   trace_writer_.WriteGammaRamp(gamma_ramp_256_entry_table(),
                                gamma_ramp_pwl_rgb(), gamma_ramp_rw_component_);
 }
+
+void CommandProcessor::InvalidateXPS() {}
+
 #define COMMAND_PROCESSOR CommandProcessor
 #include "pm4_command_processor_implement.h"
 }  // namespace gpu

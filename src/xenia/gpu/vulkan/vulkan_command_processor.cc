@@ -4490,7 +4490,9 @@ uint32_t VulkanCommandProcessor::WriteTransientTextureBindings(
   assert_not_zero(descriptor_set_write_count);
   return descriptor_set_write_count;
 }
-
+void VulkanCommandProcessor::InvalidateXPS() {
+  shared_memory_->MemoryInvalidationCallback(0xC0100000, 0xC0800000, true);
+}
 #define COMMAND_PROCESSOR VulkanCommandProcessor
 #include "../pm4_command_processor_implement.h"
 }  // namespace vulkan

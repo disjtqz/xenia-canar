@@ -12,6 +12,8 @@
 #include "xenia/base/assert.h"
 #include "xenia/base/logging.h"
 #include "xenia/base/math.h"
+#include "xenia/emulator.h"
+#include "xenia/gpu/graphics_system.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
@@ -702,6 +704,9 @@ dword_result_t KeGetImagePageTableEntry_entry(dword_t address,
 DECLARE_XBOXKRNL_EXPORT1(KeGetImagePageTableEntry, kMemory, kStub);
 
 dword_result_t KeLockL2_entry() {
+  auto graphics_system = kernel_state()->emulator()->graphics_system();
+  // TODO
+  graphics_system->InvalidateXPS();
   // TODO
   return 0;
 }

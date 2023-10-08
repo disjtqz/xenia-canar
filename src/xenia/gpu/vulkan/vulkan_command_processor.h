@@ -140,7 +140,8 @@ class VulkanCommandProcessor final : public CommandProcessor {
   VulkanCommandProcessor(VulkanGraphicsSystem* graphics_system,
                          kernel::KernelState* kernel_state);
   ~VulkanCommandProcessor();
-
+  
+  virtual void InvalidateXPS() override;
   void ClearCaches() override;
 
   void TracePlaybackWroteMemory(uint32_t base_ptr, uint32_t length) override;

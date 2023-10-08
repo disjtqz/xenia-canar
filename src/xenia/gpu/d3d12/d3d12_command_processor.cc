@@ -5145,7 +5145,9 @@ void D3D12CommandProcessor::WriteGammaRampSRV(
   }
   device->CreateShaderResourceView(gamma_ramp_buffer_.Get(), &desc, handle);
 }
-
+void D3D12CommandProcessor::InvalidateXPS() {
+  shared_memory_->MemoryInvalidationCallback(0xC0100000, 0xC0800000, true);
+}
 #define COMMAND_PROCESSOR D3D12CommandProcessor
 
 #include "../pm4_command_processor_implement.h"

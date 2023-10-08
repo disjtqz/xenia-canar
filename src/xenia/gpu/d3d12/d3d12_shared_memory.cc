@@ -444,8 +444,10 @@ bool D3D12SharedMemory::UploadRanges(
               upload_range_start << page_size_log2(),
               (upload_range_start << page_size_log2()) +
                   (uint32_t)1);  // Check only first page
-
-      if (page_access == xe::memory::PageAccess::kNoAccess) {
+      auto page_addr = upload_range_start << page_size_log2();
+      if (page_access == xe::memory::PageAccess::kNoAccess &&
+              page_addr < XPSGpuBase() ||
+          page_addr >= XPSGpuEnd()) {
         XELOGE("Invalid upload range for GPU: {:08X}", upload_range_start);
         return false;
       }

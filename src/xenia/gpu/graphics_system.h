@@ -74,7 +74,7 @@ class GraphicsSystem {
 
   void InitializeShaderStorage(const std::filesystem::path& cache_root,
                                uint32_t title_id, bool blocking);
-
+  void InvalidateXPS();
   void RequestFrameTrace();
   void BeginTracing();
   void EndTracing();

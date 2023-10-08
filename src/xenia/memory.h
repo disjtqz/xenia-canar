@@ -383,6 +383,11 @@ class Memory {
                                (guest_address & 0x1FFFFFFF));
   }
 
+  static constexpr uint32_t XPSCpuBase() { return 0x7F100000; }
+  static constexpr uint32_t XPSCpuEnd() { return 0x7F800000; }
+  static constexpr uint32_t XPSLength() {
+    return XPSCpuBase() - XPSCpuEnd();
+  }
   // Translates a host address to a guest virtual address.
   // Note that the contents at the returned host address are big-endian.
   uint32_t HostToGuestVirtual(const void* host_address) const;

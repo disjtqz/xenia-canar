@@ -66,7 +66,7 @@ class D3D12CommandProcessor final : public CommandProcessor {
   ~D3D12CommandProcessor();
 
   void ClearCaches() override;
-
+  virtual void InvalidateXPS() override;
   void InitializeShaderStorage(const std::filesystem::path& cache_root,
                                uint32_t title_id, bool blocking) override;
 

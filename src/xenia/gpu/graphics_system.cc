@@ -329,7 +329,7 @@ void GraphicsSystem::InitializeShaderStorage(
     });
   }
 }
-
+void GraphicsSystem::InvalidateXPS() { command_processor()->InvalidateXPS(); }
 void GraphicsSystem::RequestFrameTrace() {
   command_processor_->RequestFrameTrace(cvars::trace_gpu_prefix);
 }

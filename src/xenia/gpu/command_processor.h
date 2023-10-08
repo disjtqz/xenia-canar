@@ -147,7 +147,7 @@ class CommandProcessor {
 
   bool Save(ByteStream* stream);
   bool Restore(ByteStream* stream);
-
+  virtual void InvalidateXPS();
  protected:
   struct IndexBufferInfo {
     xenos::IndexFormat format = xenos::IndexFormat::kInt16;

@@ -20,8 +20,21 @@ namespace gpu {
 // system page size granularity.
 class SharedMemory {
  public:
-  static constexpr uint32_t kBufferSizeLog2 = 29;
-  static constexpr uint32_t kBufferSize = 1 << kBufferSizeLog2;
+  static constexpr uint32_t kBufferSizeLog2 = 32;
+  static constexpr uint32_t kBufferSize = 0xFFFF0000;
+
+  //this is actually configurable
+  uint32_t XPSGpuBase()const { return 0xC0100000;}
+  uint32_t XPSGpuEnd()const { return 0xC0800000; }
+
+  uint8_t* TranslateGPUVirtualAddress(uint32_t addr) const {
+    if (addr >= XPSGpuBase() && addr < XPSGpuEnd()) {
+      return memory().TranslateVirtual(Memory::XPSCpuBase() +
+                                        (addr - XPSGpuBase()));
+    } else {
+      return memory().TranslatePhysical(addr);
+    }
+  }
 
   virtual ~SharedMemory();
   // Call in the implementation-specific ClearCache.
