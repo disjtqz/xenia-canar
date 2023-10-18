@@ -10,7 +10,6 @@
 #ifndef XENIA_KERNEL_UTIL_GUEST_OBJECT_TABLE_H_
 #define XENIA_KERNEL_UTIL_GUEST_OBJECT_TABLE_H_
 
-#include "xenia/kernel/kernel_state.h"
 #include "xenia/xbox.h"
 namespace xe {
 namespace kernel {

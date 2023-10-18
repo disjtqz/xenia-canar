@@ -147,7 +147,6 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
         return 0;
       }, kernel_state->GetIdleProcess()));//this one doesnt need any process actually. never calls any guest code
   worker_thread_->set_name("XMA Decoder");
-  worker_thread_->set_can_debugger_suspend(true);
   worker_thread_->Create();
 
   return X_STATUS_SUCCESS;

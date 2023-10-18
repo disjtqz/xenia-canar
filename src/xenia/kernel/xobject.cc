@@ -25,6 +25,7 @@
 #include "xenia/kernel/xsemaphore.h"
 #include "xenia/kernel/xsymboliclink.h"
 #include "xenia/kernel/xthread.h"
+#include "xenia/kernel/kernel_state.h"
 #include "xenia/xbox.h"
 
 namespace xe {
@@ -196,46 +197,60 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
     // Object doesn't support waiting.
     return X_STATUS_SUCCESS;
   }
+  auto context = cpu::ThreadState::Get()->context();
+  auto irql = context->kernel_state->LockDispatcher(context);
 
   auto timeout_ms =
       opt_timeout ? std::chrono::milliseconds(Clock::ScaleGuestDurationMillis(
                         TimeoutTicksToMs(*opt_timeout)))
                   : std::chrono::milliseconds::max();
 
+  context->kernel_state->UnlockDispatcherAtIrql(context);
   auto result =
       xe::threading::Wait(wait_handle, alertable ? true : false, timeout_ms);
+  context->kernel_state->LockDispatcherAtIrql(context);
+  X_STATUS xresult;
   switch (result) {
     case xe::threading::WaitResult::kSuccess:
       WaitCallback();
-      return X_STATUS_SUCCESS;
+      xresult= GetSignaledStatus(X_STATUS_SUCCESS);
+      break;
     case xe::threading::WaitResult::kUserCallback:
       // Or X_STATUS_ALERTED?
-      return X_STATUS_USER_APC;
+      xresult= X_STATUS_USER_APC;
+      break;
     case xe::threading::WaitResult::kTimeout:
       xe::threading::MaybeYield();
-      return X_STATUS_TIMEOUT;
+      xresult= X_STATUS_TIMEOUT;
+      break;
     default:
     case xe::threading::WaitResult::kAbandoned:
     case xe::threading::WaitResult::kFailed:
-      return X_STATUS_ABANDONED_WAIT_0;
+      xresult= X_STATUS_ABANDONED_WAIT_0;
+      break;
   }
+  context->kernel_state->UnlockDispatcher(context, irql);
+  return xresult;
 }
 
 X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object,
                                 uint32_t wait_reason, uint32_t processor_mode,
-                                uint32_t alertable, uint64_t* opt_timeout) {
+                                uint32_t alertable, uint64_t* opt_timeout,
+                                cpu::ppc::PPCContext* context) {
   auto timeout_ms =
       opt_timeout ? std::chrono::milliseconds(Clock::ScaleGuestDurationMillis(
                         TimeoutTicksToMs(*opt_timeout)))
                   : std::chrono::milliseconds::max();
 
+  context->kernel_state->UnlockDispatcherAtIrql(context);
   auto result = xe::threading::SignalAndWait(
       signal_object->GetWaitHandle(), wait_object->GetWaitHandle(),
       alertable ? true : false, timeout_ms);
+  context->kernel_state->LockDispatcherAtIrql(context);
   switch (result) {
     case xe::threading::WaitResult::kSuccess:
       wait_object->WaitCallback();
-      return X_STATUS_SUCCESS;
+      return wait_object->GetSignaledStatus( X_STATUS_SUCCESS);
     case xe::threading::WaitResult::kUserCallback:
       // Or X_STATUS_ALERTED?
       return X_STATUS_USER_APC;
@@ -252,7 +267,7 @@ X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object,
 X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
                                uint32_t wait_type, uint32_t wait_reason,
                                uint32_t processor_mode, uint32_t alertable,
-                               uint64_t* opt_timeout) {
+                               uint64_t* opt_timeout, cpu::ppc::PPCContext* context) {
   xe::threading::WaitHandle* wait_handles[64];
 
   for (size_t i = 0; i < count; ++i) {
@@ -266,13 +281,16 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
                   : std::chrono::milliseconds::max();
 
   if (wait_type) {
+   
+    context->kernel_state->UnlockDispatcherAtIrql(context);
     auto result = xe::threading::WaitAny(wait_handles, count,
                                          alertable ? true : false, timeout_ms);
+    context->kernel_state->LockDispatcherAtIrql(context);
     switch (result.first) {
       case xe::threading::WaitResult::kSuccess:
         objects[result.second]->WaitCallback();
 
-        return X_STATUS(result.second);
+        return objects[result.second]->GetSignaledStatus(X_STATUS(result.second));
       case xe::threading::WaitResult::kUserCallback:
         // Or X_STATUS_ALERTED?
         return X_STATUS_USER_APC;
@@ -286,15 +304,24 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
         return X_STATUS_UNSUCCESSFUL;
     }
   } else {
+    context->kernel_state->UnlockDispatcherAtIrql(context);
     auto result = xe::threading::WaitAll(wait_handles, count,
                                          alertable ? true : false, timeout_ms);
+    context->kernel_state->LockDispatcherAtIrql(context);
     switch (result) {
-      case xe::threading::WaitResult::kSuccess:
+      case xe::threading::WaitResult::kSuccess: {
+        X_STATUS res = X_STATUS_SUCCESS;
         for (uint32_t i = 0; i < count; i++) {
           objects[i]->WaitCallback();
+          auto remapped_status =
+              objects[i]->GetSignaledStatus(static_cast<X_STATUS>(i));
+          if (remapped_status >= 64) {
+            res = remapped_status;
+          }
         }
 
-        return X_STATUS_SUCCESS;
+        return res;
+      }
       case xe::threading::WaitResult::kUserCallback:
         // Or X_STATUS_ALERTED?
         return X_STATUS_USER_APC;
@@ -342,10 +369,14 @@ void XObject::SetNativePointer(uint32_t native_ptr, bool uninitialized) {
 
   // Stash pointer in struct.
   // FIXME: This assumes the object has a dispatch header (some don't!)
-  //StashHandle(header, handle());
+  // StashHandle(header, handle());
   kernel_state()->object_table()->MapGuestObjectToHostHandle(native_ptr,
                                                              handle());
-
+  if (HasDispatcherHeader(this->type())) {
+    memory()
+        ->TranslateVirtual<X_DISPATCH_HEADER*>(native_ptr)
+        ->wait_list_blink = handle();
+  }
   guest_object_ptr_ = native_ptr;
 }
 
@@ -375,23 +406,44 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
     as_type = header->type;
   }
   auto true_object_header =
-      kernel_state->memory()->TranslateVirtual<X_OBJECT_HEADER*>(guest_ptr-sizeof(X_OBJECT_HEADER));
+      kernel_state->memory()->TranslateVirtual<X_OBJECT_HEADER*>(
+          guest_ptr - sizeof(X_OBJECT_HEADER));
 
   X_HANDLE host_handle;
-  
 
-  if (kernel_state->object_table()->HostHandleForGuestObject(guest_ptr, host_handle)) {
+  bool successfully_mapped_to_host =
+      kernel_state->object_table()->HostHandleForGuestObject(guest_ptr,
+                                                             host_handle);
+  if (successfully_mapped_to_host) {
+    if (result = kernel_state->object_table()
+                     ->LookupObject<XObject>(host_handle, true)
+                     .release()) {
+    }
+  }
+
+  if (successfully_mapped_to_host) {
     // Already initialized.
     // TODO: assert if the type of the object != as_type
-    
-        
+
     result = kernel_state->object_table()
                  ->LookupObject<XObject>(host_handle, true)
                  .release();
+
+    if (HasDispatcherHeader(result->type())) {
+      if (header->wait_list_blink != host_handle) {
+        goto create_new;
+      }
+
+      if (MapGuestTypeToHost(header->type) != result->type()) {
+        goto create_new;
+      }
+    }
+
     goto return_result;
     // TODO(benvanik): assert nothing has been changed in the struct.
     // return object;
   } else {
+  create_new:
     // First use, create new.
     // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
     XObject* object = nullptr;
@@ -431,7 +483,7 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
       case 23:  // ProfileObject
       case 24:  // ThreadedDpcObject
       default:
-        assert_always();
+        // assert_always();
         result = nullptr;
         goto return_result;
 
@@ -440,7 +492,10 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
 
     // Stash pointer in struct.
     // FIXME: This assumes the object contains a dispatch header (some don't!)
-   // StashHandle(header, object->handle());
+    // StashHandle(header, object->handle());
+    if (HasDispatcherHeader(object->type())) {
+      header->wait_list_blink = object->handle();
+    }
     kernel_state->object_table()->MapGuestObjectToHostHandle(guest_ptr,
                                                              object->handle());
     result = object;

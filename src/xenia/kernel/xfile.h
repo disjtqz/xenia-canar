@@ -135,6 +135,7 @@ class XFile : public XObject {
 
   std::mutex completion_port_lock_;
   std::vector<std::pair<uint32_t, object_ref<XIOCompletion>>> completion_ports_;
+  //std::mutex file_lock_;
 
   // TODO(benvanik): create flags, open state, etc.
 

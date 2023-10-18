@@ -286,6 +286,8 @@ dword_result_t NtFreeVirtualMemory_entry(lpdword_t base_addr_ptr,
   if (!result) {
     return X_STATUS_UNSUCCESSFUL;
   }
+  kernel_state()->object_table()->FlushGuestToHostMapping(base_addr_value,
+                                                          region_size_value);
 
   *base_addr_ptr = base_addr_value;
   *region_size_ptr = region_size_value;
@@ -473,7 +475,11 @@ void MmFreePhysicalMemory_entry(dword_t type, dword_t base_address) {
   assert_true((base_address & 0x1F) == 0);
 
   auto heap = kernel_state()->memory()->LookupHeap(base_address);
-  heap->Release(base_address);
+  uint32_t region_size = 0;
+  if (heap->Release(base_address, &region_size)) {
+    kernel_state()->object_table()->FlushGuestToHostMapping(base_address,
+                                                            region_size);
+  }
 }
 DECLARE_XBOXKRNL_EXPORT1(MmFreePhysicalMemory, kMemory, kImplemented);
 
@@ -691,11 +697,16 @@ DECLARE_XBOXKRNL_EXPORT1(ExAllocatePool, kMemory, kImplemented);
 void xeFreePool(PPCContext* context, uint32_t base_address) {
   auto memory = context->kernel_state->memory();
   //if 4kb aligned, there is no pool header!
+  uint32_t released_region_size = 0;
   if ((base_address & (4096 - 1)) == 0) {
-    memory->SystemHeapFree(base_address);
+    memory->SystemHeapFree(base_address, &released_region_size);
   } else {
-    memory->SystemHeapFree(base_address - sizeof(X_POOL_ALLOC_HEADER));
+    memory->SystemHeapFree(base_address - sizeof(X_POOL_ALLOC_HEADER), &released_region_size);
   }
+  xenia_assert(released_region_size != 0);
+
+  kernel_state()->object_table()->FlushGuestToHostMapping(base_address,
+                                                          released_region_size);
 }
 
 void ExFreePool_entry(lpvoid_t base_address, const ppc_context_t& context) {
@@ -759,8 +770,12 @@ DECLARE_XBOXKRNL_EXPORT1(MmCreateKernelStack, kMemory, kImplemented);
 
 dword_result_t MmDeleteKernelStack_entry(lpvoid_t stack_base,
                                          lpvoid_t stack_end) {
+  uint32_t released_region_size = 0;
   // Release the stack (where stack_end is the low address)
-  if (kernel_memory()->LookupHeap(0x70000000)->Release(stack_end)) {
+  if (kernel_memory()->LookupHeap(0x70000000)->Release(stack_end, &released_region_size)) {
+    xenia_assert(released_region_size);
+    kernel_state()->object_table()->FlushGuestToHostMapping(
+        stack_end, released_region_size);
     return X_STATUS_SUCCESS;
   }
 

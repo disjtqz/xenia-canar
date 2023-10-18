@@ -11,6 +11,9 @@
 
 #include "xenia/base/byte_stream.h"
 #include "xenia/base/logging.h"
+#include "xenia/kernel/kernel_state.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_ob.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 
 namespace xe {
 namespace kernel {
@@ -18,12 +21,27 @@ namespace kernel {
 XEvent::XEvent(KernelState* kernel_state)
     : XObject(kernel_state, kObjectType) {}
 
-XEvent::~XEvent() = default;
+XEvent::~XEvent() {}
 
 void XEvent::Initialize(bool manual_reset, bool initial_state) {
+  auto context = cpu::ThreadState::Get()->context();
+
+  auto guest_globals = context->TranslateVirtual<KernelGuestGlobals*>(
+      kernel_state()->GetKernelGuestGlobals());
+  uint32_t guest_objptr = 0;
+  // todo: attributes
+  X_STATUS create_status =
+      xboxkrnl::xeObCreateObject(&guest_globals->ExEventObjectType, nullptr,
+                                 sizeof(X_KEVENT), &guest_objptr, context);
+  xenia_assert(create_status == X_STATUS_SUCCESS);
+  xenia_assert(guest_objptr != 0);
+
+  auto guest_object = context->TranslateVirtual<X_KEVENT*>(guest_objptr);
+  SetNativePointer(guest_objptr);
+
   assert_false(event_);
 
-  this->CreateNative<X_KEVENT>();
+  //this->CreateNative<X_KEVENT>();
 
   if (manual_reset) {
     event_ = xe::threading::Event::CreateManualResetEvent(initial_state);

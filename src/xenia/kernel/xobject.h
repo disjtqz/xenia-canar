@@ -14,7 +14,7 @@
 #include <atomic>
 #include <cstddef>
 #include <string>
-
+#include "xenia/cpu/ppc/ppc_context.h"
 #include "xenia/base/threading.h"
 #include "xenia/memory.h"
 #include "xenia/xbox.h"
@@ -164,7 +164,10 @@ class XObject {
   T* guest_object() {
     return memory()->TranslateVirtual<T*>(guest_object_ptr_);
   }
-
+  template <typename T>
+  const T* guest_object() const {
+    return memory()->TranslateVirtual<const T*>(guest_object_ptr_);
+  }
   void RetainHandle();
   bool ReleaseHandle();
   void Retain();
@@ -187,11 +190,11 @@ class XObject {
                 uint32_t alertable, uint64_t* opt_timeout);
   static X_STATUS SignalAndWait(XObject* signal_object, XObject* wait_object,
                                 uint32_t wait_reason, uint32_t processor_mode,
-                                uint32_t alertable, uint64_t* opt_timeout);
+                                uint32_t alertable, uint64_t* opt_timeout, cpu::ppc::PPCContext* context);
   static X_STATUS WaitMultiple(uint32_t count, XObject** objects,
                                uint32_t wait_type, uint32_t wait_reason,
                                uint32_t processor_mode, uint32_t alertable,
-                               uint64_t* opt_timeout);
+                               uint64_t* opt_timeout, cpu::ppc::PPCContext* context);
 
   static object_ref<XObject> GetNativeObject(KernelState* kernel_state,
                                              void* native_ptr,
@@ -209,6 +212,7 @@ class XObject {
   // Called on successful wait.
   virtual void WaitCallback() {}
   virtual xe::threading::WaitHandle* GetWaitHandle() { return nullptr; }
+  virtual X_STATUS GetSignaledStatus(X_STATUS success_in) { return success_in; }
 
   // Creates the kernel object for guest code to use. Typically not needed.
   uint8_t* CreateNative(uint32_t size);
@@ -225,7 +229,9 @@ class XObject {
 
   // Host objects are persisted through resets/etc.
   bool host_object_ = false;
-
+  // Guest pointer for kernel object. Remember: X_OBJECT_HEADER precedes this
+  // if we allocated it!
+  uint32_t guest_object_ptr_ = 0;
  private:
   std::atomic<int32_t> pointer_ref_count_;
 
@@ -233,9 +239,7 @@ class XObject {
   std::vector<X_HANDLE> handles_;
   std::string name_;  // May be zero length.
 
-  // Guest pointer for kernel object. Remember: X_OBJECT_HEADER precedes this
-  // if we allocated it!
-  uint32_t guest_object_ptr_ = 0;
+
   bool allocated_guest_object_ = false;
 };
 

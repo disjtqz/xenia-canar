@@ -375,7 +375,6 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
         this, 128 * 1024, 0,
         [this]() {
           // As we run guest callbacks the debugger must be able to suspend us.
-          dispatch_thread_->set_can_debugger_suspend(true);
 
           auto global_lock = global_critical_region_.AcquireDeferred();
           while (dispatch_thread_running_) {
@@ -929,16 +928,16 @@ bool KernelState::Save(ByteStream* stream) {
   return true;
 }
 
-// this only gets triggered once per ms at most, so fields other than tick count
-// will probably not be updated in a timely manner for guest code that uses them
-void KernelState::UpdateKeTimestampBundle() {
+// length of a guest timer tick is normally 1 millisecond
+void KernelState::SystemClockInterrupt() {
   X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
       memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(ke_timestamp_bundle_ptr_);
   uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
+  uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
   xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->interrupt_time,
-                               Clock::QueryGuestInterruptTime());
+                               time_imprecise);
   xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->system_time,
-                               Clock::QueryGuestSystemTime());
+                               time_imprecise);
   xe::store_and_swap<uint32_t>(&lpKeTimeStampBundle->tick_count, uptime_ms);
 }
 
@@ -948,34 +947,6 @@ uint32_t KernelState::GetKeTimestampBundle() {
     global_critical_region::PrepareToAcquire();
     return CreateKeTimestampBundle();
   }
-}
-
-XE_NOINLINE
-XE_COLD
-uint32_t KernelState::CreateKeTimestampBundle() {
-  auto crit = global_critical_region::Acquire();
-
-  uint32_t pKeTimeStampBundle =
-      memory_->SystemHeapAlloc(sizeof(X_TIME_STAMP_BUNDLE));
-  X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
-      memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(pKeTimeStampBundle);
-
-  xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->interrupt_time,
-                               Clock::QueryGuestInterruptTime());
-
-  xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->system_time,
-                               Clock::QueryGuestSystemTime());
-
-  xe::store_and_swap<uint32_t>(&lpKeTimeStampBundle->tick_count,
-                               Clock::QueryGuestUptimeMillis());
-
-  xe::store_and_swap<uint32_t>(&lpKeTimeStampBundle->padding, 0);
-
-  timestamp_timer_ = xe::threading::HighResolutionTimer::CreateRepeating(
-      std::chrono::milliseconds(1),
-      [this]() { this->UpdateKeTimestampBundle(); });
-  ke_timestamp_bundle_ptr_ = pKeTimeStampBundle;
-  return pKeTimeStampBundle;
 }
 
 bool KernelState::Restore(ByteStream* stream) {
@@ -1088,6 +1059,51 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   EndDPCImpersonation(current_context, dpc_scope);
 }
 
+uint32_t KernelState::LockDispatcher(cpu::ppc::PPCContext* context) {
+  return xboxkrnl::xeKeKfAcquireSpinLock(
+      context,
+      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
+           ->dispatcher_lock,
+      true);
+}
+
+void KernelState::UnlockDispatcher(cpu::ppc::PPCContext* context,
+                                   uint32_t irql) {
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context,
+      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
+           ->dispatcher_lock,
+      irql, true);
+}
+
+void KernelState::LockDispatcherAtIrql(cpu::ppc::PPCContext* context) {
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context,
+      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
+           ->dispatcher_lock,
+      false);
+}
+
+void KernelState::UnlockDispatcherAtIrql(cpu::ppc::PPCContext* context) {
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context,
+      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
+           ->dispatcher_lock,
+      0, false);
+}
+
+uint32_t KernelState::ReferenceObjectByHandle(cpu::ppc::PPCContext* context,
+                                              uint32_t handle,
+                                              uint32_t guest_object_type,
+                                              uint32_t* object_out) {
+  return xboxkrnl::xeObReferenceObjectByHandle(handle, guest_object_type,
+                                               object_out);
+}
+void KernelState::DereferenceObject(cpu::ppc::PPCContext* context,
+                                    uint32_t object) {
+  xboxkrnl::xeObDereferenceObject(context, object);
+}
+
 void KernelState::UpdateUsedUserProfiles() {
   const uint8_t used_slots_bitmask = GetConnectedUsers();
 
@@ -1106,236 +1122,44 @@ void KernelState::UpdateUsedUserProfiles() {
   }
 }
 
-void KernelState::InitializeProcess(X_KPROCESS* process, uint32_t type,
-                                    char unk_18, char unk_19, char unk_1A) {
-  uint32_t guest_kprocess = memory()->HostToGuestVirtual(process);
+uint32_t KernelState::AllocateInternalHandle(void* ud) {
+  std::unique_lock lock{this->internal_handle_table_mutex_};
 
-  uint32_t thread_list_guest_ptr =
-      guest_kprocess + offsetof(X_KPROCESS, thread_list);
+  uint32_t new_id = current_internal_handle_++;
 
-  process->unk_18 = unk_18;
-  process->unk_19 = unk_19;
-  process->unk_1A = unk_1A;
-  util::XeInitializeListHead(&process->thread_list, thread_list_guest_ptr);
-  process->unk_0C = 60;
-  // doubt any guest code uses this ptr, which i think probably has something to
-  // do with the page table
-  process->clrdataa_masked_ptr = 0;
-  // clrdataa_ & ~(1U << 31);
-  process->thread_count = 0;
-  process->unk_1B = 0x06;
-  process->kernel_stack_size = 16 * 1024;
-  process->tls_slot_size = 0x80;
-
-  process->process_type = type;
-  uint32_t unk_list_guest_ptr = guest_kprocess + offsetof(X_KPROCESS, unk_54);
-  // TODO(benvanik): figure out what this list is.
-  util::XeInitializeListHead(&process->unk_54, unk_list_guest_ptr);
-}
-
-void KernelState::SetProcessTLSVars(X_KPROCESS* process, int num_slots,
-                                    int tls_data_size,
-                                    int tls_static_data_address) {
-  uint32_t slots_padded = (num_slots + 3) & 0xFFFFFFFC;
-  process->tls_data_size = tls_data_size;
-  process->tls_raw_data_size = tls_data_size;
-  process->tls_static_data_address = tls_static_data_address;
-  process->tls_slot_size = 4 * slots_padded;
-  uint32_t count_div32 = slots_padded / 32;
-  for (unsigned word_index = 0; word_index < count_div32; ++word_index) {
-    process->bitmap[word_index] = -1;
+  while (internal_handles_.count(new_id) == 1) {
+    new_id = current_internal_handle_++;
   }
-
-  // set remainder of bitset
-  if (((num_slots + 3) & 0x1C) != 0)
-    process->bitmap[count_div32] = -1 << (32 - ((num_slots + 3) & 0x1C));
+  internal_handles_[new_id] = ud;
+  return new_id;
 }
-void AllocateThread(PPCContext* context) {
-  uint32_t thread_mem_size = static_cast<uint32_t>(context->r[3]);
-  uint32_t a2 = static_cast<uint32_t>(context->r[4]);
-  uint32_t a3 = static_cast<uint32_t>(context->r[5]);
-  if (thread_mem_size <= 0xFD8) thread_mem_size += 8;
-  uint32_t result =
-      xboxkrnl::xeAllocatePoolTypeWithTag(context, thread_mem_size, a2, a3);
-  if (((unsigned short)result & 0xFFF) != 0) {
-    result += 2;
-  }
-
-  context->r[3] = static_cast<uint64_t>(result);
-}
-void FreeThread(PPCContext* context) {
-  uint32_t thread_memory = static_cast<uint32_t>(context->r[3]);
-  if ((thread_memory & 0xFFF) != 0) {
-    thread_memory -= 8;
-  }
-  xboxkrnl::xeFreePool(context, thread_memory);
+void* KernelState::_FreeInternalHandle(uint32_t id) {
+  std::unique_lock lock{this->internal_handle_table_mutex_};
+  auto iter = internal_handles_.find(id);
+  xenia_assert(iter != internal_handles_.end());
+  auto result = iter->second;
+  internal_handles_.erase(iter);
+  return result;
 }
 
-void SimpleForwardAllocatePoolTypeWithTag(PPCContext* context) {
-  uint32_t a1 = static_cast<uint32_t>(context->r[3]);
-  uint32_t a2 = static_cast<uint32_t>(context->r[4]);
-  uint32_t a3 = static_cast<uint32_t>(context->r[5]);
-  context->r[3] = static_cast<uint64_t>(
-      xboxkrnl::xeAllocatePoolTypeWithTag(context, a1, a2, a3));
+uint32_t KernelState::GetKernelTickCount() {
+  return memory()
+      ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
+      ->tick_count;
 }
-void SimpleForwardFreePool(PPCContext* context) {
-  xboxkrnl::xeFreePool(context, static_cast<uint32_t>(context->r[3]));
+uint64_t KernelState::GetKernelSystemTime() {
+  return memory()
+      ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
+      ->system_time;
 }
+uint64_t KernelState::GetKernelInterruptTime() {
+  return memory()
+      ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
+      ->interrupt_time;
+}
+void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
 
-void DeleteMutant(PPCContext* context) {
-  // todo: this should call kereleasemutant with some specific args
-
-  xe::FatalError("DeleteMutant - need KeReleaseMutant(mutant, 1, 1, 0) ");
-}
-void DeleteTimer(PPCContext* context) {
-  // todo: this should call KeCancelTimer
-  xe::FatalError("DeleteTimer - need KeCancelTimer(mutant, 1, 1, 0) ");
 }
 
-void DeleteIoCompletion(PPCContext* context) {}
-
-void UnknownProcIoDevice(PPCContext* context) {}
-
-void CloseFileProc(PPCContext* context) {}
-
-void DeleteFileProc(PPCContext* context) {}
-
-void UnknownFileProc(PPCContext* context) {}
-
-void DeleteSymlink(PPCContext* context) {
-  X_KSYMLINK* lnk = context->TranslateVirtualGPR<X_KSYMLINK*>(context->r[3]);
-
-  context->r[3] = lnk->refed_object_maybe;
-  xboxkrnl::xeObDereferenceObject(context, lnk->refed_object_maybe);
-}
-void KernelState::InitializeKernelGuestGlobals() {
-  kernel_guest_globals_ = memory_->SystemHeapAlloc(sizeof(KernelGuestGlobals));
-
-  KernelGuestGlobals* block =
-      memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
-  memset(block, 0, sizeof(block));
-
-  auto idle_process = memory()->TranslateVirtual<X_KPROCESS*>(GetIdleProcess());
-  InitializeProcess(idle_process, X_PROCTYPE_IDLE, 0, 0, 0);
-  idle_process->unk_0C = 0x7F;
-  auto system_process =
-      memory()->TranslateVirtual<X_KPROCESS*>(GetSystemProcess());
-  InitializeProcess(system_process, X_PROCTYPE_SYSTEM, 2, 5, 9);
-  SetProcessTLSVars(system_process, 32, 0, 0);
-
-  uint32_t oddobject_offset =
-      kernel_guest_globals_ + offsetof(KernelGuestGlobals, OddObj);
-
-  // init unknown object
-
-  block->OddObj.field0 = 0x1000000;
-  block->OddObj.field4 = 1;
-  block->OddObj.points_to_self =
-      oddobject_offset + offsetof(X_UNKNOWN_TYPE_REFED, points_to_self);
-  block->OddObj.points_to_prior = block->OddObj.points_to_self;
-
-  // init thread object
-  block->ExThreadObjectType.pool_tag = 0x65726854;
-  block->ExThreadObjectType.allocate_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(AllocateThread);
-
-  block->ExThreadObjectType.free_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(FreeThread);
-
-  // several object types just call freepool/allocatepool
-  uint32_t trampoline_allocatepool =
-      kernel_trampoline_group_.NewLongtermTrampoline(
-          SimpleForwardAllocatePoolTypeWithTag);
-  uint32_t trampoline_freepool =
-      kernel_trampoline_group_.NewLongtermTrampoline(SimpleForwardFreePool);
-
-  // init event object
-  block->ExEventObjectType.pool_tag = 0x76657645;
-  block->ExEventObjectType.allocate_proc = trampoline_allocatepool;
-  block->ExEventObjectType.free_proc = trampoline_freepool;
-
-  // init mutant object
-  block->ExMutantObjectType.pool_tag = 0x6174754D;
-  block->ExMutantObjectType.allocate_proc = trampoline_allocatepool;
-  block->ExMutantObjectType.free_proc = trampoline_freepool;
-
-  block->ExMutantObjectType.delete_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(DeleteMutant);
-  // init semaphore obj
-  block->ExSemaphoreObjectType.pool_tag = 0x616D6553;
-  block->ExSemaphoreObjectType.allocate_proc = trampoline_allocatepool;
-  block->ExSemaphoreObjectType.free_proc = trampoline_freepool;
-  // init timer obj
-  block->ExTimerObjectType.pool_tag = 0x656D6954;
-  block->ExTimerObjectType.allocate_proc = trampoline_allocatepool;
-  block->ExTimerObjectType.free_proc = trampoline_freepool;
-  block->ExTimerObjectType.delete_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(DeleteTimer);
-  // iocompletion object
-  block->IoCompletionObjectType.pool_tag = 0x706D6F43;
-  block->IoCompletionObjectType.allocate_proc = trampoline_allocatepool;
-  block->IoCompletionObjectType.free_proc = trampoline_freepool;
-  block->IoCompletionObjectType.delete_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(DeleteIoCompletion);
-  block->IoCompletionObjectType.unknown_size_or_object_ = oddobject_offset;
-
-  // iodevice object
-  block->IoDeviceObjectType.pool_tag = 0x69766544;
-  block->IoDeviceObjectType.allocate_proc = trampoline_allocatepool;
-  block->IoDeviceObjectType.free_proc = trampoline_freepool;
-  block->IoDeviceObjectType.unknown_size_or_object_ = oddobject_offset;
-  block->IoDeviceObjectType.unknown_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(UnknownProcIoDevice);
-
-  // file object
-  block->IoFileObjectType.pool_tag = 0x656C6946;
-  block->IoFileObjectType.allocate_proc = trampoline_allocatepool;
-  block->IoFileObjectType.free_proc = trampoline_freepool;
-  block->IoFileObjectType.unknown_size_or_object_ =
-      0x38;  // sizeof fileobject, i believe
-  block->IoFileObjectType.close_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(CloseFileProc);
-  block->IoFileObjectType.delete_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(DeleteFileProc);
-  block->IoFileObjectType.unknown_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(UnknownFileProc);
-
-  // directory object
-  block->ObDirectoryObjectType.pool_tag = 0x65726944;
-  block->ObDirectoryObjectType.allocate_proc = trampoline_allocatepool;
-  block->ObDirectoryObjectType.free_proc = trampoline_freepool;
-  block->ObDirectoryObjectType.unknown_size_or_object_ = oddobject_offset;
-
-  // symlink object
-  block->ObSymbolicLinkObjectType.pool_tag = 0x626D7953;
-  block->ObSymbolicLinkObjectType.allocate_proc = trampoline_allocatepool;
-  block->ObSymbolicLinkObjectType.free_proc = trampoline_freepool;
-  block->ObSymbolicLinkObjectType.unknown_size_or_object_ = oddobject_offset;
-  block->ObSymbolicLinkObjectType.delete_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(DeleteSymlink);
-
-#define offsetof32(s, m) static_cast<uint32_t>( offsetof(s, m) )
-
-  host_object_type_enum_to_guest_object_type_ptr_ = {
-      {XObject::Type::Event,
-       kernel_guest_globals_ +
-           offsetof32(KernelGuestGlobals, ExEventObjectType)},
-      {XObject::Type::Semaphore,
-       kernel_guest_globals_ +
-           offsetof32(KernelGuestGlobals, ExSemaphoreObjectType)},
-      {XObject::Type::Thread,
-       kernel_guest_globals_ +
-           offsetof32(KernelGuestGlobals, ExThreadObjectType)},
-      {XObject::Type::File,
-       kernel_guest_globals_ +
-           offsetof32(KernelGuestGlobals, IoFileObjectType)},
-      {XObject::Type::Mutant,
-       kernel_guest_globals_ +
-           offsetof32(KernelGuestGlobals, ExMutantObjectType)},
-      {XObject::Type::Device,
-       kernel_guest_globals_ +
-           offsetof32(KernelGuestGlobals, IoDeviceObjectType)}};
-  xboxkrnl::xeKeSetEvent(&block->UsbdBootEnumerationDoneEvent, 1, 0);
-}
 }  // namespace kernel
 }  // namespace xe

@@ -189,6 +189,18 @@ bool SetTlsValue(TlsHandle handle, uintptr_t value) {
   return TlsSetValue(handle, reinterpret_cast<void*>(value)) ? true : false;
 }
 
+
+TlsHandle AllocateFlsHandle() { return FlsAlloc(nullptr); }
+bool FreeFlsHandle(TlsHandle handle) { return FlsFree(handle) ? true : false; }
+
+uintptr_t GetFlsValue(TlsHandle handle) {
+  return reinterpret_cast<uintptr_t>(FlsGetValue(handle));
+}
+
+bool SetFlsValue(TlsHandle handle, uintptr_t value) {
+  return FlsSetValue(handle, reinterpret_cast<void*>(value)) ? true : false;
+}
+
 template <typename T>
 class Win32Handle : public T {
  public:
@@ -585,12 +597,69 @@ class Win32Thread : public Win32Handle<Thread> {
   void Terminate(int exit_code) override {
     TerminateThread(handle_, exit_code);
   }
+  bool IPI(void (*ipi_function)(void* userdata), void* userdata) override;
 
  private:
   void AssertCallingThread() {
     assert_true(GetCurrentThreadId() == GetThreadId(handle_));
   }
+  struct IPIContext* cached_ipi_context_;
+  std::mutex ipi_mutex_;
 };
+
+struct IPIContext {
+  void* userdata_;
+  void (*ipi_function_)(void* userdata);
+  _CONTEXT saved_context_;
+  _CONTEXT initial_context_;
+  HANDLE racy_handle_;
+};
+
+void IPIForwarder(IPIContext* context) {
+  context->ipi_function_(context->userdata_);
+  SetEvent(context->racy_handle_);
+  RtlRestoreContext(&context->saved_context_, nullptr);
+}
+
+bool Win32Thread::IPI(void (*ipi_function)(void* userdata), void* userdata) {
+  if (!ipi_mutex_.try_lock()) {
+    return false;
+  }
+  uint32_t previous_suspend_count = 0;
+  if (!this->Suspend(&previous_suspend_count)) {
+    ipi_mutex_.unlock();
+    return false;
+  }
+  if (previous_suspend_count != 0) {
+    bool resumed = this->Resume(nullptr);
+    xenia_assert(resumed);
+    ipi_mutex_.unlock();
+    return false;
+  }
+  IPIContext* ctx_to_use = cached_ipi_context_;
+
+  if (!ctx_to_use) {
+    ctx_to_use = new IPIContext();
+    cached_ipi_context_ = ctx_to_use;
+    ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+  }
+
+  GetThreadContext(this->handle_, &ctx_to_use->initial_context_);
+  memcpy(&ctx_to_use->saved_context_, &ctx_to_use->initial_context_,
+         sizeof(_CONTEXT));
+
+  ctx_to_use->initial_context_.Rip =
+      reinterpret_cast<DWORD64>(reinterpret_cast<void*>(IPIForwarder));
+
+  ctx_to_use->initial_context_.Rcx = reinterpret_cast<DWORD64>(ctx_to_use);
+  // racy!
+
+  SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
+  WaitForSingleObject(ctx_to_use->racy_handle_, INFINITE);
+
+  ipi_mutex_.unlock();
+  return true;
+}
 
 thread_local std::unique_ptr<Win32Thread> current_thread_ = nullptr;
 
@@ -637,5 +706,60 @@ Thread* Thread::GetCurrentThread() {
 
 void Thread::Exit(int exit_code) { ExitThread(exit_code); }
 
+class Win32Fiber : public Fiber {
+ public:
+  std::function<void()> callback;
+  LPVOID this_fiber_;
+  HANDLE done_signal_;
+  static void FiberFunc(LPVOID param) {
+    Win32Fiber* thiz = reinterpret_cast<Win32Fiber*>(param);
+
+    thiz->callback();
+    SetEvent(thiz->done_signal_);
+  }
+  Win32Fiber(size_t stack_size, std::function<void()> callback_)
+      : callback(std::move(callback_)) {
+    done_signal_ = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+    this_fiber_ = CreateFiber(stack_size, FiberFunc, this);
+  }
+  Win32Fiber() : callback({}) { this_fiber_ = ConvertThreadToFiber(this); }
+  virtual void* native_handle() const override { return (void*)done_signal_; }
+  virtual ~Win32Fiber() {
+    WaitForSingleObject(done_signal_, INFINITE);
+    CloseHandle(done_signal_);
+    DeleteFiber(this_fiber_);
+  }
+
+  virtual void SwitchTo() override { SwitchToFiber(this_fiber_); }
+};
+
+std::unique_ptr<Fiber> Fiber::Create(CreationParameters params,
+                                     std::function<void()> start_routine) {
+  return std::make_unique<Win32Fiber>(params.stack_size, start_routine);
+}
+
+std::unique_ptr<Fiber> Fiber::CreateFromThread() {
+  return std::make_unique<Win32Fiber>();
+}
+
+Fiber* Fiber::GetCurrentFiber() {
+  return reinterpret_cast<Fiber*>(GetFiberData());
+}
+
+AtomicListHeader::AtomicListHeader() {
+  InitializeSListHead(reinterpret_cast<PSLIST_HEADER>(this));
+}
+AtomicListEntry* AtomicListHeader::Flush() {
+  return reinterpret_cast<AtomicListEntry*>(
+      InterlockedFlushSList(reinterpret_cast<PSLIST_HEADER>(this)));
+}
+void AtomicListHeader::Push(AtomicListEntry* entry) {
+  InterlockedPushEntrySList(reinterpret_cast<PSLIST_HEADER>(this),
+                            reinterpret_cast<PSLIST_ENTRY>(entry));
+}
+AtomicListEntry* AtomicListHeader::Pop() {
+  return reinterpret_cast<AtomicListEntry*>(
+      InterlockedPopEntrySList(reinterpret_cast<PSLIST_HEADER>(this)));
+}
 }  // namespace threading
 }  // namespace xe

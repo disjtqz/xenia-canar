@@ -26,6 +26,7 @@
 #include "xenia/kernel/util/kernel_fwd.h"
 #include "xenia/kernel/util/native_list.h"
 #include "xenia/kernel/util/object_table.h"
+#include "xenia/kernel/util/guest_object_table.h"
 #include "xenia/kernel/util/xdbf_utils.h"
 #include "xenia/kernel/xam/app_manager.h"
 #include "xenia/kernel/xam/content_manager.h"
@@ -140,6 +141,11 @@ struct KernelGuestGlobals {
 
   // if LLE emulating Xam, this is needed or you get an immediate freeze
   X_KEVENT UsbdBootEnumerationDoneEvent;
+  util::X_HANDLE_TABLE TitleObjectTable;
+  util::X_HANDLE_TABLE SystemObjectTable;
+  // threadids use a different table
+  util::X_HANDLE_TABLE TitleThreadIdTable;
+  util::X_HANDLE_TABLE SystemThreadIdTable;
 };
 struct DPCImpersonationScope {
   uint8_t previous_irql_;
@@ -302,7 +308,7 @@ class KernelState {
   XE_NOINLINE
   XE_COLD
   uint32_t CreateKeTimestampBundle();
-  void UpdateKeTimestampBundle();
+  void SystemClockInterrupt();
 
   void BeginDPCImpersonation(cpu::ppc::PPCContext* context, DPCImpersonationScope& scope);
   void EndDPCImpersonation(cpu::ppc::PPCContext* context,
@@ -310,7 +316,30 @@ class KernelState {
 
   void EmulateCPInterruptDPC(uint32_t interrupt_callback,uint32_t interrupt_callback_data, uint32_t source,
                              uint32_t cpu);
+  uint32_t LockDispatcher(cpu::ppc::PPCContext* context);
+  void UnlockDispatcher(cpu::ppc::PPCContext* context, uint32_t irql);
 
+  void LockDispatcherAtIrql(cpu::ppc::PPCContext* context);
+  void UnlockDispatcherAtIrql(cpu::ppc::PPCContext* context);
+  uint32_t ReferenceObjectByHandle(cpu::ppc::PPCContext* context,uint32_t handle,
+                                   uint32_t guest_object_type,
+                                   uint32_t* object_out);
+  void DereferenceObject(cpu::ppc::PPCContext* context,uint32_t object);
+  uint32_t AllocateInternalHandle(void* ud);
+  void* _FreeInternalHandle(uint32_t id);
+  template<typename T>
+  T* LookupInternalHandle(uint32_t id) {
+    std::unique_lock lock{internal_handle_table_mutex_};
+    return reinterpret_cast<T*>(internal_handles_.find(id)->second);
+  }
+  template <typename T=void>
+  T* FreeInternalHandle(uint32_t id){
+    return reinterpret_cast<T*>(_FreeInternalHandle(id));
+  }
+
+  uint32_t GetKernelTickCount();
+  uint64_t GetKernelSystemTime();
+  uint64_t GetKernelInterruptTime();
  private:
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
   void InitializeProcess(X_KPROCESS* process, uint32_t type, char unk_18,
@@ -357,6 +386,12 @@ class KernelState {
   uint32_t strange_hardcoded_page_ = 0x8E038634 & (~0xFFFF);
   uint32_t strange_hardcoded_location_ = 0x8E038634;
 
+  // assign integer ids to arbitrary data, for stuffing threading::WaitHandle into header flink_ptr
+  std::unordered_map<uint32_t, void*> internal_handles_;
+  uint32_t current_internal_handle_ = 0x66180000;
+  xe_mutex internal_handle_table_mutex_;
+  static void KernelIdleProcessFunction(cpu::ppc::PPCContext* context);
+ 
   friend class XObject;
  public:
   uint32_t dash_context_ = 0;

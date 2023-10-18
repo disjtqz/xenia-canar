@@ -11,6 +11,7 @@
 #define XENIA_KERNEL_XBOXKRNL_XBOXKRNL_THREADING_H_
 
 #include "xenia/kernel/util/shim_utils.h"
+#include "xenia/kernel/xmutant.h"
 #include "xenia/xbox.h"
 
 namespace xe {
@@ -26,7 +27,7 @@ uint32_t xeNtClearEvent(uint32_t handle);
 uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
                                       uint32_t wait_type, uint32_t wait_mode,
                                       uint32_t alertable,
-                                      uint64_t* timeout_ptr);
+                                      uint64_t* timeout_ptr, cpu::ppc::PPCContext* context);
 
 uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
                                  uint32_t processor_mode, uint32_t alertable,
@@ -72,6 +73,8 @@ X_STATUS xeProcessUserApcs(PPCContext* ctx);
 void xeRundownApcs(PPCContext* ctx);
 uint32_t xeKeGetCurrentProcessType(PPCContext* context);
 void xeKeSetCurrentProcessType(uint32_t type, PPCContext* context);
+void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
+                          xe::cpu::ppc::PPCContext* context);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

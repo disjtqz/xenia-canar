@@ -176,9 +176,8 @@ struct X_KPCR {
 
 struct X_KTHREAD {
   X_DISPATCH_HEADER header;       // 0x0
-  xe::be<uint32_t> unk_10;        // 0x10
-  xe::be<uint32_t> unk_14;        // 0x14
-  uint8_t unk_18[0x28];           // 0x10
+  X_LIST_ENTRY mutants_list;      // 0x10
+  uint8_t unk_18[0x28];           // 0x18
   xe::be<uint32_t> unk_40;        // 0x40
   xe::be<uint32_t> unk_44;        // 0x44
   xe::be<uint32_t> unk_48;        // 0x48
@@ -262,14 +261,21 @@ struct X_KTHREAD {
 };
 static_assert_size(X_KTHREAD, 0xAB0);
 
-class XThread : public XObject, public cpu::Thread {
+
+
+class XNewThread : public XObject {
+  threading::Fiber* scheduler_fiber_;
+  std::unique_ptr<threading::Fiber> this_fiber_;
+  uint32_t kthread_;
+
+};
+
+class XThread : public XObject{
  public:
   static const XObject::Type kObjectType = XObject::Type::Thread;
 
   static constexpr uint32_t kStackAddressRangeBegin = 0x70000000;
   static constexpr uint32_t kStackAddressRangeEnd = 0x7F000000;
-
-  static constexpr uint32_t kThreadKernelStackSize = 0xF0;
 
   struct CreationParams {
     uint32_t stack_size;
@@ -304,7 +310,7 @@ class XThread : public XObject, public cpu::Thread {
   bool main_thread() const { return main_thread_; }
   bool is_running() const { return running_; }
 
-  uint32_t thread_id() const { return thread_id_; }
+  uint32_t thread_id() const { return handle(); }
   uint32_t last_error();
   void set_last_error(uint32_t error_code);
   void set_name(const std::string_view name);
@@ -336,7 +342,7 @@ class XThread : public XObject, public cpu::Thread {
   // 5 - core 2, thread 1 - user
   void SetAffinity(uint32_t affinity);
   uint8_t active_cpu() const;
-  void SetActiveCpu(uint8_t cpu_index);
+  void SetActiveCpu(uint8_t cpu_index, bool initial=false);
 
   bool GetTLSValue(uint32_t slot, uint32_t* value_out);
   bool SetTLSValue(uint32_t slot, uint32_t value);
@@ -347,17 +353,19 @@ class XThread : public XObject, public cpu::Thread {
   X_STATUS Delay(uint32_t processor_mode, uint32_t alertable,
                  uint64_t interval);
 
-  xe::threading::Thread* thread() { return thread_.get(); }
+  xe::threading::Thread* thread() { return nullptr; }
 
   virtual bool Save(ByteStream* stream) override;
   static object_ref<XThread> Restore(KernelState* kernel_state,
                                      ByteStream* stream);
 
-  // Internal - do not use.
-  void AcquireMutantOnStartup(object_ref<XMutant> mutant) {
-    pending_mutant_acquires_.push_back(mutant);
-  }
   void SetCurrentThread();
+  void EnqueueToCPU();
+  cpu::HWThread* HWThread();
+  cpu::ThreadState* thread_state() { return thread_state_;
+  }
+  bool can_debugger_suspend() { return false;
+  }
  protected:
   bool AllocateStack(uint32_t size);
   void FreeStack();
@@ -366,13 +374,17 @@ class XThread : public XObject, public cpu::Thread {
   void DeliverAPCs();
   void RundownAPCs();
 
-  xe::threading::WaitHandle* GetWaitHandle() override { return thread_.get(); }
+  xe::threading::WaitHandle* GetWaitHandle() override { return fiber_.get();
+  }
 
   CreationParams creation_params_ = {0};
 
-  std::vector<object_ref<XMutant>> pending_mutant_acquires_;
-
-  uint32_t thread_id_ = 0;
+  std::unique_ptr<threading::Fiber> fiber_;
+  cpu::ThreadState* thread_state_;
+  //for enqueuing to cpu
+  cpu::RunnableThread runnable_entry_;
+ 
+  //uint32_t thread_id_ = 0;
   uint32_t tls_static_address_ = 0;
   uint32_t tls_dynamic_address_ = 0;
   uint32_t tls_total_size_ = 0;

@@ -140,11 +140,10 @@ X_STATUS GraphicsSystem::Setup(cpu::Processor* processor,
         return 0;
       }, kernel_state->GetIdleProcess()));
   // As we run vblank interrupts the debugger must be able to suspend us.
-  vsync_worker_thread_->set_can_debugger_suspend(true);
   vsync_worker_thread_->set_name("GPU VSync");
   vsync_worker_thread_->Create();
-  vsync_worker_thread_->thread()->set_priority(
-      threading::ThreadPriority::kLowest);
+  //vsync_worker_thread_->thread()->set_priority(
+   //   threading::ThreadPriority::kLowest);
   if (cvars::trace_gpu_stream) {
     BeginTracing();
   }

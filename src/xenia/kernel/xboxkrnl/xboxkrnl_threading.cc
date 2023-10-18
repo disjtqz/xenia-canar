@@ -596,7 +596,7 @@ DECLARE_XBOXKRNL_EXPORT1(NtCreateEvent, kThreading, kImplemented);
 
 uint32_t xeNtSetEvent(uint32_t handle, xe::be<uint32_t>* previous_state_ptr) {
   X_STATUS result = X_STATUS_SUCCESS;
-
+  
   auto ev = kernel_state()->object_table()->LookupObject<XEvent>(handle);
   if (ev) {
     // d3 ros does this
@@ -794,7 +794,7 @@ dword_result_t NtCreateMutant_entry(
   }
 
   auto mutant = object_ref<XMutant>(new XMutant(kernel_state()));
-  mutant->Initialize(initial_owner ? true : false);
+  mutant->Initialize(initial_owner ? true : false, obj_attributes);
 
   // obj_attributes may have a name inside of it, if != NULL.
   if (obj_attributes) {
@@ -826,7 +826,7 @@ dword_result_t NtReleaseMutant_entry(dword_t mutant_handle, dword_t unknown) {
   auto mutant =
       kernel_state()->object_table()->LookupObject<XMutant>(mutant_handle);
   if (mutant) {
-    mutant->ReleaseMutant(priority_increment, abandon, wait);
+    return mutant->ReleaseMutant(priority_increment, abandon, wait);
   } else {
     result = X_STATUS_INVALID_HANDLE;
   }
@@ -834,6 +834,38 @@ dword_result_t NtReleaseMutant_entry(dword_t mutant_handle, dword_t unknown) {
   return result;
 }
 DECLARE_XBOXKRNL_EXPORT1(NtReleaseMutant, kThreading, kImplemented);
+
+void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
+                          xe::cpu::ppc::PPCContext* context) {
+  mutant->header.type = 2;
+
+  if (initially_owned) {
+    auto v4 = context->TranslateVirtual(
+        context->TranslateVirtualGPR<X_KPCR*>(context->r[13])
+            ->prcb_data.current_thread);
+    mutant->header.signal_state = 0;
+    mutant->owner = context->HostToGuestVirtual(v4);
+    auto old_irql = kernel_state()->LockDispatcher(context);
+
+    util::XeInsertHeadList(v4->mutants_list.blink_ptr, &mutant->unk_list,
+                           context);
+
+    kernel_state()->UnlockDispatcher(context, old_irql);
+
+  } else {
+    mutant->owner = 0;
+    mutant->header.signal_state = 1;
+  }
+  mutant->abandoned = 0;
+}
+void KeInitializeMutant_entry(pointer_t<X_KMUTANT> mutant,
+                              dword_t initially_owned,
+                              const ppc_context_t& context) {
+  xeKeInitializeMutant(mutant, static_cast<unsigned char>(initially_owned),
+                       context);
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeInitializeMutant, kThreading, kImplemented);
 
 dword_result_t NtCreateTimer_entry(lpdword_t handle_ptr,
                                    lpvoid_t obj_attributes_ptr,
@@ -985,10 +1017,12 @@ DECLARE_XBOXKRNL_EXPORT3(NtWaitForSingleObjectEx, kThreading, kImplemented,
 dword_result_t KeWaitForMultipleObjects_entry(
     dword_t count, lpdword_t objects_ptr, dword_t wait_type,
     dword_t wait_reason, dword_t processor_mode, dword_t alertable,
-    lpqword_t timeout_ptr, lpvoid_t wait_block_array_ptr) {
+    lpqword_t timeout_ptr, lpvoid_t wait_block_array_ptr,
+    const ppc_context_t& context) {
   assert_true(wait_type <= 1);
 
   assert_true(count <= 64);
+  uint32_t old_irql = kernel_state()->LockDispatcher(context);
   object_ref<XObject> objects[64];
   {
     auto crit = global_critical_region::AcquireDirect();
@@ -997,6 +1031,7 @@ dword_result_t KeWaitForMultipleObjects_entry(
       auto object_ref = XObject::GetNativeObject<XObject>(kernel_state(),
                                                           object_ptr, -1, true);
       if (!object_ref) {
+        kernel_state()->UnlockDispatcher(context, old_irql);
         return X_STATUS_INVALID_PARAMETER;
       }
 
@@ -1006,7 +1041,9 @@ dword_result_t KeWaitForMultipleObjects_entry(
   uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
   X_STATUS result = XObject::WaitMultiple(
       uint32_t(count), reinterpret_cast<XObject**>(&objects[0]), wait_type,
-      wait_reason, processor_mode, alertable, timeout_ptr ? &timeout : nullptr);
+      wait_reason, processor_mode, alertable, timeout_ptr ? &timeout : nullptr,
+      context);
+  kernel_state()->UnlockDispatcher(context, old_irql);
   if (alertable) {
     if (result == X_STATUS_USER_APC) {
       result = xeProcessUserApcs(nullptr);
@@ -1019,13 +1056,14 @@ DECLARE_XBOXKRNL_EXPORT3(KeWaitForMultipleObjects, kThreading, kImplemented,
 
 uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
                                       uint32_t wait_type, uint32_t wait_mode,
-                                      uint32_t alertable,
-                                      uint64_t* timeout_ptr) {
+                                      uint32_t alertable, uint64_t* timeout_ptr,
+                                      cpu::ppc::PPCContext* context) {
   assert_true(wait_type <= 1);
 
   assert_true(count <= 64);
   object_ref<XObject> objects[64];
 
+  uint32_t old_irql = kernel_state()->LockDispatcher(context);
   /*
         Reserving to squash the constant reallocations, in a benchmark of one
      particular game over a period of five minutes roughly 11% of CPU time was
@@ -1042,15 +1080,18 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
       auto object = kernel_state()->object_table()->LookupObject<XObject>(
           object_handle, true);
       if (!object) {
+        kernel_state()->UnlockDispatcher(context, old_irql);
         return X_STATUS_INVALID_PARAMETER;
       }
       objects[n] = std::move(object);
     }
   }
 
-  auto result =
-      XObject::WaitMultiple(count, reinterpret_cast<XObject**>(&objects[0]),
-                            wait_type, 6, wait_mode, alertable, timeout_ptr);
+  auto result = XObject::WaitMultiple(
+      count, reinterpret_cast<XObject**>(&objects[0]), wait_type, 6, wait_mode,
+      alertable, timeout_ptr, context);
+  kernel_state()->UnlockDispatcher(context, old_irql);
+
   if (alertable) {
     if (result == X_STATUS_USER_APC) {
       result = xeProcessUserApcs(nullptr);
@@ -1061,41 +1102,38 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
 
 dword_result_t NtWaitForMultipleObjectsEx_entry(
     dword_t count, lpdword_t handles, dword_t wait_type, dword_t wait_mode,
-    dword_t alertable, lpqword_t timeout_ptr) {
+    dword_t alertable, lpqword_t timeout_ptr, const ppc_context_t& context) {
   uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
   if (!count || count > 64 || (wait_type != 1 && wait_type)) {
     return X_STATUS_INVALID_PARAMETER;
   }
-  return xeNtWaitForMultipleObjectsEx(count, handles, wait_type, wait_mode,
-                                      alertable,
-                                      timeout_ptr ? &timeout : nullptr);
+  return xeNtWaitForMultipleObjectsEx(
+      count, handles, wait_type, wait_mode, alertable,
+      timeout_ptr ? &timeout : nullptr, context);
 }
 DECLARE_XBOXKRNL_EXPORT3(NtWaitForMultipleObjectsEx, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
 
-dword_result_t NtSignalAndWaitForSingleObjectEx_entry(dword_t signal_handle,
-                                                      dword_t wait_handle,
-                                                      dword_t alertable,
-                                                      dword_t r6,
-                                                      lpqword_t timeout_ptr) {
+dword_result_t NtSignalAndWaitForSingleObjectEx_entry(
+    dword_t signal_handle, dword_t wait_handle, dword_t alertable, dword_t r6,
+    lpqword_t timeout_ptr, const ppc_context_t& context) {
   X_STATUS result = X_STATUS_SUCCESS;
-  // pre-lock for these two handle lookups
-  global_critical_region::mutex().lock();
+
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
 
   auto signal_object = kernel_state()->object_table()->LookupObject<XObject>(
       signal_handle, true);
   auto wait_object =
       kernel_state()->object_table()->LookupObject<XObject>(wait_handle, true);
-  global_critical_region::mutex().unlock();
   if (signal_object && wait_object) {
     uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-    result =
-        XObject::SignalAndWait(signal_object.get(), wait_object.get(), 3, 1,
-                               alertable, timeout_ptr ? &timeout : nullptr);
+    result = XObject::SignalAndWait(signal_object.get(), wait_object.get(), 3,
+                                    1, alertable,
+                                    timeout_ptr ? &timeout : nullptr, context);
   } else {
     result = X_STATUS_INVALID_HANDLE;
   }
-
+  context->kernel_state->UnlockDispatcher(context, old_irql);
   if (alertable) {
     if (result == X_STATUS_USER_APC) {
       result = xeProcessUserApcs(nullptr);

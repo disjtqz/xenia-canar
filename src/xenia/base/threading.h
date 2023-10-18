@@ -144,6 +144,11 @@ bool FreeTlsHandle(TlsHandle handle);
 uintptr_t GetTlsValue(TlsHandle handle);
 bool SetTlsValue(TlsHandle handle, uintptr_t value);
 
+TlsHandle AllocateFlsHandle();
+bool FreeFlsHandle(TlsHandle handle);
+uintptr_t GetFlsValue(TlsHandle handle);
+bool SetFlsValue(TlsHandle handle, uintptr_t value);
+
 // A high-resolution timer capable of firing at millisecond-precision. All
 // timers created in this way are executed in the same thread so callbacks must
 // be kept short or else all timers will be impacted. This is a simplified
@@ -479,8 +484,41 @@ class Thread : public WaitHandle {
   // threads that had been waiting for the thread to terminate.
   virtual void Terminate(int exit_code) = 0;
 
+  virtual bool IPI(void (*ipi_function)(void* userdata), void* userdata) = 0;
+
  protected:
   std::string name_;
+};
+
+class Fiber : public WaitHandle {
+ public:
+  struct CreationParameters {
+    size_t stack_size = 4_MiB;
+  };
+
+  // Creates a thread with the given parameters and calls the start routine from
+  // within that thread.
+  static std::unique_ptr<Fiber> Create(CreationParameters params,
+                                       std::function<void()> start_routine);
+  static Fiber* GetCurrentFiber();
+
+  static std::unique_ptr<Fiber> CreateFromThread();
+
+  virtual void SwitchTo() = 0;
+  virtual ~Fiber() {}
+};
+
+struct alignas(16) AtomicListEntry {
+  AtomicListEntry* next_=nullptr;
+};
+
+struct alignas(16) AtomicListHeader {
+  void* opaque_[2];
+
+  AtomicListHeader();
+  AtomicListEntry* Flush();
+  void Push(AtomicListEntry* entry);
+  AtomicListEntry* Pop();
 };
 
 }  // namespace threading

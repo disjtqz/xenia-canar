@@ -381,7 +381,7 @@ dword_result_t NetDll_WSAWaitForMultipleEvents_entry(dword_t num_events,
                                                      lpdword_t events,
                                                      dword_t wait_all,
                                                      dword_t timeout,
-                                                     dword_t alertable) {
+                                                     dword_t alertable, const ppc_context_t& context) {
   if (num_events > 64) {
     XThread::SetLastError(uint32_t(X_WSAError::X_WSA_INVALID_PARAMETER));
     return ~0u;
@@ -393,7 +393,7 @@ dword_result_t NetDll_WSAWaitForMultipleEvents_entry(dword_t num_events,
   do {
     result = xboxkrnl::xeNtWaitForMultipleObjectsEx(
         num_events, events, wait_all, 1, alertable,
-        timeout != -1 ? &timeout_wait : nullptr);
+        timeout != -1 ? &timeout_wait : nullptr, context);
   } while (result == X_STATUS_ALERTED);
 
   if (XFAILED(result)) {

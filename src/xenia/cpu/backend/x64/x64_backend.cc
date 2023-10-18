@@ -1693,19 +1693,30 @@ uint32_t X64Backend::CreateGuestTrampoline(GuestTrampolineProc proc,
       GUEST_TRAMPOLINE_BASE +
       (static_cast<uint32_t>(new_index) * GUEST_TRAMPOLINE_MIN_LEN);
 
+
   code_cache()->AddIndirection(
       indirection_guest_addr,
       static_cast<uint32_t>(reinterpret_cast<uintptr_t>(write_pos)));
+  auto funct = new BuiltinFunction(nullptr, indirection_guest_addr);
+  funct->SetupBuiltin(proc, userdata1, userdata2);
+  funct->set_end_address(indirection_guest_addr + 4);
 
+  processor()->DirectlyInsertFunction(indirection_guest_addr, funct);
+  
   return indirection_guest_addr;
 }
 
 void X64Backend::FreeGuestTrampoline(uint32_t trampoline_addr) {
   xenia_assert(trampoline_addr >= GUEST_TRAMPOLINE_BASE &&
                trampoline_addr < GUEST_TRAMPOLINE_END);
+  auto old_function = processor()->LookupFunction(trampoline_addr);
+
   size_t index =
       (trampoline_addr - GUEST_TRAMPOLINE_BASE) / GUEST_TRAMPOLINE_MIN_LEN;
+  processor()->RemoveFunctionByAddress(trampoline_addr);
   guest_trampoline_address_bitmap_.Release(index);
+  delete old_function;
+  
 }
 }  // namespace x64
 }  // namespace backend

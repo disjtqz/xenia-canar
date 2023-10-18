@@ -6,7 +6,7 @@
  * Released under the BSD license - see LICENSE in the root for more details. *
  ******************************************************************************
  */
-
+#include "xenia/cpu/ppc/ppc_context.h"
 #include "xenia/kernel/util/guest_object_table.h"
 #include "xenia/base/atomic.h"
 #include "xenia/cpu/processor.h"

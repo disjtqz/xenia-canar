@@ -13,10 +13,10 @@
 #include "xenia/base/threading.h"
 
 #include <cstdint>
+#include "xenia/cpu/ppc/ppc_context.h"
 
 namespace xe {
 namespace cpu {
-
 class ThreadState;
 
 // Represents a thread that runs guest code.
@@ -47,6 +47,44 @@ class Thread {
 
   bool can_debugger_suspend_ = true;
   std::string thread_name_;
+};
+
+struct RunnableThread {
+  threading::AtomicListEntry list_entry_;
+
+  threading::Fiber* fiber_;
+  cpu::ThreadState* thread_state_;
+};
+
+class HWThread {
+  void ThreadFunc();
+  bool HandleInterrupts();
+
+  void RunRunnable(RunnableThread* runnable);
+  // dpcs?
+  void RunIdleProcess();
+
+ public:
+  HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
+  ~HWThread();
+
+  std::unique_ptr<threading::Thread> os_thread_;
+
+  std::unique_ptr<threading::Fiber> idle_process_fiber_;
+
+  cpu::ThreadState* idle_process_threadstate_;
+  uint32_t cpu_number_;
+
+  threading::AtomicListHeader runnable_thread_list_;
+
+  RunnableThread* last_run_thread_ = nullptr;
+
+  // set by kernel
+  void (*idle_process_function_)(ppc::PPCContext* context) = nullptr;
+
+  void EnqueueRunnableThread(RunnableThread* rth);
+
+  void YieldToScheduler();
 };
 
 }  // namespace cpu

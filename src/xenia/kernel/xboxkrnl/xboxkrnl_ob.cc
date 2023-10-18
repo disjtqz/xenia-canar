@@ -89,7 +89,7 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
         object_size_without_headers + sizeof(X_OBJECT_HEADER),
         object_factory->pool_tag, poolarg};
     context->processor->Execute(
-        context->thread_state, object_factory->allocate_proc, allocate_args, 3);
+        context->thread_state, object_factory->allocate_proc, allocate_args, 3, true);
 
     uint32_t allocation = static_cast<uint32_t>(context->r[3]);
 
@@ -132,7 +132,7 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
     return X_STATUS_OBJECT_NAME_INVALID;
   }
   // the object and its name are all created in a single allocation
-  
+
   unsigned int aligned_object_size =
       xe::align<uint32_t>(object_size_without_headers, 4);
   {
@@ -142,7 +142,7 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
         object_factory->pool_tag, poolarg};
 
     context->processor->Execute(
-        context->thread_state, object_factory->allocate_proc, allocate_args, 3);
+        context->thread_state, object_factory->allocate_proc, allocate_args, 3, true);
   }
   uint32_t named_object_allocation = static_cast<uint32_t>(context->r[3]);
   if (!named_object_allocation) {
@@ -247,9 +247,8 @@ dword_result_t ObLookupAnyThreadByThreadId_entry(dword_t thread_id,
 }
 DECLARE_XBOXKRNL_EXPORT1(ObLookupAnyThreadByThreadId, kNone, kImplemented);
 
-dword_result_t ObReferenceObjectByHandle_entry(dword_t handle,
-                                               dword_t object_type_ptr,
-                                               lpdword_t out_object_ptr) {
+uint32_t xeObReferenceObjectByHandle(uint32_t handle, uint32_t object_type_ptr,
+                                     uint32_t* out_object_ptr) {
   // chrispy: gotta preinit this to 0, kernel is expected to do that
   *out_object_ptr = 0;
 
@@ -275,10 +274,22 @@ dword_result_t ObReferenceObjectByHandle_entry(dword_t handle,
   object->RetainHandle();
 
   xenia_assert(native_ptr != 0);
-  if (out_object_ptr.guest_address()) {
+  if (out_object_ptr) {
     *out_object_ptr = native_ptr;
   }
   return X_STATUS_SUCCESS;
+}
+
+dword_result_t ObReferenceObjectByHandle_entry(dword_t handle,
+                                               dword_t object_type_ptr,
+                                               lpdword_t out_object_ptr) {
+  // chrispy: gotta preinit this to 0, kernel is expected to do that
+  uint32_t output = 0;
+  auto result = xeObReferenceObjectByHandle(handle, object_type_ptr, &output);
+  if (out_object_ptr.guest_address()) {
+    *out_object_ptr = output;
+  }
+  return result;
 }
 DECLARE_XBOXKRNL_EXPORT1(ObReferenceObjectByHandle, kNone, kImplemented);
 

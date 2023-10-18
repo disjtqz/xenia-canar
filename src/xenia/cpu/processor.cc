@@ -81,9 +81,14 @@ class BuiltinModule : public Module {
  private:
   std::string name_;
 };
-
+uint32_t Processor::GetPCRForCPU(uint32_t cpu_num) {
+  xenia_assert(cpu_num < 6);
+  return protdata_ + (4096 * cpu_num);
+}
 Processor::Processor(xe::Memory* memory, ExportResolver* export_resolver)
-    : memory_(memory), export_resolver_(export_resolver) {}
+    : memory_(memory), export_resolver_(export_resolver) {
+
+}
 
 Processor::~Processor() {
   {
@@ -153,7 +158,50 @@ bool Processor::Setup(std::unique_ptr<backend::Backend> backend) {
     functions_trace_file_ =
         ChunkedMappedMemoryWriter::Open(functions_trace_path_, 32_MiB, true);
   }
+  bool protdata_success =
+      memory_->LookupHeap(0x801B0000)
+          ->AllocFixed(0x801B0000, 65536, 65536,
+                       MemoryAllocationFlag::kMemoryAllocationCommit,
+                       MemoryProtectFlag::kMemoryProtectRead |
+                           MemoryProtectFlag::kMemoryProtectWrite);
+  struct ThreadStacks {
+    uint32_t stackbase;
+    uint32_t stack_end;
+  };
 
+  static constexpr ThreadStacks stacks_for_idle_threads[] = {
+      {0x801B7000, 0x801B3000},
+      {0x3c08b000, 0x3c087000},
+      {0x3c095000, 0x3c091000},
+      {0x3c09f000, 0x3c09b000},
+      {0x3c0a9000, 0x3c0a5000},
+      {0x3c0b3000, 0x3c0af000}
+
+  };
+
+  protdata_ = 0x801B0000;
+
+  for (unsigned cpu_index = 0; cpu_index < 6; ++cpu_index) {
+    uint32_t stack_base = stacks_for_idle_threads[cpu_index].stackbase;
+    uint32_t stack_end = stacks_for_idle_threads[cpu_index].stack_end;
+    // yikes, idle threads stack can underflow into pcr page 5
+    if (cpu_index == 0) {
+      // already allocated!
+      stack_base = protdata_ + 0x7000;
+    } else {
+      bool success = memory_->LookupHeap(stack_end)->AllocFixed(
+          stack_end, stack_base - stack_end, 4096,
+          MemoryAllocationFlag::kMemoryAllocationCommit,
+          MemoryProtectFlag::kMemoryProtectRead |
+              MemoryProtectFlag::kMemoryProtectWrite);
+      xenia_assert(success);
+    }
+    // idle threadid must be 0
+    cpu::ThreadState* processor_idle_state =
+        new cpu::ThreadState(this, 0, stack_base, GetPCRForCPU(cpu_index));
+    hw_threads_.push_back(
+        std::make_unique<HWThread>(cpu_index, processor_idle_state));
+  }
   return true;
 }
 
@@ -267,7 +315,7 @@ Function* Processor::ResolveFunction(uint32_t address) {
       entry->status = Entry::STATUS_FAILED;
       return nullptr;
     }
-    //only add it to the list of resolved functions if resolving succeeded
+    // only add it to the list of resolved functions if resolving succeeded
     auto module_for = function->module();
 
     auto xexmod = dynamic_cast<XexModule*>(module_for);
@@ -407,7 +455,7 @@ bool Processor::ExecuteRaw(ThreadState* thread_state, uint32_t address) {
 }
 
 uint64_t Processor::Execute(ThreadState* thread_state, uint32_t address,
-                            uint64_t args[], size_t arg_count) {
+                            uint64_t args[], size_t arg_count, bool raw) {
   SCOPE_profile_cpu_f("cpu");
 
   auto context = thread_state->context();
@@ -425,9 +473,12 @@ uint64_t Processor::Execute(ThreadState* thread_state, uint32_t address,
                                    (uint32_t)args[i + 8]);
     }
   }
-
-  if (!Execute(thread_state, address)) {
-    return 0xDEADBABE;
+  if (!raw) {
+    if (!Execute(thread_state, address)) {
+      return 0xDEADBABE;
+    }
+  } else {
+    ExecuteRaw(thread_state, address);
   }
   return context->r[3];
 }
@@ -1300,7 +1351,7 @@ uint32_t Processor::GuestAtomicIncrement32(ppc::PPCContext* context,
     result = *host_address;
     // todo: should call a processor->backend function that acquires a
     // reservation instead of using host atomics
-    if (xe::atomic_cas(result, xe::byte_swap(xe::byte_swap(result)+1),
+    if (xe::atomic_cas(result, xe::byte_swap(xe::byte_swap(result) + 1),
                        host_address)) {
       break;
     }
@@ -1316,7 +1367,7 @@ uint32_t Processor::GuestAtomicDecrement32(ppc::PPCContext* context,
     result = *host_address;
     // todo: should call a processor->backend function that acquires a
     // reservation instead of using host atomics
-    if (xe::atomic_cas(result,xe::byte_swap( xe::byte_swap(result)-1),
+    if (xe::atomic_cas(result, xe::byte_swap(xe::byte_swap(result) - 1),
                        host_address)) {
       break;
     }
@@ -1326,9 +1377,9 @@ uint32_t Processor::GuestAtomicDecrement32(ppc::PPCContext* context,
 
 uint32_t Processor::GuestAtomicOr32(ppc::PPCContext* context,
                                     uint32_t guest_address, uint32_t mask) {
-  return xe::byte_swap(xe::atomic_or(
-      context->TranslateVirtual<volatile int32_t*>(guest_address),
-      xe::byte_swap(mask)));
+  return xe::byte_swap(
+      xe::atomic_or(context->TranslateVirtual<volatile int32_t*>(guest_address),
+                    xe::byte_swap(mask)));
 }
 uint32_t Processor::GuestAtomicXor32(ppc::PPCContext* context,
                                      uint32_t guest_address, uint32_t mask) {

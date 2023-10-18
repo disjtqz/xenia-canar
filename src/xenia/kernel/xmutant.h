@@ -16,6 +16,19 @@
 
 namespace xe {
 namespace kernel {
+struct X_KTHREAD;
+struct X_KMUTANT {
+  X_DISPATCH_HEADER header;             //0x0
+  X_LIST_ENTRY unk_list;                //0x10
+  TypedGuestPointer<X_KTHREAD> owner;   //0x18
+  bool abandoned;                       //0x1C
+  //these might just be padding 
+  uint8_t unk_1D;                       //0x1D
+  uint8_t unk_1E;                       //0x1E
+  uint8_t unk_1F;                       //0x1F
+};
+static_assert_size(X_KMUTANT, 0x20);
+
 class XThread;
 
 class XMutant : public XObject {
@@ -25,7 +38,7 @@ class XMutant : public XObject {
   explicit XMutant(KernelState* kernel_state);
   ~XMutant() override;
 
-  void Initialize(bool initial_owner);
+  void Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes);
   void InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header);
 
   X_STATUS ReleaseMutant(uint32_t priority_increment, bool abandon, bool wait);
@@ -35,14 +48,11 @@ class XMutant : public XObject {
                                      ByteStream* stream);
 
  protected:
-  xe::threading::WaitHandle* GetWaitHandle() override { return mutant_.get(); }
+  xe::threading::WaitHandle* GetWaitHandle() override;
   void WaitCallback() override;
-
+  virtual X_STATUS GetSignaledStatus(X_STATUS success_in) override;
  private:
   XMutant();
-
-  std::unique_ptr<xe::threading::Mutant> mutant_;
-  XThread* owning_thread_ = nullptr;
 };
 
 }  // namespace kernel

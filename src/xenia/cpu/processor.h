@@ -99,7 +99,7 @@ class Processor {
   void set_debug_info_flags(uint32_t debug_info_flags) {
     debug_info_flags_ = debug_info_flags;
   }
-
+  uint32_t GetPCRForCPU(uint32_t cpu_num);
   bool AddModule(std::unique_ptr<Module> module);
   void RemoveModule(const std::string_view name);
   Module* GetModule(const std::string_view name);
@@ -122,7 +122,7 @@ class Processor {
   bool Execute(ThreadState* thread_state, uint32_t address);
   bool ExecuteRaw(ThreadState* thread_state, uint32_t address);
   uint64_t Execute(ThreadState* thread_state, uint32_t address, uint64_t args[],
-                   size_t arg_count);
+                   size_t arg_count, bool raw = false);
 
   bool Save(ByteStream* stream);
   bool Restore(ByteStream* stream);
@@ -189,11 +189,11 @@ class Processor {
   uint32_t GuestAtomicDecrement32(ppc::PPCContext* context,
                                   uint32_t guest_address);
   uint32_t GuestAtomicOr32(ppc::PPCContext* context, uint32_t guest_address,
-                         uint32_t mask);
+                           uint32_t mask);
   uint32_t GuestAtomicXor32(ppc::PPCContext* context, uint32_t guest_address,
-                         uint32_t mask);
+                            uint32_t mask);
   uint32_t GuestAtomicAnd32(ppc::PPCContext* context, uint32_t guest_address,
-                         uint32_t mask);
+                            uint32_t mask);
   bool GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
                         uint32_t new_value, uint32_t guest_address);
 
@@ -210,6 +210,19 @@ class Processor {
   bool OnThreadBreakpointHit(Exception* ex);
 
   uint8_t* AllocateFunctionTraceData(size_t size);
+
+  void DirectlyInsertFunction(uint32_t address, Function* function) {
+    Entry* ent = nullptr;
+    entry_table_.GetOrCreate(address, &ent);
+    ent->function = function;
+    ent->address = function->address();
+    ent->end_address = function->end_address();
+    ent->status = Entry_t::STATUS_READY;
+  }
+
+  HWThread* GetCPUThread(uint32_t cpu_num) {
+    return hw_threads_[cpu_num].get();
+  }
 
  private:
   // Synchronously demands a debug listener.
@@ -254,6 +267,11 @@ class Processor {
 
   std::function<DebugListener*(Processor*)> debug_listener_handler_;
   DebugListener* debug_listener_ = nullptr;
+
+  // location of the pcr pages
+  uint32_t protdata_ = 0;
+
+  std::vector<std::unique_ptr<HWThread>> hw_threads_;
 
   // Which debug features are enabled in generated code.
   uint32_t debug_info_flags_ = 0;

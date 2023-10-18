@@ -37,12 +37,14 @@ XFile::XFile() : XObject(kObjectType) {
 XFile::~XFile() {
   // TODO(benvanik): signal that the file is closing?
   async_event_->Set();
+
   file_->Destroy();
 }
 
 X_STATUS XFile::QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info,
                                size_t length, const std::string_view file_name,
                                bool restart) {
+  //std::unique_lock lock{file_lock_};
   assert_not_null(out_info);
 
   vfs::Entry* entry = nullptr;
@@ -96,6 +98,8 @@ X_STATUS XFile::QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info,
 X_STATUS XFile::Read(uint32_t buffer_guest_address, uint32_t buffer_length,
                      uint64_t byte_offset, uint32_t* out_bytes_read,
                      uint32_t apc_context, bool notify_completion) {
+  std::lock_guard<std::mutex> lock(completion_port_lock_);
+ // std::unique_lock lock{file_lock_};
   if (byte_offset == uint64_t(-1)) {
     // Read from current position.
     byte_offset = position_;
@@ -162,6 +166,8 @@ X_STATUS XFile::Read(uint32_t buffer_guest_address, uint32_t buffer_length,
     }
   }
 
+  //lock.unlock();
+
   if (out_bytes_read) {
     *out_bytes_read = uint32_t(bytes_read);
   }
@@ -183,6 +189,8 @@ X_STATUS XFile::Read(uint32_t buffer_guest_address, uint32_t buffer_length,
 X_STATUS XFile::ReadScatter(uint32_t segments_guest_address, uint32_t length,
                             uint64_t byte_offset, uint32_t* out_bytes_read,
                             uint32_t apc_context) {
+  std::lock_guard<std::mutex> lock(completion_port_lock_);
+  //std::unique_lock lock{file_lock_};
   X_STATUS result = X_STATUS_SUCCESS;
 
   // segments points to an array of buffer pointers of type
@@ -219,7 +227,7 @@ X_STATUS XFile::ReadScatter(uint32_t segments_guest_address, uint32_t length,
     read_total += bytes_read;
     read_remain -= read_length;
   }
-
+  //lock.unlock();
   if (out_bytes_read) {
     *out_bytes_read = uint32_t(read_total);
   }
@@ -239,6 +247,8 @@ X_STATUS XFile::ReadScatter(uint32_t segments_guest_address, uint32_t length,
 X_STATUS XFile::Write(uint32_t buffer_guest_address, uint32_t buffer_length,
                       uint64_t byte_offset, uint32_t* out_bytes_written,
                       uint32_t apc_context) {
+  std::lock_guard<std::mutex> lock(completion_port_lock_);
+  //std::unique_lock lock{file_lock_};
   if (byte_offset == uint64_t(-1)) {
     // Write from current position.
     byte_offset = position_;
@@ -248,9 +258,11 @@ X_STATUS XFile::Write(uint32_t buffer_guest_address, uint32_t buffer_length,
   X_STATUS result =
       file_->WriteSync(memory()->TranslateVirtual(buffer_guest_address),
                        buffer_length, size_t(byte_offset), &bytes_written);
+
   if (XSUCCEEDED(result)) {
     position_ += bytes_written;
   }
+  //lock.unlock();
 
   XIOCompletion::IONotification notify;
   notify.apc_context = apc_context;
@@ -267,7 +279,10 @@ X_STATUS XFile::Write(uint32_t buffer_guest_address, uint32_t buffer_length,
   return result;
 }
 
-X_STATUS XFile::SetLength(size_t length) { return file_->SetLength(length); }
+X_STATUS XFile::SetLength(size_t length) {
+  //std::unique_lock lock{file_lock_};
+  return file_->SetLength(length);
+}
 
 void XFile::RegisterIOCompletionPort(uint32_t key,
                                      object_ref<XIOCompletion> port) {
@@ -342,7 +357,7 @@ object_ref<XFile> XFile::Restore(KernelState* kernel_state,
 
 void XFile::NotifyIOCompletionPorts(
     XIOCompletion::IONotification& notification) {
-  std::lock_guard<std::mutex> lock(completion_port_lock_);
+  //std::lock_guard<std::mutex> lock(completion_port_lock_);
 
   for (auto port : completion_ports_) {
     notification.key_context = port.first;
