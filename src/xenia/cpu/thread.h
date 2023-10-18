@@ -85,6 +85,8 @@ class HWThread {
   void EnqueueRunnableThread(RunnableThread* rth);
 
   void YieldToScheduler();
+
+  bool TrySendIPI(void (*ipi_func)(void*), void* ud);
 };
 
 }  // namespace cpu

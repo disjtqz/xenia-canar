@@ -797,7 +797,7 @@ bool Emulator::ExceptionCallback(Exception* ex) {
 void Emulator::WaitUntilExit() {
   while (true) {
     if (main_thread_) {
-      xe::threading::Wait(main_thread_->thread(), false);
+      xe::threading::Wait(main_thread_->fiber(), false);
     }
 
     if (restoring_) {

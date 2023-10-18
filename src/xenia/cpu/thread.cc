@@ -78,5 +78,8 @@ void HWThread::EnqueueRunnableThread(RunnableThread* rth) {
 }
 
 void HWThread::YieldToScheduler() { this->idle_process_fiber_->SwitchTo(); }
+bool HWThread::TrySendIPI(void (*ipi_func)(void*), void* ud) {
+  return os_thread_->IPI(ipi_func, ud);
+}
 }  // namespace cpu
 }  // namespace xe

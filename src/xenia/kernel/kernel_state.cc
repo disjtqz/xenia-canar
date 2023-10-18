@@ -1017,6 +1017,38 @@ void KernelState::EndDPCImpersonation(cpu::ppc::PPCContext* context,
   kpcr->current_irql = end_scope.previous_irql_;
   kpcr->prcb_data.dpc_active = 0;
 }
+
+struct IPIParams {
+  cpu::Processor* processor_;
+  uint32_t source_;
+  uint32_t interrupt_callback_data_;
+  uint32_t interrupt_callback_;
+};
+void CPInterruptIPI(void* ud) {
+  IPIParams* params = reinterpret_cast<IPIParams*>(ud);
+  auto current_ts = cpu::ThreadState::Get();
+  auto current_context = current_ts->context();
+  auto kernel_state = current_context->kernel_state;
+
+  auto pcr = current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
+  auto kthread = current_context->TranslateVirtual(pcr->prcb_data.current_thread);
+  DPCImpersonationScope dpc_scope{};
+  kernel_state->BeginDPCImpersonation(current_context, dpc_scope);
+
+  // todo: check VdGlobalXamDevice here. if VdGlobalXamDevice is nonzero, should
+  // set X_PROCTYPE_SYSTEM
+  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, current_context);
+
+  uint64_t args[] = {params->source_, params->interrupt_callback_data_};
+
+  params->processor_->Execute(current_ts, params->interrupt_callback_, args,
+                      xe::countof(args));
+  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, current_context);
+
+  kernel_state->EndDPCImpersonation(current_context, dpc_scope);
+  delete params;
+}
+
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
                                         uint32_t interrupt_callback_data,
                                         uint32_t source, uint32_t cpu) {
@@ -1024,14 +1056,15 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
     return;
   }
 
-  auto thread = kernel::XThread::GetCurrentThread();
-  assert_not_null(thread);
+  //auto thread = kernel::XThread::GetCurrentThread();
+ // assert_not_null(thread);
 
   // Pick a CPU, if needed. We're going to guess 2. Because.
   if (cpu == 0xFFFFFFFF) {
     cpu = 2;
   }
-  thread->SetActiveCpu(cpu);
+  //thread->SetActiveCpu(cpu);
+
 
   /*
     in reality, our interrupt is a callback that is called in a dpc which is
@@ -1039,6 +1072,17 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
 
     we need to impersonate a dpc
   */
+
+  IPIParams* params = new IPIParams();
+  params->processor_ = processor();
+  params->source_ = source;
+  params->interrupt_callback_ = interrupt_callback;
+  params->interrupt_callback_data_ = interrupt_callback_data;
+  auto hwthread = processor_->GetCPUThread(cpu);
+  while (!hwthread->TrySendIPI(CPInterruptIPI, params)) {
+    
+  }
+  #if 0
   auto current_context = thread->thread_state()->context();
   auto kthread = memory()->TranslateVirtual<X_KTHREAD*>(thread->guest_object());
 
@@ -1057,6 +1101,10 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, current_context);
 
   EndDPCImpersonation(current_context, dpc_scope);
+
+  #else
+  
+  #endif
 }
 
 uint32_t KernelState::LockDispatcher(cpu::ppc::PPCContext* context) {

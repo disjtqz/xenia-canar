@@ -366,6 +366,8 @@ class XThread : public XObject{
   }
   bool can_debugger_suspend() { return false;
   }
+  threading::Fiber* fiber() { return fiber_.get();
+  }
  protected:
   bool AllocateStack(uint32_t size);
   void FreeStack();
