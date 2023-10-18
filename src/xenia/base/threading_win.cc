@@ -654,6 +654,8 @@ bool Win32Thread::IPI(void (*ipi_function)(void* userdata), void* userdata) {
       reinterpret_cast<DWORD64>(reinterpret_cast<void*>(IPIForwarder));
 
   ctx_to_use->initial_context_.Rcx = reinterpret_cast<DWORD64>(ctx_to_use);
+  ctx_to_use->initial_context_.Rsp =
+      xe::align<DWORD64>(ctx_to_use->initial_context_.Rsp - 256, 32) - 8;
   // racy!
 
   BOOL setcontext_worked = SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
