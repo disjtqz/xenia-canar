@@ -73,7 +73,6 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
   // The kernel does not take a reference. We must unregister in the dtor.
   kernel_state_->RegisterThread(this);
 
-  
   // Allocate thread state block from heap.
   // https://web.archive.org/web/20170704035330/https://www.microsoft.com/msj/archive/S2CE.aspx
   // This is set as r13 for user code and some special inlined Win32 calls
@@ -89,10 +88,10 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
   // 0x160: last error
   // So, at offset 0x100 we have a 4b pointer to offset 200, then have the
   // structure.
-  pcr_address_ = memory()->SystemHeapAlloc(0x2D8);
-  if (!pcr_address_) {
+  // pcr_address_ = memory()->SystemHeapAlloc(0x2D8);
+  // if (!pcr_address_) {
 
-  }
+  //}
 
   // Allocate processor thread state.
   // This is thread safe.
@@ -103,7 +102,6 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
 
   // Exports use this to get the kernel.
   thread_state_->context()->kernel_state = kernel_state_;
-
 }
 
 XThread::~XThread() {
@@ -119,7 +117,7 @@ XThread::~XThread() {
     delete thread_state_;
   }
   kernel_state()->memory()->SystemHeapFree(tls_static_address_);
-  kernel_state()->memory()->SystemHeapFree(pcr_address_);
+  // kernel_state()->memory()->SystemHeapFree(pcr_address_);
   FreeStack();
 }
 
@@ -372,6 +370,9 @@ X_STATUS XThread::Create() {
   uint8_t cpu_index = GetFakeCpuNumber(
       static_cast<uint8_t>(creation_params_.creation_flags >> 24));
 
+  // Assign the newly created thread to the logical processor, and also set up
+  // the current CPU in KPCR and KTHREAD.
+  SetActiveCpu(cpu_index, true);
   // Initialize the KTHREAD object.
   InitializeGuestObject();
 
@@ -413,10 +414,6 @@ X_STATUS XThread::Create() {
     XELOGE("CreateThread failed");
     return X_STATUS_NO_MEMORY;
   }
-
-  // Assign the newly created thread to the logical processor, and also set up
-  // the current CPU in KPCR and KTHREAD.
-  SetActiveCpu(cpu_index, true);
 
   // Notify processor of our creation.
   // emulator()->processor()->OnThreadCreated(handle(), thread_state_, this);
@@ -655,10 +652,13 @@ cpu::HWThread* XThread::HWThread() {
   return kernel_state()->processor()->GetCPUThread(cpunum);
 }
 void XThread::Schedule() {
+  auto context = thread_state()->context();
+  context->r[13] = pcr_address_;
 
   runnable_entry_.thread_state_ = thread_state();
   runnable_entry_.fiber_ = fiber();
   runnable_entry_.list_entry_.next_ = nullptr;
+  runnable_entry_.kthread_ = guest_object_ptr_;
   HWThread()->EnqueueRunnableThread(&runnable_entry_);
 }
 
@@ -667,7 +667,9 @@ void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
   // May be called during thread creation - don't skip if current == new.
 
   assert_true(cpu_index < 6);
-
+  auto context = thread_state()->context();
+  pcr_address_ = context->processor->GetPCRForCPU(cpu_index);
+  context->r[13] = pcr_address_;
   X_KPCR& pcr = *memory()->TranslateVirtual<X_KPCR*>(pcr_address_);
   pcr.prcb_data.current_cpu = cpu_index;
 
@@ -742,7 +744,7 @@ X_STATUS XThread::Suspend(uint32_t* out_suspend_count) {
       this->HWThread()->YieldToScheduler();
     }
   }
-  //ops
+  // ops
   return 0;
 }
 

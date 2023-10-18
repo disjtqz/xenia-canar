@@ -54,6 +54,7 @@ struct RunnableThread {
 
   threading::Fiber* fiber_;
   cpu::ThreadState* thread_state_;
+  uint32_t kthread_;
 };
 
 class HWThread {
