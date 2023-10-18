@@ -56,6 +56,8 @@ XE_NTDLL_IMPORT(NtReleaseSemaphore, cls_NtReleaseSemaphore,
 XE_NTDLL_IMPORT(NtDelayExecution, cls_NtDelayExecution,
                 NtDelayExecutionPointer);
 XE_NTDLL_IMPORT(NtQueryEvent, cls_NtQueryEvent, NtQueryEventPointer);
+XE_NTDLL_IMPORT(NtQueryInformationThread, cls_NtQueryInformationThread,
+                NtQueryInformationThreadPointer);
 namespace xe {
 namespace threading {
 
@@ -605,6 +607,16 @@ class Win32Thread : public Win32Handle<Thread> {
   }
   struct IPIContext* cached_ipi_context_=nullptr;
   std::mutex ipi_mutex_;
+
+  int GetSuspendCount() {
+    int result = 0;
+    ULONG out_length = 0;
+    NTSTATUS rval = NtQueryInformationThreadPointer.invoke<NTSTATUS>(
+        handle_, 0x23 /*suspendcount*/, &result, 4, &out_length);
+    xenia_assert(rval == 0);
+    xenia_assert(out_length == 4);
+    return result;
+  }
 };
 
 struct IPIContext {
@@ -618,6 +630,8 @@ struct IPIContext {
 void IPIForwarder(IPIContext* context) {
   context->ipi_function_(context->userdata_);
   SetEvent(context->racy_handle_);
+  //DWORD result = SuspendThread(GetCurrentThread());
+  //__debugbreak();
   RtlRestoreContext(&context->saved_context_, nullptr);
 }
 
@@ -660,8 +674,15 @@ bool Win32Thread::IPI(void (*ipi_function)(void* userdata), void* userdata) {
 
   BOOL setcontext_worked = SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
   bool resumed = this->Resume(nullptr);
+  
   WaitForSingleObject(ctx_to_use->racy_handle_, INFINITE);
 
+  //while (GetSuspendCount() < 1) {
+ //   MaybeYield();
+ // }
+ // BOOL set_worked = SetThreadContext(this->handle_, &ctx_to_use->saved_context_);
+  //xenia_assert(set_worked);
+ // this->Resume(nullptr);
   ipi_mutex_.unlock();
   return true;
 }
