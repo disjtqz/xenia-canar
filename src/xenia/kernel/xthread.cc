@@ -300,7 +300,7 @@ bool XThread::AllocateStack(uint32_t size) {
   // Setup the guard pages
   heap->Protect(stack_alloc_base_, padding / 2, kMemoryProtectNoAccess);
   heap->Protect(stack_base_, padding / 2, kMemoryProtectNoAccess);
-
+  thread_state_->context()->r[1] = stack_base_;
   return true;
 }
 

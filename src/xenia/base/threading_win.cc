@@ -603,7 +603,7 @@ class Win32Thread : public Win32Handle<Thread> {
   void AssertCallingThread() {
     assert_true(GetCurrentThreadId() == GetThreadId(handle_));
   }
-  struct IPIContext* cached_ipi_context_;
+  struct IPIContext* cached_ipi_context_=nullptr;
   std::mutex ipi_mutex_;
 };
 
@@ -643,18 +643,21 @@ bool Win32Thread::IPI(void (*ipi_function)(void* userdata), void* userdata) {
     cached_ipi_context_ = ctx_to_use;
     ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
   }
+  ctx_to_use->initial_context_.ContextFlags = CONTEXT_FULL;
+  ctx_to_use->saved_context_.ContextFlags = CONTEXT_FULL;
+  BOOL getcontext_worked = GetThreadContext(this->handle_, &ctx_to_use->initial_context_);
+  GetThreadContext(this->handle_, &ctx_to_use->saved_context_);
 
-  GetThreadContext(this->handle_, &ctx_to_use->initial_context_);
-  memcpy(&ctx_to_use->saved_context_, &ctx_to_use->initial_context_,
-         sizeof(_CONTEXT));
-
+  ctx_to_use->ipi_function_ = ipi_function;
+  ctx_to_use->userdata_ = userdata;
   ctx_to_use->initial_context_.Rip =
       reinterpret_cast<DWORD64>(reinterpret_cast<void*>(IPIForwarder));
 
   ctx_to_use->initial_context_.Rcx = reinterpret_cast<DWORD64>(ctx_to_use);
   // racy!
 
-  SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
+  BOOL setcontext_worked = SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
+  bool resumed = this->Resume(nullptr);
   WaitForSingleObject(ctx_to_use->racy_handle_, INFINITE);
 
   ipi_mutex_.unlock();

@@ -370,7 +370,8 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
   // TODO(benvanik): move someplace more appropriate (out of ctor, but around
   // here).
   if (!dispatch_thread_running_) {
-    dispatch_thread_running_ = true;
+    dispatch_thread_running_ = false;
+   #if 0
     dispatch_thread_ = object_ref<XHostThread>(new XHostThread(
         this, 128 * 1024, 0,
         [this]() {
@@ -397,6 +398,7 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
         GetSystemProcess()));  // don't think an equivalent exists on real hw
     dispatch_thread_->set_name("Kernel Dispatch");
     dispatch_thread_->Create();
+    #endif
   }
 }
 

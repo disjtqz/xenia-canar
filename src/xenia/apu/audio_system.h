@@ -73,8 +73,8 @@ class AudioSystem {
   uint32_t queued_frames_;
 
   std::atomic<bool> worker_running_ = {false};
-  kernel::object_ref<kernel::XHostThread> worker_thread_;
-
+  std::unique_ptr<threading::Thread> worker_thread_;
+  kernel::object_ref<kernel::XHostThread> guest_thread_; 
   xe::global_critical_region global_critical_region_;
   static const size_t kMaximumClientCount = 8;
   struct {
@@ -96,6 +96,10 @@ class AudioSystem {
   bool paused_ = false;
   threading::Fence pause_fence_;
   std::unique_ptr<threading::Event> resume_event_;
+
+  std::unique_ptr<threading::Event> guest_received_event_;
+  uint32_t client_callback_in_;
+  uint32_t client_callback_arg_in_;
 };
 
 }  // namespace apu

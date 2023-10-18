@@ -35,9 +35,10 @@
 // and let the normal AudioSystem handling take it, to prevent duplicate
 // implementations. They can be found in xboxkrnl_audio_xma.cc
 
-DEFINE_uint32(
-    apu_max_queued_frames, 64,
-    "Allows changing max buffered audio frames to reduce audio delay. Minimum is 16.", "APU");
+DEFINE_uint32(apu_max_queued_frames, 64,
+              "Allows changing max buffered audio frames to reduce audio "
+              "delay. Minimum is 16.",
+              "APU");
 
 namespace xe {
 namespace apu {
@@ -76,15 +77,28 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
   }
 
   worker_running_ = true;
-  worker_thread_ = kernel::object_ref<kernel::XHostThread>(
-      new kernel::XHostThread(kernel_state, 128 * 1024, 0, [this]() {
-        WorkerThreadMain();
-        return 0;
-      }, kernel_state->GetSystemProcess()));
+  guest_thread_ =
+      kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
+          kernel_state, 128 * 1024, 1,
+          [this]() {
+            while (true) {
+              uint64_t args[] = {client_callback_arg_in_};
+              processor_->Execute(guest_thread_->thread_state(),
+                                  client_callback_in_, args, xe::countof(args));
+              guest_received_event_->Set();
+              guest_thread_->Suspend();
+            }
+            return true;
+          },
+          kernel_state->GetSystemProcess()));
+  guest_received_event_ = threading::Event::CreateAutoResetEvent(false);
+  threading::Thread::CreationParameters crparams{};
+  worker_thread_ = threading::Thread::Create(
+      crparams, std::bind(&AudioSystem::WorkerThreadMain, this));
+
+
   // As we run audio callbacks the debugger must be able to suspend us.
   worker_thread_->set_name("Audio Worker");
-  worker_thread_->SetActiveCpu(5, true);
-  worker_thread_->Create();
 
   return X_STATUS_SUCCESS;
 }
@@ -125,13 +139,19 @@ void AudioSystem::WorkerThreadMain() {
       uint32_t client_callback = clients_[index].callback;
       uint32_t client_callback_arg = clients_[index].wrapped_callback_arg;
       global_lock.unlock();
+      client_callback_arg_in_ = client_callback_arg;
+      client_callback_in_ = client_callback;
+      guest_thread_->Resume();
+      threading::Wait(guest_received_event_.get(), false);
 
-      if (client_callback) {
+      /* if (client_callback) {
         SCOPE_profile_cpu_i("apu", "xe::apu::AudioSystem->client_callback");
         uint64_t args[] = {client_callback_arg};
         processor_->Execute(worker_thread_->thread_state(), client_callback,
                             args, xe::countof(args));
-      }
+      }*/
+
+
 
       pumped = true;
     }
@@ -167,7 +187,8 @@ void AudioSystem::Shutdown() {
   worker_running_ = false;
   shutdown_event_->Set();
   if (worker_thread_) {
-    worker_thread_->Wait(0, 0, 0, nullptr);
+    //worker_thread_->Wait(0, 0, 0, nullptr);
+    threading::Wait(worker_thread_.get(), false);
     worker_thread_.reset();
   }
 }
