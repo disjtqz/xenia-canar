@@ -72,6 +72,38 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
   creation_params_.guest_process = guest_process;
   // The kernel does not take a reference. We must unregister in the dtor.
   kernel_state_->RegisterThread(this);
+
+  
+  // Allocate thread state block from heap.
+  // https://web.archive.org/web/20170704035330/https://www.microsoft.com/msj/archive/S2CE.aspx
+  // This is set as r13 for user code and some special inlined Win32 calls
+  // (like GetLastError/etc) will poke it directly.
+  // We try to use it as our primary store of data just to keep things all
+  // consistent.
+  // 0x000: pointer to tls data
+  // 0x100: pointer to TEB(?)
+  // 0x10C: Current CPU(?)
+  // 0x150: if >0 then error states don't get set (DPC active bool?)
+  // TEB:
+  // 0x14C: thread id
+  // 0x160: last error
+  // So, at offset 0x100 we have a 4b pointer to offset 200, then have the
+  // structure.
+  pcr_address_ = memory()->SystemHeapAlloc(0x2D8);
+  if (!pcr_address_) {
+
+  }
+
+  // Allocate processor thread state.
+  // This is thread safe.
+  thread_state_ = new cpu::ThreadState(
+      kernel_state->processor(), this->handle(), stack_base_, pcr_address_);
+  XELOGI("XThread{:08X} ({:X}) Stack: {:08X}-{:08X}", handle(), handle(),
+         stack_limit_, stack_base_);
+
+  // Exports use this to get the kernel.
+  thread_state_->context()->kernel_state = kernel_state_;
+
 }
 
 XThread::~XThread() {
@@ -337,37 +369,6 @@ X_STATUS XThread::Create() {
                    tls_header->raw_data_size);
   }
 
-  // Allocate thread state block from heap.
-  // https://web.archive.org/web/20170704035330/https://www.microsoft.com/msj/archive/S2CE.aspx
-  // This is set as r13 for user code and some special inlined Win32 calls
-  // (like GetLastError/etc) will poke it directly.
-  // We try to use it as our primary store of data just to keep things all
-  // consistent.
-  // 0x000: pointer to tls data
-  // 0x100: pointer to TEB(?)
-  // 0x10C: Current CPU(?)
-  // 0x150: if >0 then error states don't get set (DPC active bool?)
-  // TEB:
-  // 0x14C: thread id
-  // 0x160: last error
-  // So, at offset 0x100 we have a 4b pointer to offset 200, then have the
-  // structure.
-  pcr_address_ = memory()->SystemHeapAlloc(0x2D8);
-  if (!pcr_address_) {
-    XELOGW("Unable to allocate thread state block");
-    return X_STATUS_NO_MEMORY;
-  }
-
-  // Allocate processor thread state.
-  // This is thread safe.
-  thread_state_ = new cpu::ThreadState(
-      kernel_state()->processor(), this->handle(), stack_base_, pcr_address_);
-  XELOGI("XThread{:08X} ({:X}) Stack: {:08X}-{:08X}", handle(), handle(),
-         stack_limit_, stack_base_);
-
-  // Exports use this to get the kernel.
-  thread_state_->context()->kernel_state = kernel_state_;
-
   uint8_t cpu_index = GetFakeCpuNumber(
       static_cast<uint8_t>(creation_params_.creation_flags >> 24));
 
@@ -427,7 +428,7 @@ X_STATUS XThread::Create() {
 
     // thread_->Resume();
 
-    EnqueueToCPU();
+    Schedule();
   }
 
   return X_STATUS_SUCCESS;
@@ -653,9 +654,15 @@ cpu::HWThread* XThread::HWThread() {
 
   return kernel_state()->processor()->GetCPUThread(cpunum);
 }
-void XThread::EnqueueToCPU() {
+void XThread::Schedule() {
+
+  runnable_entry_.thread_state_ = thread_state();
+  runnable_entry_.fiber_ = fiber();
+  runnable_entry_.list_entry_.next_ = nullptr;
   HWThread()->EnqueueRunnableThread(&runnable_entry_);
 }
+
+void XThread::YieldCPU() { HWThread()->YieldToScheduler(); }
 void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
   // May be called during thread creation - don't skip if current == new.
 
@@ -710,7 +717,7 @@ X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
   uint32_t unused_host_suspend_count = 0;
 
   if (previous_suspend_count == 1) {
-    EnqueueToCPU();
+    Schedule();
   }
   return 0;
 }

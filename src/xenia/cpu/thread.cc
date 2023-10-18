@@ -55,6 +55,8 @@ void HWThread::ThreadFunc() {
 
     if (!last_run_thread_) {
       RunIdleProcess();
+    } else {
+      RunRunnable(last_run_thread_);
     }
   }
 }
@@ -69,6 +71,7 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   os_thread_ =
       threading::Thread::Create(params, std::bind(&HWThread::ThreadFunc, this));
   os_thread_->set_affinity_mask(1ULL << cpu_number_);
+  os_thread_->set_name(std::string("Hw Thread ") + std::to_string(cpu_number));
 }
 HWThread::~HWThread() {}
 

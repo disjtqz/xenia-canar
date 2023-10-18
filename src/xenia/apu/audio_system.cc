@@ -83,6 +83,7 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
       }, kernel_state->GetSystemProcess()));
   // As we run audio callbacks the debugger must be able to suspend us.
   worker_thread_->set_name("Audio Worker");
+  worker_thread_->SetActiveCpu(5, true);
   worker_thread_->Create();
 
   return X_STATUS_SUCCESS;

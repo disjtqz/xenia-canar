@@ -360,7 +360,8 @@ class XThread : public XObject{
                                      ByteStream* stream);
 
   void SetCurrentThread();
-  void EnqueueToCPU();
+  void Schedule();
+  void YieldCPU();
   cpu::HWThread* HWThread();
   cpu::ThreadState* thread_state() { return thread_state_;
   }
@@ -368,6 +369,7 @@ class XThread : public XObject{
   }
   threading::Fiber* fiber() { return fiber_.get();
   }
+
  protected:
   bool AllocateStack(uint32_t size);
   void FreeStack();
