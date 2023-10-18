@@ -71,7 +71,7 @@ class XmaDecoder {
   cpu::Processor* processor_ = nullptr;
 
   std::atomic<bool> worker_running_ = {false};
-  kernel::object_ref<kernel::XHostThread> worker_thread_;
+  std::unique_ptr<threading::Thread> worker_thread_;
   std::unique_ptr<xe::threading::Event> work_event_ = nullptr;
 
   bool paused_ = false;

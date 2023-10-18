@@ -141,13 +141,10 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
   worker_running_ = true;
   work_event_ = xe::threading::Event::CreateAutoResetEvent(false);
   assert_not_null(work_event_);
-  worker_thread_ = kernel::object_ref<kernel::XHostThread>(
-      new kernel::XHostThread(kernel_state, 128 * 1024, 0, [this]() {
-        WorkerThreadMain();
-        return 0;
-      }, kernel_state->GetIdleProcess()));//this one doesnt need any process actually. never calls any guest code
+  threading::Thread::CreationParameters crparams{};
+  crparams.stack_size = 16 * 1024 * 1024;
+  worker_thread_ = threading::Thread::Create(crparams, std::bind(&XmaDecoder::WorkerThreadMain, this));//this one doesnt need any process actually. never calls any guest code
   worker_thread_->set_name("XMA Decoder");
-  worker_thread_->Create();
 
   return X_STATUS_SUCCESS;
 }
@@ -194,7 +191,7 @@ void XmaDecoder::Shutdown() {
 
   if (worker_thread_) {
     // Wait for work thread.
-    xe::threading::Wait(worker_thread_->thread(), false);
+    xe::threading::Wait(worker_thread_.get(), false);
     worker_thread_.reset();
   }
 
