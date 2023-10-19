@@ -160,12 +160,25 @@ struct X_DISPATCH_HEADER {
       uint8_t dpc_active;
     };
   };
-
   xe::be<uint32_t> signal_state;
   xe::be<uint32_t> wait_list_flink;
   xe::be<uint32_t> wait_list_blink;
 };
 static_assert_size(X_DISPATCH_HEADER, 0x10);
+
+
+// pretty much the vista KWAIT_BLOCK verbatim, except that sparebyte is gone and
+// WaitType is 2 bytes instead of 1
+struct X_KWAIT_BLOCK {
+  X_LIST_ENTRY wait_list_entry;
+  TypedGuestPointer<X_KTHREAD> thread;
+  TypedGuestPointer<X_DISPATCH_HEADER> object;
+  TypedGuestPointer<X_KWAIT_BLOCK> next_wait_block;
+  xe::be<uint16_t> wait_key;
+  xe::be<uint16_t> wait_type;
+};
+
+static_assert_size(X_KWAIT_BLOCK, 0x18);
 
 struct X_KSEMAPHORE {
   X_DISPATCH_HEADER header;
