@@ -23,6 +23,7 @@
 #include "xenia/cpu/entry_table.h"
 #include "xenia/cpu/export_resolver.h"
 #include "xenia/cpu/function.h"
+#include "xenia/cpu/hwclock.h"
 #include "xenia/cpu/module.h"
 #include "xenia/cpu/ppc/ppc_frontend.h"
 #include "xenia/cpu/thread_debug_info.h"
@@ -224,6 +225,8 @@ class Processor {
     return hw_threads_[cpu_num].get();
   }
 
+  HWClock* GetHWClock() { return hw_clock_.get(); }
+
  private:
   // Synchronously demands a debug listener.
   void DemandDebugListener();
@@ -297,7 +300,7 @@ class Processor {
   // TODO(benvanik): cleanup/change structures.
   std::vector<Breakpoint*> breakpoints_;
 
-  Irql irql_;
+  std::unique_ptr<HWClock> hw_clock_;
 };
 
 }  // namespace cpu

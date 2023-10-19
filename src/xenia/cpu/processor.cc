@@ -202,6 +202,9 @@ bool Processor::Setup(std::unique_ptr<backend::Backend> backend) {
     hw_threads_.push_back(
         std::make_unique<HWThread>(cpu_index, processor_idle_state));
   }
+
+  hw_clock_ = std::make_unique<cpu::HWClock>(this);
+
   return true;
 }
 
