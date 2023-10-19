@@ -15,7 +15,12 @@
 #include "xenia/xbox.h"
 namespace xe {
 namespace kernel {
-
+enum Irql : uint8_t {
+  IRQL_PASSIVE = 0,
+  IRQL_APC = 1,
+  IRQL_DISPATCH = 2,
+  IRQL_DPC = 3,
+};
 struct X_KTHREAD;
 struct X_KPROCESS;
 struct X_KPCR;
@@ -150,18 +155,22 @@ struct X_DISPATCH_HEADER {
       uint8_t npx_irql;
       uint8_t signalling;
     };
-    uint8_t process_type; //X_PROCTYPE_
+    uint8_t process_type;  // X_PROCTYPE_
     union {
       uint8_t inserted;
       uint8_t debug_active;
       uint8_t dpc_active;
     };
   };
-  xe::be<uint32_t> signal_state;
+  xe::be<int32_t> signal_state;
   X_LIST_ENTRY wait_list;
 };
 static_assert_size(X_DISPATCH_HEADER, 0x10);
 
+enum : uint16_t {
+  WAIT_ALL = 0,
+  WAIT_ANY = 1,
+};
 // pretty much the vista KWAIT_BLOCK verbatim, except that sparebyte is gone and
 // WaitType is 2 bytes instead of 1
 struct X_KWAIT_BLOCK {
@@ -169,7 +178,11 @@ struct X_KWAIT_BLOCK {
   TypedGuestPointer<X_KTHREAD> thread;
   TypedGuestPointer<X_DISPATCH_HEADER> object;
   TypedGuestPointer<X_KWAIT_BLOCK> next_wait_block;
-  xe::be<uint16_t> wait_key;
+  // this isnt the official vista name, but i think its better.
+  // this value is what will be returned to the waiter if this particular wait
+  // is satisfied
+  xe::be<uint16_t> wait_result_xstatus;
+  // WAIT_ALL or WAIT_ANY
   xe::be<uint16_t> wait_type;
 };
 
@@ -229,12 +242,12 @@ struct X_KPRCB {
   X_KSPINLOCK dpc_lock;  // 0x44
   util::X_TYPED_LIST<XDPC, offsetof(XDPC, list_entry)> queued_dpcs_list_head;
   // // 0x48
-  xe::be<uint32_t> dpc_active;  // 0x50
-  xe::be<uint32_t> unk_54;      // 0x54
-  xe::be<uint32_t> unk_58;      // 0x58
+  xe::be<uint32_t> dpc_active;                  // 0x50
+  X_KSPINLOCK enqueued_processor_threads_lock;  // 0x54
+  xe::be<uint32_t> unk_58;                      // 0x58
   // definitely scheduler related
-  X_SINGLE_LIST_ENTRY unk_5C;  // 0x5C
-  xe::be<uint32_t> unk_60;     // 0x60
+  X_SINGLE_LIST_ENTRY enqueued_threads_list;  // 0x5C
+  xe::be<uint32_t> unk_60;                    // 0x60
   // i think the following mask has something to do with the array that comes
   // after
   xe::be<uint32_t> unk_mask_64;  // 0x64
@@ -341,27 +354,30 @@ struct X_KTHREAD {
   uint8_t process_type;
   // apc_mode determines which list an apc goes into
   util::X_TYPED_LIST<XAPC, offsetof(XAPC, list_entry)> apc_lists[2];
-  TypedGuestPointer<X_KPROCESS> process;  // 0x84
-  uint8_t unk_88;                         // 0x88
-  uint8_t running_kernel_apcs;            // 0x89
-  uint8_t unk_8A;                         // 0x8A
-  uint8_t may_queue_apcs;                 // 0x8B
-  X_KSPINLOCK apc_lock;                   // 0x8C
-  uint8_t unk_90[0xC];                    // 0x90
-  xe::be<uint32_t> msr_mask;              // 0x9C
-  uint8_t unk_A0[4];                      // 0xA0
-  uint8_t unk_A4;                         // 0xA4
-  uint8_t unk_A5[0xB];                    // 0xA5
-  int32_t apc_disable_count;              // 0xB0
-  uint8_t unk_B4[4];                      // 0xB4
-  uint8_t unk_B8;                         // 0xB8
-  uint8_t unk_B9;                         // 0xB9
-  uint8_t unk_BA;                         // 0xBA
-  uint8_t boost_disabled;                 // 0xBB
-  uint8_t suspend_count;                  // 0xBC
-  uint8_t unk_BD;                         // 0xBD
-  uint8_t terminated;                     // 0xBE
-  uint8_t current_cpu;                    // 0xBF
+  TypedGuestPointer<X_KPROCESS> process;         // 0x84
+  uint8_t unk_88;                                // 0x88
+  uint8_t running_kernel_apcs;                   // 0x89
+  uint8_t unk_8A;                                // 0x8A
+  uint8_t may_queue_apcs;                        // 0x8B
+  X_KSPINLOCK apc_lock;                          // 0x8C
+  uint8_t unk_90[4];                             // 0x90
+  X_LIST_ENTRY ready_prcb_entry;                 // 0x94
+  xe::be<uint32_t> msr_mask;                     // 0x9C
+  xe::be<X_STATUS> wait_result;                  // 0xA0
+  uint8_t unk_A4;                                // 0xA4
+  uint8_t unk_A5[3];                             // 0xA5
+  TypedGuestPointer<X_KWAIT_BLOCK> wait_blocks;  // 0xA8
+  uint8_t unk_AC[4];                             // 0xAC
+  int32_t apc_disable_count;                     // 0xB0
+  uint8_t unk_B4[4];                             // 0xB4
+  uint8_t unk_B8;                                // 0xB8
+  uint8_t unk_B9;                                // 0xB9
+  uint8_t unk_BA;                                // 0xBA
+  uint8_t boost_disabled;                        // 0xBB
+  uint8_t suspend_count;                         // 0xBC
+  uint8_t unk_BD;                                // 0xBD
+  uint8_t terminated;                            // 0xBE
+  uint8_t current_cpu;                           // 0xBF
   // these two pointers point to KPRCBs, but seem to be rarely referenced, if at
   // all
   TypedGuestPointer<X_KPRCB> a_prcb_ptr;        // 0xC0
@@ -373,7 +389,7 @@ struct X_KTHREAD {
   X_KSEMAPHORE unk_FC;  // 0xFC
   // this is an entry in
   X_LIST_ENTRY process_threads;     // 0x110
-  xe::be<uint32_t> unk_118;         // 0x118
+  xe::be<uint32_t> unkptr_118;      // 0x118
   xe::be<uint32_t> unk_11C;         // 0x11C
   xe::be<uint32_t> unk_120;         // 0x120
   xe::be<uint32_t> unk_124;         // 0x124
@@ -405,6 +421,44 @@ struct alignas(4096) X_KPCR_PAGE {
   char unk_2D8[40];  // 0x2D8
   X_KTHREAD idle_process_thread;
 };
+
+// (?), used by KeGetCurrentProcessType
+constexpr uint32_t X_PROCTYPE_IDLE = 0;
+constexpr uint32_t X_PROCTYPE_TITLE = 1;
+constexpr uint32_t X_PROCTYPE_SYSTEM = 2;
+
+struct X_KPROCESS {
+  X_KSPINLOCK thread_list_spinlock;
+  // list of threads in this process, guarded by the spinlock above
+  X_LIST_ENTRY thread_list;
+
+  xe::be<uint32_t> unk_0C;
+  // kernel sets this to point to a section of size 0x2F700 called CLRDATAA,
+  // except it clears bit 31 of the pointer. in 17559 the address is 0x801C0000,
+  // so it sets this ptr to 0x1C0000
+  xe::be<uint32_t> clrdataa_masked_ptr;
+  xe::be<uint32_t> thread_count;
+  uint8_t unk_18;
+  uint8_t unk_19;
+  uint8_t unk_1A;
+  uint8_t unk_1B;
+  xe::be<uint32_t> kernel_stack_size;
+  xe::be<uint32_t> tls_static_data_address;
+  xe::be<uint32_t> tls_data_size;
+  xe::be<uint32_t> tls_raw_data_size;
+  xe::be<uint16_t> tls_slot_size;
+  // ExCreateThread calls a subfunc references this field, returns
+  // X_STATUS_PROCESS_IS_TERMINATING if true
+  uint8_t is_terminating;
+  // one of X_PROCTYPE_
+  uint8_t process_type;
+  xe::be<uint32_t> bitmap[8];
+  xe::be<uint32_t> unk_50;
+  X_LIST_ENTRY unk_54;
+  xe::be<uint32_t> unk_5C;
+};
+static_assert_size(X_KPROCESS, 0x60);
+
 #pragma pack(pop)
 
 }  // namespace kernel

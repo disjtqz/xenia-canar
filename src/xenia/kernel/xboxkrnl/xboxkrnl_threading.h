@@ -84,6 +84,12 @@ void xeKeLeaveCriticalRegion(PPCContext* context);
 
 void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
                            PPCContext* context);
+//dispatcher header helpers
+void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
+                             X_STATUS wait_result, int unknown);
+void xeHandleWaitTypeAll(PPCContext* context, X_KWAIT_BLOCK* block);
+void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
+                                 int unk);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

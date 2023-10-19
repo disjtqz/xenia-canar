@@ -249,7 +249,7 @@ void XThread::InitializeGuestObject() {
       timer_wait_header_list_entry;
   guest_thread->wait_timeout_block.wait_list_entry.flink_ptr =
       timer_wait_header_list_entry;
-  guest_thread->wait_timeout_block.wait_key = 258;
+  guest_thread->wait_timeout_block.wait_result_xstatus = X_STATUS_TIMEOUT;
   guest_thread->stack_base = (this->stack_base_);
   guest_thread->stack_limit = (this->stack_limit_);
   guest_thread->stack_kernel = (this->stack_base_ - 240);

@@ -41,13 +41,6 @@ class Breakpoint;
 class StackWalker;
 class XexModule;
 
-enum class Irql : uint32_t {
-  PASSIVE = 0,
-  APC = 1,
-  DISPATCH = 2,
-  DPC = 3,
-};
-
 // Describes the current state of the emulator as known to the debugger.
 // This determines which state the debugger is in and what operations are
 // allowed.

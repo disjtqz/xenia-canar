@@ -49,42 +49,6 @@ namespace kernel {
 
 constexpr fourcc_t kKernelSaveSignature = make_fourcc("KRNL");
 
-// (?), used by KeGetCurrentProcessType
-constexpr uint32_t X_PROCTYPE_IDLE = 0;
-constexpr uint32_t X_PROCTYPE_TITLE = 1;
-constexpr uint32_t X_PROCTYPE_SYSTEM = 2;
-
-struct X_KPROCESS {
-  X_KSPINLOCK thread_list_spinlock;
-  // list of threads in this process, guarded by the spinlock above
-  X_LIST_ENTRY thread_list;
-
-  xe::be<uint32_t> unk_0C;
-  // kernel sets this to point to a section of size 0x2F700 called CLRDATAA,
-  // except it clears bit 31 of the pointer. in 17559 the address is 0x801C0000,
-  // so it sets this ptr to 0x1C0000
-  xe::be<uint32_t> clrdataa_masked_ptr;
-  xe::be<uint32_t> thread_count;
-  uint8_t unk_18;
-  uint8_t unk_19;
-  uint8_t unk_1A;
-  uint8_t unk_1B;
-  xe::be<uint32_t> kernel_stack_size;
-  xe::be<uint32_t> tls_static_data_address;
-  xe::be<uint32_t> tls_data_size;
-  xe::be<uint32_t> tls_raw_data_size;
-  xe::be<uint16_t> tls_slot_size;
-  // ExCreateThread calls a subfunc references this field, returns
-  // X_STATUS_PROCESS_IS_TERMINATING if true
-  uint8_t is_terminating;
-  // one of X_PROCTYPE_
-  uint8_t process_type;
-  xe::be<uint32_t> bitmap[8];
-  xe::be<uint32_t> unk_50;
-  X_LIST_ENTRY unk_54;
-  xe::be<uint32_t> unk_5C;
-};
-static_assert_size(X_KPROCESS, 0x60);
 
 struct TerminateNotification {
   uint32_t guest_routine;
