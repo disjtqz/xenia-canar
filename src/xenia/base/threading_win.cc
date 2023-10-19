@@ -191,7 +191,6 @@ bool SetTlsValue(TlsHandle handle, uintptr_t value) {
   return TlsSetValue(handle, reinterpret_cast<void*>(value)) ? true : false;
 }
 
-
 TlsHandle AllocateFlsHandle() { return FlsAlloc(nullptr); }
 bool FreeFlsHandle(TlsHandle handle) { return FlsFree(handle) ? true : false; }
 
@@ -606,7 +605,10 @@ class Win32Thread : public Win32Handle<Thread> {
   void AssertCallingThread() {
     assert_true(GetCurrentThreadId() == GetThreadId(handle_));
   }
-  struct IPIContext* cached_ipi_context_=nullptr;
+  struct IPIContext* cached_ipi_context_ = nullptr;
+
+  void* interrupt_stack_ = nullptr;
+
   std::mutex ipi_mutex_;
 
   int GetSuspendCount() {
@@ -631,68 +633,91 @@ struct IPIContext {
 };
 
 void IPIForwarder(IPIContext* context) {
-  context->result_ = context->function_(context->userdata_);
-  SetEvent(context->racy_handle_);
-  //DWORD result = SuspendThread(GetCurrentThread());
-  //__debugbreak();
+  while (true) {
+    __try {
+      context->result_ = context->function_(context->userdata_);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+      ;
+    }
+  }
+ // SetEvent(context->racy_handle_);
   RtlRestoreContext(&context->saved_context_, nullptr);
 }
 
-bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata, uintptr_t* result_out) {
-  if (!ipi_mutex_.try_lock()) {
-    return false;
+bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
+                      uintptr_t* result_out) {
+  std::unique_lock ipi_lock{ipi_mutex_};
+  constexpr uint64_t INTERRUPT_STACK_BASE = 0x4860ULL << 32;
+
+  constexpr uint64_t INTERRUPT_STACK_SIZE = 1024 * 1024 * 16;
+  if (!interrupt_stack_) {
+    // interrupt_stack_ = VirtualAlloc()
+
+    void* result = nullptr;
+    uint64_t alloc_point = INTERRUPT_STACK_BASE + INTERRUPT_STACK_SIZE;
+
+    while (!result) {
+      result = memory::AllocFixed((void*)alloc_point, INTERRUPT_STACK_SIZE,
+                                  memory::AllocationType::kReserveCommit,
+                                  memory::PageAccess::kReadWrite);
+      alloc_point += INTERRUPT_STACK_SIZE;
+    }
+    interrupt_stack_ = result;
   }
   uint32_t previous_suspend_count = 0;
   if (!this->Suspend(&previous_suspend_count)) {
-    ipi_mutex_.unlock();
+
     return false;
   }
   if (previous_suspend_count != 0) {
     bool resumed = this->Resume(nullptr);
     xenia_assert(resumed);
-    ipi_mutex_.unlock();
     return false;
   }
+
   IPIContext* ctx_to_use = cached_ipi_context_;
 
   if (!ctx_to_use) {
     ctx_to_use = new IPIContext();
     memset(ctx_to_use, 0, sizeof(IPIContext));
     cached_ipi_context_ = ctx_to_use;
-    ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    //ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
   }
   ctx_to_use->initial_context_.ContextFlags = CONTEXT_FULL;
   ctx_to_use->saved_context_.ContextFlags = CONTEXT_FULL;
-  BOOL getcontext_worked = GetThreadContext(this->handle_, &ctx_to_use->initial_context_);
-  GetThreadContext(this->handle_, &ctx_to_use->saved_context_);
+  BOOL getcontext_worked =
+      GetThreadContext(this->handle_, &ctx_to_use->initial_context_);
 
+  // already on interrupt stack?
+  if ((ctx_to_use->initial_context_.Rsp >> 32) == 0x4860ULL) {
+    bool resumed = this->Resume(nullptr);
+    xenia_assert(resumed);
+    return false;
+  }
+
+  ctx_to_use->initial_context_.ContextFlags = CONTEXT_FULL;
+  ctx_to_use->saved_context_.ContextFlags = CONTEXT_FULL;
   ctx_to_use->function_ = ipi_function;
   ctx_to_use->userdata_ = userdata;
   ctx_to_use->initial_context_.Rip =
       reinterpret_cast<DWORD64>(reinterpret_cast<void*>(IPIForwarder));
 
   ctx_to_use->initial_context_.Rcx = reinterpret_cast<DWORD64>(ctx_to_use);
-  ctx_to_use->initial_context_.Rsp =
-      xe::align<DWORD64>(ctx_to_use->initial_context_.Rsp - 2048, 128) - 56;
-  // racy!
 
-  BOOL setcontext_worked = SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
+  ctx_to_use->initial_context_.Rsp =
+      reinterpret_cast<DWORD64>(interrupt_stack_) + INTERRUPT_STACK_SIZE - 56;
+
+  // racy!
+  GetThreadContext(this->handle_, &ctx_to_use->saved_context_);
+
+  BOOL setcontext_worked =
+      SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
+
   bool resumed = this->Resume(nullptr);
-  
-  WaitForSingleObject(ctx_to_use->racy_handle_, INFINITE);
 
   if (result_out) {
     *result_out = ctx_to_use->result_;
   }
-  NanoSleep(1);
-
-  //while (GetSuspendCount() < 1) {
- //   MaybeYield();
- // }
- // BOOL set_worked = SetThreadContext(this->handle_, &ctx_to_use->saved_context_);
-  //xenia_assert(set_worked);
- // this->Resume(nullptr);
-  ipi_mutex_.unlock();
   return true;
 }
 

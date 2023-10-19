@@ -11,6 +11,7 @@
 #include "xenia/base/atomic.h"
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/kernel_state.h"
+#include "xenia/cpu/processor.h"
 namespace xe {
 namespace cpu {
 
@@ -40,6 +41,9 @@ void HWThread::RunIdleProcess() {
 }
 void HWThread::ThreadFunc() {
   idle_process_fiber_ = threading::Fiber::CreateFromThread();
+  cpu::ThreadState::Bind(idle_process_threadstate_);
+  ready_ = true;
+  idle_process_threadstate_->processor()->NotifyHWThreadBooted(cpu_number_);
 
   while (true) {
     cpu::ThreadState::Bind(idle_process_threadstate_);
@@ -127,7 +131,7 @@ void HWThread::YieldToScheduler() { this->idle_process_fiber_->SwitchTo(); }
 // theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
 bool HWThread::AreInterruptsDisabled() {
   auto context = cpu::ThreadState::Get()->context();
-  if (context->msr & 0x8000) {
+  if ((context->msr & 0x8000) == 0) {
     return true;
   }
   return false;
@@ -142,7 +146,7 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
   auto interrupt_wrapper = reinterpret_cast<GuestInterruptWrapper*>(ud);
 
   if (interrupt_wrapper->thiz->AreInterruptsDisabled()) {
-    // retry! 
+    // retry!
     return 0;
   }
   // todo: need to set current thread to idle thread!!
@@ -157,7 +161,7 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
   wrapper.ud = ud;
   wrapper.thiz = this;
   // ipi wrapper returns 0 if current context has interrupts disabled
-  uintptr_t result_from_call=0;
+  uintptr_t result_from_call = 0;
 
   while (!os_thread_->IPI(IPIWrapperFunction, &wrapper, &result_from_call) ||
          result_from_call == 0) {

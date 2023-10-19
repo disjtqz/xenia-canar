@@ -75,6 +75,10 @@ class HWThread {
 
   bool AreInterruptsDisabled();
 
+  bool HasBooted() {
+      return ready_;
+  }
+  volatile bool ready_ = false;
   std::unique_ptr<threading::Thread> os_thread_;
 
   std::unique_ptr<threading::Fiber> idle_process_fiber_;

@@ -146,6 +146,8 @@ struct KernelGuestGlobals {
   // threadids use a different table
   util::X_HANDLE_TABLE TitleThreadIdTable;
   util::X_HANDLE_TABLE SystemThreadIdTable;
+
+  X_TIME_STAMP_BUNDLE KeTimestampBundle;
 };
 
 struct X_KPCR_PAGE;
@@ -378,7 +380,6 @@ class KernelState {
   std::list<std::function<void()>> dispatch_queue_;
 
   BitMap tls_bitmap_;
-  uint32_t ke_timestamp_bundle_ptr_ = 0;
   std::unique_ptr<xe::threading::HighResolutionTimer> timestamp_timer_;
   cpu::backend::GuestTrampolineGroup kernel_trampoline_group_;
   //fixed address referenced by dashboards. Data is currently unknown

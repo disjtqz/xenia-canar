@@ -34,34 +34,6 @@
 namespace xe {
 namespace kernel {
 
-XE_NOINLINE
-XE_COLD
-uint32_t KernelState::CreateKeTimestampBundle() {
-  auto crit = global_critical_region::Acquire();
-
-  uint32_t pKeTimeStampBundle =
-      memory_->SystemHeapAlloc(sizeof(X_TIME_STAMP_BUNDLE));
-  X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
-      memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(pKeTimeStampBundle);
-
-  uint32_t ticks = Clock::QueryGuestUptimeMillis();
-  uint64_t time_imprecise = static_cast<uint64_t>(ticks) * 1000000ULL;
-  xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->interrupt_time,
-                               time_imprecise);
-
-  xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->system_time,
-                               time_imprecise);
-
-  xe::store_and_swap<uint32_t>(&lpKeTimeStampBundle->tick_count, ticks);
-
-  xe::store_and_swap<uint32_t>(&lpKeTimeStampBundle->padding, 0);
-
-  timestamp_timer_ = xe::threading::HighResolutionTimer::CreateRepeating(
-      std::chrono::milliseconds(1), [this]() { this->SystemClockInterrupt(); });
-  ke_timestamp_bundle_ptr_ = pKeTimeStampBundle;
-  return pKeTimeStampBundle;
-}
-
 void KernelState::InitializeProcess(X_KPROCESS* process, uint32_t type,
                                     char unk_18, char unk_19, char unk_1A) {
   uint32_t guest_kprocess = memory()->HostToGuestVirtual(process);
@@ -176,6 +148,19 @@ static void InitializeHandleTable(util::X_HANDLE_TABLE* result,
   result->free_offset = 0;
   result->highest_allocated_offset = 0;
   result->table_dynamic_buckets = 0;
+}
+
+static void GuestClockInterruptForwarder(void* ud) {
+  reinterpret_cast<KernelState*>(ud)->SystemClockInterrupt();
+}
+// called by HWClock on hw clock thread. sends an interrupt to guest cpu 0 to
+// run the kernels clock interrupt function
+static void HWClockCallback(cpu::Processor* processor) {
+  auto thrd0 = processor->GetCPUThread(0);
+
+  while (!thrd0->SendGuestIPI(GuestClockInterruptForwarder,
+                                          kernel_state())) {
+  }
 }
 
 void KernelState::InitializeKernelGuestGlobals() {
@@ -321,8 +306,12 @@ void KernelState::InitializeKernelGuestGlobals() {
     cpu_thread->idle_process_function_ =
         &KernelState::KernelIdleProcessFunction;
     cpu_thread->os_thread_->Resume();
-
   }
+
+  while (!processor()->AllHWThreadsBooted()) {
+    threading::NanoSleep(10000);//10 microseconds
+  }
+  processor()->GetHWClock()->SetInterruptCallback(HWClockCallback);
 }
 
 }  // namespace kernel

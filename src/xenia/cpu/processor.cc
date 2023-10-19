@@ -1402,5 +1402,10 @@ bool Processor::GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
   return xe::atomic_cas(xe::byte_swap(old_value), xe::byte_swap(new_value),
                         context->TranslateVirtual<uint32_t*>(guest_address));
 }
+
+void Processor::NotifyHWThreadBooted(uint32_t i) {
+  xe::atomic_inc(&num_booted_hwthreads_);
+}
+bool Processor::AllHWThreadsBooted() { return num_booted_hwthreads_ == 6; }
 }  // namespace cpu
 }  // namespace xe

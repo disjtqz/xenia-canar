@@ -226,7 +226,8 @@ class Processor {
   }
 
   HWClock* GetHWClock() { return hw_clock_.get(); }
-
+  void NotifyHWThreadBooted(uint32_t i);
+  bool AllHWThreadsBooted();
  private:
   // Synchronously demands a debug listener.
   void DemandDebugListener();
@@ -301,6 +302,8 @@ class Processor {
   std::vector<Breakpoint*> breakpoints_;
 
   std::unique_ptr<HWClock> hw_clock_;
+
+  volatile uint32_t num_booted_hwthreads_ = 0;
 };
 
 }  // namespace cpu

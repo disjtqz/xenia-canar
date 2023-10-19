@@ -932,7 +932,7 @@ bool KernelState::Save(ByteStream* stream) {
 // length of a guest timer tick is normally 1 millisecond
 void KernelState::SystemClockInterrupt() {
   X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
-      memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(ke_timestamp_bundle_ptr_);
+      memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
   uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
   uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
   xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->interrupt_time,
@@ -943,11 +943,8 @@ void KernelState::SystemClockInterrupt() {
 }
 
 uint32_t KernelState::GetKeTimestampBundle() {
-  XE_LIKELY_IF(ke_timestamp_bundle_ptr_) { return ke_timestamp_bundle_ptr_; }
-  else {
-    global_critical_region::PrepareToAcquire();
-    return CreateKeTimestampBundle();
-  }
+  return this->GetKernelGuestGlobals() +
+         offsetof(KernelGuestGlobals, KeTimestampBundle);
 }
 
 bool KernelState::Restore(ByteStream* stream) {
@@ -1208,7 +1205,9 @@ uint64_t KernelState::GetKernelInterruptTime() {
       ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
       ->interrupt_time;
 }
-void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {}
+void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
+
+
 
 }  // namespace kernel
 }  // namespace xe
