@@ -59,15 +59,21 @@ struct RunnableThread {
 
 class HWThread {
   void ThreadFunc();
+
+  void GuestIPIWorkerThreadFunc();
   bool HandleInterrupts();
 
   void RunRunnable(RunnableThread* runnable);
   // dpcs?
   void RunIdleProcess();
 
+  static uintptr_t IPIWrapperFunction(void* ud);
+
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
   ~HWThread();
+
+  bool AreInterruptsDisabled();
 
   std::unique_ptr<threading::Thread> os_thread_;
 
@@ -80,6 +86,11 @@ class HWThread {
 
   RunnableThread* last_run_thread_ = nullptr;
 
+
+  threading::AtomicListHeader guest_ipi_list_;
+
+  std::unique_ptr<threading::Thread> guest_ipi_dispatch_worker_;
+  std::unique_ptr<threading::Event> guest_ipi_dispatch_event_;
   // set by kernel
   void (*idle_process_function_)(ppc::PPCContext* context) = nullptr;
 
@@ -87,7 +98,10 @@ class HWThread {
 
   void YieldToScheduler();
 
-  bool TrySendIPI(void (*ipi_func)(void*), void* ud);
+  bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud);
+  //SendGuestIPI is designed to run on a guest thread
+  //it ought to be nonblocking, unlike TrySendHostIPI
+  bool SendGuestIPI(void (*ipi_func)(void*), void* ud);
 };
 
 }  // namespace cpu

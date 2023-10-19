@@ -69,12 +69,18 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                                bool change_irql = true);
 
 X_STATUS xeProcessUserApcs(PPCContext* ctx);
-
+X_STATUS xeProcessKernelApcs(PPCContext* ctx);
+void xeExecuteDPCList(PPCContext* context);
+void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
+                                      unsigned int software_interrupt_mask,
+                                      cpu::ppc::PPCContext* context);
 void xeRundownApcs(PPCContext* ctx);
 uint32_t xeKeGetCurrentProcessType(PPCContext* context);
 void xeKeSetCurrentProcessType(uint32_t type, PPCContext* context);
 void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
                           xe::cpu::ppc::PPCContext* context);
+void xeKeEnterCriticalRegion(PPCContext* context);
+void xeKeLeaveCriticalRegion(PPCContext* context);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

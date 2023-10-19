@@ -16,6 +16,7 @@
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_memory.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/xbox.h"
 DEFINE_bool(
     ignore_offset_for_ranged_allocations, false,
@@ -67,7 +68,7 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
                                              lpdword_t region_size_ptr,
                                              dword_t alloc_type,
                                              dword_t protect_bits,
-                                             dword_t debug_memory) {
+                                             dword_t debug_memory, const ppc_context_t& context) {
   // NTSTATUS
   // _Inout_  PVOID *BaseAddress,
   // _Inout_  PSIZE_T RegionSize,
@@ -119,7 +120,7 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
       page_size = 64 * 1024;
     }
   }
-
+  
   // Round the base address down to the nearest page boundary.
   uint32_t adjusted_base = *base_addr_ptr - (*base_addr_ptr % page_size);
   // For some reason, some games pass in negative sizes.
@@ -148,10 +149,13 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
   HeapAllocationInfo prev_alloc_info = {};
   bool was_commited = false;
 
+  xboxkrnl::xeKeEnterCriticalRegion(context);
+
   if (adjusted_base != 0) {
     heap = kernel_memory()->LookupHeap(adjusted_base);
     if (heap->page_size() != page_size) {
       // Specified the wrong page size for the wrong heap.
+      xboxkrnl::xeKeLeaveCriticalRegion(context);
       return X_STATUS_ACCESS_DENIED;
     }
     was_commited = heap->QueryRegionInfo(adjusted_base, &prev_alloc_info) &&
@@ -169,6 +173,7 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
   }
   if (!address) {
     // Failed - assume no memory available.
+    xboxkrnl::xeKeLeaveCriticalRegion(context);
     return X_STATUS_NO_MEMORY;
   }
 
@@ -187,7 +192,7 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
       }
     }
   }
-
+  xboxkrnl::xeKeLeaveCriticalRegion(context);
   XELOGD("NtAllocateVirtualMemory = {:08X}", address);
 
   // Stash back.

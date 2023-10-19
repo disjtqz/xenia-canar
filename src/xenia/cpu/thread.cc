@@ -10,6 +10,7 @@
 #include "xenia/cpu/thread.h"
 #include "xenia/base/atomic.h"
 #include "xenia/cpu/thread_state.h"
+#include "xenia/kernel/kernel_state.h"
 namespace xe {
 namespace cpu {
 
@@ -61,8 +62,31 @@ void HWThread::ThreadFunc() {
   }
 }
 
+struct GuestIPI {
+  threading::AtomicListEntry list_entry_;
+  void (*function_)(void*);
+  void* ud_;
+};
+
+void HWThread::GuestIPIWorkerThreadFunc() {
+  while (true) {
+    // todo: add another event that signals that its time to terminate
+    threading::Wait(guest_ipi_dispatch_event_.get(), false);
+    auto list_entry = reinterpret_cast<GuestIPI*>(guest_ipi_list_.Pop());
+    if (!list_entry) {
+      continue;
+    }
+    while (!TrySendInterruptFromHost(list_entry->function_, list_entry->ud_)) {
+      threading::MaybeYield();
+    }
+    delete list_entry;
+  }
+}
+
 HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
-    : cpu_number_(cpu_number), idle_process_threadstate_(thread_state), runnable_thread_list_() {
+    : cpu_number_(cpu_number),
+      idle_process_threadstate_(thread_state),
+      runnable_thread_list_() {
   threading::Thread::CreationParameters params;
   params.create_suspended = true;
   params.initial_priority = threading::ThreadPriority::kAboveNormal;
@@ -71,9 +95,26 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   os_thread_ =
       threading::Thread::Create(params, std::bind(&HWThread::ThreadFunc, this));
   os_thread_->set_affinity_mask(1ULL << cpu_number_);
-  os_thread_->set_name(std::string("Hw Thread ") + std::to_string(cpu_number));
+  os_thread_->set_name(std::string("PPC HW Thread ") +
+                       std::to_string(cpu_number));
+
+  guest_ipi_dispatch_event_ = threading::Event::CreateAutoResetEvent(false);
+  params.stack_size = 512 * 1024;
+  params.initial_priority = threading::ThreadPriority::kBelowNormal;
+  params.create_suspended = false;
+  guest_ipi_dispatch_worker_ = threading::Thread::Create(
+
+      params, std::bind(&HWThread::GuestIPIWorkerThreadFunc, this));
+
+  // is putting it on the same os thread a good idea? nah, probably not
+  // but until we have real thread allocation logic thats where it goes
+  guest_ipi_dispatch_worker_->set_affinity_mask(1ULL << cpu_number_);
+  guest_ipi_dispatch_worker_->set_name(
+      std::string("PPC HW Thread IPI Worker ") + std::to_string(cpu_number));
 }
-HWThread::~HWThread() {}
+HWThread::~HWThread() {
+  xenia_assert(false);  // dctor not implemented yet
+}
 
 void HWThread::EnqueueRunnableThread(RunnableThread* rth) {
   rth->list_entry_.next_ = nullptr;
@@ -81,8 +122,60 @@ void HWThread::EnqueueRunnableThread(RunnableThread* rth) {
 }
 
 void HWThread::YieldToScheduler() { this->idle_process_fiber_->SwitchTo(); }
-bool HWThread::TrySendIPI(void (*ipi_func)(void*), void* ud) {
-  return os_thread_->IPI(ipi_func, ud);
+
+// todo: handle interrupt controller/irql shit, that matters too
+// theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
+bool HWThread::AreInterruptsDisabled() {
+  auto context = cpu::ThreadState::Get()->context();
+  if (context->msr & 0x8000) {
+    return true;
+  }
+  return false;
 }
+struct GuestInterruptWrapper {
+  void (*ipi_func)(void*);
+  void* ud;
+  HWThread* thiz;
+};
+
+uintptr_t HWThread::IPIWrapperFunction(void* ud) {
+  auto interrupt_wrapper = reinterpret_cast<GuestInterruptWrapper*>(ud);
+
+  if (interrupt_wrapper->thiz->AreInterruptsDisabled()) {
+    // retry! 
+    return 0;
+  }
+  // todo: need to set current thread to idle thread!!
+
+  interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
+  return 1;
+}
+
+bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
+  GuestInterruptWrapper wrapper{};
+  wrapper.ipi_func = ipi_func;
+  wrapper.ud = ud;
+  wrapper.thiz = this;
+  // ipi wrapper returns 0 if current context has interrupts disabled
+  uintptr_t result_from_call=0;
+
+  while (!os_thread_->IPI(IPIWrapperFunction, &wrapper, &result_from_call) ||
+         result_from_call == 0) {
+    threading::MaybeYield();
+  }
+  return true;
+}
+bool HWThread::SendGuestIPI(void (*ipi_func)(void*), void* ud) {
+  // todo: pool this structure!
+
+  auto msg = new GuestIPI();
+  msg->list_entry_.next_ = nullptr;
+  msg->function_ = ipi_func;
+  msg->ud_ = ud;
+  guest_ipi_list_.Push(&msg->list_entry_);
+  guest_ipi_dispatch_event_->SetBoostPriority();
+  return true;
+}
+
 }  // namespace cpu
 }  // namespace xe

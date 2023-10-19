@@ -599,7 +599,8 @@ class Win32Thread : public Win32Handle<Thread> {
   void Terminate(int exit_code) override {
     TerminateThread(handle_, exit_code);
   }
-  bool IPI(void (*ipi_function)(void* userdata), void* userdata) override;
+  bool IPI(IPIFunction function, void* userdata,
+           uintptr_t* result_out) override;
 
  private:
   void AssertCallingThread() {
@@ -621,21 +622,23 @@ class Win32Thread : public Win32Handle<Thread> {
 
 struct IPIContext {
   void* userdata_;
-  void (*ipi_function_)(void* userdata);
+  IPIFunction function_;
+
+  uintptr_t result_;
   _CONTEXT saved_context_;
   _CONTEXT initial_context_;
   HANDLE racy_handle_;
 };
 
 void IPIForwarder(IPIContext* context) {
-  context->ipi_function_(context->userdata_);
+  context->result_ = context->function_(context->userdata_);
   SetEvent(context->racy_handle_);
   //DWORD result = SuspendThread(GetCurrentThread());
   //__debugbreak();
   RtlRestoreContext(&context->saved_context_, nullptr);
 }
 
-bool Win32Thread::IPI(void (*ipi_function)(void* userdata), void* userdata) {
+bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata, uintptr_t* result_out) {
   if (!ipi_mutex_.try_lock()) {
     return false;
   }
@@ -654,6 +657,7 @@ bool Win32Thread::IPI(void (*ipi_function)(void* userdata), void* userdata) {
 
   if (!ctx_to_use) {
     ctx_to_use = new IPIContext();
+    memset(ctx_to_use, 0, sizeof(IPIContext));
     cached_ipi_context_ = ctx_to_use;
     ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
   }
@@ -662,20 +666,25 @@ bool Win32Thread::IPI(void (*ipi_function)(void* userdata), void* userdata) {
   BOOL getcontext_worked = GetThreadContext(this->handle_, &ctx_to_use->initial_context_);
   GetThreadContext(this->handle_, &ctx_to_use->saved_context_);
 
-  ctx_to_use->ipi_function_ = ipi_function;
+  ctx_to_use->function_ = ipi_function;
   ctx_to_use->userdata_ = userdata;
   ctx_to_use->initial_context_.Rip =
       reinterpret_cast<DWORD64>(reinterpret_cast<void*>(IPIForwarder));
 
   ctx_to_use->initial_context_.Rcx = reinterpret_cast<DWORD64>(ctx_to_use);
   ctx_to_use->initial_context_.Rsp =
-      xe::align<DWORD64>(ctx_to_use->initial_context_.Rsp - 256, 32) - 8;
+      xe::align<DWORD64>(ctx_to_use->initial_context_.Rsp - 2048, 128) - 56;
   // racy!
 
   BOOL setcontext_worked = SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
   bool resumed = this->Resume(nullptr);
   
   WaitForSingleObject(ctx_to_use->racy_handle_, INFINITE);
+
+  if (result_out) {
+    *result_out = ctx_to_use->result_;
+  }
+  NanoSleep(1);
 
   //while (GetSuspendCount() < 1) {
  //   MaybeYield();

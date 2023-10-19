@@ -147,6 +147,8 @@ struct KernelGuestGlobals {
   util::X_HANDLE_TABLE TitleThreadIdTable;
   util::X_HANDLE_TABLE SystemThreadIdTable;
 };
+
+struct X_KPCR_PAGE;
 struct DPCImpersonationScope {
   uint8_t previous_irql_;
 };
@@ -269,8 +271,6 @@ class KernelState {
   void UnregisterNotifyListener(XNotifyListener* listener);
   void BroadcastNotification(XNotificationID id, uint32_t data);
 
-  util::NativeList* dpc_list() { return &dpc_list_; }
-
   void CompleteOverlapped(uint32_t overlapped_ptr, X_RESULT result);
   void CompleteOverlappedEx(uint32_t overlapped_ptr, X_RESULT result,
                             uint32_t extended_error, uint32_t length);
@@ -340,6 +340,7 @@ class KernelState {
   uint32_t GetKernelTickCount();
   uint64_t GetKernelSystemTime();
   uint64_t GetKernelInterruptTime();
+  X_KPCR_PAGE* KPCRPageForCpuNumber(uint32_t i);
  private:
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
   void InitializeProcess(X_KPROCESS* process, uint32_t type, char unk_18,
@@ -373,8 +374,6 @@ class KernelState {
 
   std::atomic<bool> dispatch_thread_running_;
   object_ref<XHostThread> dispatch_thread_;
-  // Must be guarded by the global critical region.
-  util::NativeList dpc_list_;
   std::condition_variable_any dispatch_cond_;
   std::list<std::function<void()>> dispatch_queue_;
 

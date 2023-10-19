@@ -414,7 +414,7 @@ struct ThreadPriority {
   static const int32_t kAboveNormal = 1;
   static const int32_t kHighest = 2;
 };
-
+using IPIFunction = uintptr_t (*)(void* ud);
 // Models a Win32-like thread object.
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms682453(v=vs.85).aspx
 class Thread : public WaitHandle {
@@ -484,7 +484,7 @@ class Thread : public WaitHandle {
   // threads that had been waiting for the thread to terminate.
   virtual void Terminate(int exit_code) = 0;
 
-  virtual bool IPI(void (*ipi_function)(void* userdata), void* userdata) = 0;
+  virtual bool IPI(IPIFunction ipi_function, void* userdata, uintptr_t* result_out = nullptr) = 0;
 
  protected:
   std::string name_;

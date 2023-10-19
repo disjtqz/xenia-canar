@@ -36,6 +36,17 @@ DEFINE_bool(ignore_thread_affinities, true,
 namespace xe {
 namespace kernel {
 
+X_KPCR* GetKPCR() { return GetKPCR(cpu::ThreadState::Get()->context()); }
+X_KPCR* GetKPCR(PPCContext* context) {
+  return context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
+}
+
+X_KTHREAD* GetKThread() {
+  return GetKThread(cpu::ThreadState::Get()->context());
+}
+X_KTHREAD* GetKThread(PPCContext* context) {
+  return context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
+}
 const uint32_t XAPC::kSize;
 const uint32_t XAPC::kDummyKernelRoutine;
 const uint32_t XAPC::kDummyRundownRoutine;
@@ -576,16 +587,6 @@ void XThread::Reenter(uint32_t address) {
   // On Windows with /EH, setjmp/longjmp do stack unwinding.
   // Is there a better solution than exceptions for stack unwinding?
   throw reenter_exception(address);
-}
-
-void XThread::EnterCriticalRegion() {
-  guest_object<X_KTHREAD>()->apc_disable_count--;
-}
-
-void XThread::LeaveCriticalRegion() {
-  auto kthread = guest_object<X_KTHREAD>();
-  // this has nothing to do with user mode apcs!
-  auto apc_disable_count = ++kthread->apc_disable_count;
 }
 
 void XThread::EnqueueApc(uint32_t normal_routine, uint32_t normal_context,

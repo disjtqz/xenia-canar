@@ -17,6 +17,7 @@
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_rtl.h"
 #include "xenia/xbox.h"
 
@@ -274,12 +275,14 @@ void VdSetGraphicsInterruptCallback_entry(function_t callback,
 }
 DECLARE_XBOXKRNL_EXPORT1(VdSetGraphicsInterruptCallback, kVideo, kImplemented);
 
-void VdInitializeRingBuffer_entry(lpvoid_t ptr, int_t size_log2) {
+void VdInitializeRingBuffer_entry(lpvoid_t ptr, int_t size_log2, const ppc_context_t& context) {
+  xboxkrnl::xeKeEnterCriticalRegion(context);
   // r3 = result of MmGetPhysicalAddress
   // r4 = log2(size)
   // Buffer pointers are from MmAllocatePhysicalMemory with WRITE_COMBINE.
   auto graphics_system = kernel_state()->emulator()->graphics_system();
   graphics_system->InitializeRingBuffer(ptr, size_log2);
+  xboxkrnl::xeKeLeaveCriticalRegion(context);
 }
 DECLARE_XBOXKRNL_EXPORT1(VdInitializeRingBuffer, kVideo, kImplemented);
 

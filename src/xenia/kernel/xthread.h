@@ -32,6 +32,8 @@ class XEvent;
 constexpr uint32_t X_CREATE_SUSPENDED = 0x00000001;
 
 constexpr uint32_t X_TLS_OUT_OF_INDEXES = UINT32_MAX;
+
+
 struct XDPC {
   xe::be<uint16_t> type;
   uint8_t selected_cpu_number;
@@ -59,8 +61,8 @@ struct XAPC {
   // KAPC is 0x28(40) bytes? (what's passed to ExAllocatePoolWithTag)
   // This is 4b shorter than NT - looks like the reserved dword at +4 is gone.
   // NOTE: stored in guest memory.
-  uint16_t type;                      // +0
-  uint8_t apc_mode;            // +2
+  uint16_t type;                     // +0
+  uint8_t apc_mode;                  // +2
   uint8_t enqueued;                  // +3
   xe::be<uint32_t> thread_ptr;       // +4
   X_LIST_ENTRY list_entry;           // +8
@@ -104,8 +106,9 @@ struct X_KPRCB {
   xe::be<uint32_t> unk_3C;                        // 0x3C
   xe::be<uint32_t> dpc_related_40;                // 0x40
   // must be held to modify any dpc-related fields in the kprcb
-  xe::be<uint32_t> dpc_lock;           // 0x44
-  X_LIST_ENTRY queued_dpcs_list_head;  // 0x48
+  X_KSPINLOCK dpc_lock;                // 0x44
+  util::X_TYPED_LIST<XDPC, offsetof(XDPC, list_entry)> queued_dpcs_list_head;
+  // // 0x48
   xe::be<uint32_t> dpc_active;         // 0x50
   xe::be<uint32_t> unk_54;             // 0x54
   xe::be<uint32_t> unk_58;             // 0x58
@@ -201,11 +204,13 @@ struct X_KTHREAD {
   // times while the process is being created
   uint8_t process_type_dup;
   uint8_t process_type;
-  //apc_mode determines which list an apc goes into
-  util::X_TYPED_LIST<XAPC, offsetof(XAPC, list_entry)> apc_lists[2]; 
+  // apc_mode determines which list an apc goes into
+  util::X_TYPED_LIST<XAPC, offsetof(XAPC, list_entry)> apc_lists[2];
   TypedGuestPointer<X_KPROCESS> process;  // 0x84
-  uint8_t unk_88[0x3];                    // 0x88
-  uint8_t may_queue_apcs;                    // 0x8B
+  uint8_t unk_88;                         // 0x88
+  uint8_t running_kernel_apcs;            // 0x89
+  uint8_t unk_8A;                         // 0x8A
+  uint8_t may_queue_apcs;                 // 0x8B
   X_KSPINLOCK apc_lock;                   // 0x8C
   uint8_t unk_90[0xC];                    // 0x90
   xe::be<uint32_t> msr_mask;              // 0x9C
@@ -260,17 +265,17 @@ struct X_KTHREAD {
   // This struct is actually quite long... so uh, not filling this out!
 };
 static_assert_size(X_KTHREAD, 0xAB0);
-
-
-
-class XNewThread : public XObject {
-  threading::Fiber* scheduler_fiber_;
-  std::unique_ptr<threading::Fiber> this_fiber_;
-  uint32_t kthread_;
-
+struct alignas(4096) X_KPCR_PAGE {
+  X_KPCR pcr;        // 0x0
+  char unk_2D8[40];  // 0x2D8
+  X_KTHREAD idle_process_thread;
 };
 
-class XThread : public XObject{
+X_KPCR* GetKPCR();
+X_KPCR* GetKPCR(cpu::ppc::PPCContext* context);
+X_KTHREAD* GetKThread();
+X_KTHREAD* GetKThread(cpu::ppc::PPCContext* context);
+class XThread : public XObject {
  public:
   static const XObject::Type kObjectType = XObject::Type::Thread;
 
@@ -323,9 +328,6 @@ class XThread : public XObject{
 
   virtual void Reenter(uint32_t address);
 
-  void EnterCriticalRegion();
-  void LeaveCriticalRegion();
-
   void EnqueueApc(uint32_t normal_routine, uint32_t normal_context,
                   uint32_t arg1, uint32_t arg2);
 
@@ -342,7 +344,7 @@ class XThread : public XObject{
   // 5 - core 2, thread 1 - user
   void SetAffinity(uint32_t affinity);
   uint8_t active_cpu() const;
-  void SetActiveCpu(uint8_t cpu_index, bool initial=false);
+  void SetActiveCpu(uint8_t cpu_index, bool initial = false);
 
   bool GetTLSValue(uint32_t slot, uint32_t* value_out);
   bool SetTLSValue(uint32_t slot, uint32_t value);
@@ -363,12 +365,9 @@ class XThread : public XObject{
   void Schedule();
   void YieldCPU();
   cpu::HWThread* HWThread();
-  cpu::ThreadState* thread_state() { return thread_state_;
-  }
-  bool can_debugger_suspend() { return false;
-  }
-  threading::Fiber* fiber() { return fiber_.get();
-  }
+  cpu::ThreadState* thread_state() { return thread_state_; }
+  bool can_debugger_suspend() { return false; }
+  threading::Fiber* fiber() { return fiber_.get(); }
 
  protected:
   bool AllocateStack(uint32_t size);
@@ -378,17 +377,16 @@ class XThread : public XObject{
   void DeliverAPCs();
   void RundownAPCs();
 
-  xe::threading::WaitHandle* GetWaitHandle() override { return fiber_.get();
-  }
+  xe::threading::WaitHandle* GetWaitHandle() override { return fiber_.get(); }
 
   CreationParams creation_params_ = {0};
 
   std::unique_ptr<threading::Fiber> fiber_;
   cpu::ThreadState* thread_state_;
-  //for enqueuing to cpu
+  // for enqueuing to cpu
   cpu::RunnableThread runnable_entry_;
- 
-  //uint32_t thread_id_ = 0;
+
+  // uint32_t thread_id_ = 0;
   uint32_t tls_static_address_ = 0;
   uint32_t tls_dynamic_address_ = 0;
   uint32_t tls_total_size_ = 0;
@@ -407,7 +405,8 @@ class XThread : public XObject{
 class XHostThread : public XThread {
  public:
   XHostThread(KernelState* kernel_state, uint32_t stack_size,
-              uint32_t creation_flags, std::function<int()> host_fn, uint32_t guest_process=0);
+              uint32_t creation_flags, std::function<int()> host_fn,
+              uint32_t guest_process = 0);
 
   virtual void Execute();
 

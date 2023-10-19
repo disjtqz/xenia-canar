@@ -375,11 +375,11 @@ typedef struct alignas(64) PPCContext_s {
 
   // Most frequently used registers first.
 
-  uint64_t r[32];   // 0x20 General purpose registers
-  uint64_t ctr;     // 0x18 Count register
-  uint64_t lr;      // 0x10 Link register
+  uint64_t r[32];  // 0x20 General purpose registers
+  uint64_t ctr;    // 0x18 Count register
+  uint64_t lr;     // 0x10 Link register
 
-  uint64_t msr;		//machine state register
+  uint64_t msr;  // machine state register
 
   double f[32];     // 0x120 Floating-point registers
   vec128_t v[128];  // 0x220 VMX128 vector registers
@@ -483,6 +483,12 @@ typedef struct alignas(64) PPCContext_s {
   void SetRegFromString(const char* name, const char* value);
   bool CompareRegWithString(const char* name, const char* value,
                             std::string& result) const;
+  // todo: distinguish between these!
+  bool RecoverableInterruptsEnabled() { return !!(msr & 2); }
+  bool ExternalInterruptsEnabled() { return !!(msr & 0x8000); }
+
+  void DisableEI() { msr &= ~0x8000ULL; }
+  void EnableEI() { msr |= 0x8000ULL; }
 } PPCContext;
 #pragma pack(pop)
 constexpr size_t ppcctx_size = sizeof(PPCContext);

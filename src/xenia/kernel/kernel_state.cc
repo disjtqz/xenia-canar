@@ -50,7 +50,6 @@ KernelState::KernelState(Emulator* emulator)
     : emulator_(emulator),
       memory_(emulator->memory()),
       dispatch_thread_running_(false),
-      dpc_list_(emulator->memory()),
       kernel_trampoline_group_(emulator->processor()->backend()) {
   assert_null(shared_kernel_state_);
   shared_kernel_state_ = this;
@@ -370,10 +369,10 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
   // TODO(benvanik): move someplace more appropriate (out of ctor, but around
   // here).
   if (!dispatch_thread_running_) {
-    dispatch_thread_running_ = false;
-   #if 0
+    dispatch_thread_running_ = true;
+#if 1
     dispatch_thread_ = object_ref<XHostThread>(new XHostThread(
-        this, 128 * 1024, 0,
+        this, 128 * 1024, (0b100000)<<24,
         [this]() {
           // As we run guest callbacks the debugger must be able to suspend us.
 
@@ -398,7 +397,7 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
         GetSystemProcess()));  // don't think an equivalent exists on real hw
     dispatch_thread_->set_name("Kernel Dispatch");
     dispatch_thread_->Create();
-    #endif
+#endif
   }
 }
 
@@ -1005,7 +1004,7 @@ uint8_t KernelState::GetConnectedUsers() const {
 // todo: definitely need to do more to pretend to be in a dpc
 void KernelState::BeginDPCImpersonation(cpu::ppc::PPCContext* context,
                                         DPCImpersonationScope& scope) {
-  auto kpcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
+  auto kpcr = GetKPCR(context);
   xenia_assert(kpcr->prcb_data.dpc_active == 0);
   scope.previous_irql_ = kpcr->current_irql;
 
@@ -1014,7 +1013,7 @@ void KernelState::BeginDPCImpersonation(cpu::ppc::PPCContext* context,
 }
 void KernelState::EndDPCImpersonation(cpu::ppc::PPCContext* context,
                                       DPCImpersonationScope& end_scope) {
-  auto kpcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
+  auto kpcr = GetKPCR(context);
   xenia_assert(kpcr->prcb_data.dpc_active == 1);
   kpcr->current_irql = end_scope.previous_irql_;
   kpcr->prcb_data.dpc_active = 0;
@@ -1032,8 +1031,10 @@ void CPInterruptIPI(void* ud) {
   auto current_context = current_ts->context();
   auto kernel_state = current_context->kernel_state;
 
-  auto pcr = current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
-  auto kthread = current_context->TranslateVirtual(pcr->prcb_data.current_thread);
+  auto pcr =
+      current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
+  auto kthread =
+      current_context->TranslateVirtual(pcr->prcb_data.current_thread);
   DPCImpersonationScope dpc_scope{};
   kernel_state->BeginDPCImpersonation(current_context, dpc_scope);
 
@@ -1044,7 +1045,7 @@ void CPInterruptIPI(void* ud) {
   uint64_t args[] = {params->source_, params->interrupt_callback_data_};
 
   params->processor_->Execute(current_ts, params->interrupt_callback_, args,
-                      xe::countof(args));
+                              xe::countof(args));
   xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, current_context);
 
   kernel_state->EndDPCImpersonation(current_context, dpc_scope);
@@ -1058,15 +1059,14 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
     return;
   }
 
-  //auto thread = kernel::XThread::GetCurrentThread();
- // assert_not_null(thread);
+  // auto thread = kernel::XThread::GetCurrentThread();
+  // assert_not_null(thread);
 
   // Pick a CPU, if needed. We're going to guess 2. Because.
   if (cpu == 0xFFFFFFFF) {
     cpu = 2;
   }
-  //thread->SetActiveCpu(cpu);
-
+  // thread->SetActiveCpu(cpu);
 
   /*
     in reality, our interrupt is a callback that is called in a dpc which is
@@ -1081,10 +1081,9 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   params->interrupt_callback_ = interrupt_callback;
   params->interrupt_callback_data_ = interrupt_callback_data;
   auto hwthread = processor_->GetCPUThread(cpu);
-  while (!hwthread->TrySendIPI(CPInterruptIPI, params)) {
-    
+  while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
   }
-  #if 0
+#if 0
   auto current_context = thread->thread_state()->context();
   auto kthread = memory()->TranslateVirtual<X_KTHREAD*>(thread->guest_object());
 
@@ -1104,9 +1103,9 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
 
   EndDPCImpersonation(current_context, dpc_scope);
 
-  #else
-  
-  #endif
+#else
+
+#endif
 }
 
 uint32_t KernelState::LockDispatcher(cpu::ppc::PPCContext* context) {
@@ -1191,7 +1190,9 @@ void* KernelState::_FreeInternalHandle(uint32_t id) {
   internal_handles_.erase(iter);
   return result;
 }
-
+X_KPCR_PAGE* KernelState::KPCRPageForCpuNumber(uint32_t i) {
+  return memory()->TranslateVirtual<X_KPCR_PAGE*>(processor()->GetPCRForCPU(i));
+}
 uint32_t KernelState::GetKernelTickCount() {
   return memory()
       ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
@@ -1207,9 +1208,7 @@ uint64_t KernelState::GetKernelInterruptTime() {
       ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
       ->interrupt_time;
 }
-void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
-
-}
+void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {}
 
 }  // namespace kernel
 }  // namespace xe
