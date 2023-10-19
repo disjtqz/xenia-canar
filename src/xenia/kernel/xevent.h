@@ -12,16 +12,9 @@
 
 #include "xenia/base/threading.h"
 #include "xenia/kernel/xobject.h"
-#include "xenia/xbox.h"
-
+#include "xenia/kernel/kernel_guest_structures.h"
 namespace xe {
 namespace kernel {
-
-// https://www.nirsoft.net/kernel_struct/vista/KEVENT.html
-struct X_KEVENT {
-  X_DISPATCH_HEADER header;
-};
-static_assert_size(X_KEVENT, 0x10);
 
 class XEvent : public XObject {
  public:

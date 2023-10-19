@@ -12,7 +12,7 @@
 
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xmutant.h"
-#include "xenia/xbox.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 
 namespace xe {
 namespace kernel {

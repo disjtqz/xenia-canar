@@ -18,7 +18,7 @@
 #include "xenia/vfs/device.h"
 #include "xenia/vfs/entry.h"
 #include "xenia/vfs/file.h"
-#include "xenia/xbox.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 
 namespace xe {
 namespace kernel {

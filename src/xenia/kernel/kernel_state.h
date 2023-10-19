@@ -34,7 +34,7 @@
 #include "xenia/kernel/xevent.h"
 #include "xenia/memory.h"
 #include "xenia/vfs/virtual_file_system.h"
-#include "xenia/xbox.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 
 namespace xe {
 class ByteStream;
@@ -379,7 +379,7 @@ class KernelState {
   std::condition_variable_any dispatch_cond_;
   std::list<std::function<void()>> dispatch_queue_;
 
-  BitMap tls_bitmap_;
+  BitMap tls_bitmap_;\
   std::unique_ptr<xe::threading::HighResolutionTimer> timestamp_timer_;
   cpu::backend::GuestTrampolineGroup kernel_trampoline_group_;
   //fixed address referenced by dashboards. Data is currently unknown

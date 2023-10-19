@@ -17,7 +17,7 @@
 #include "xenia/cpu/ppc/ppc_context.h"
 #include "xenia/base/threading.h"
 #include "xenia/memory.h"
-#include "xenia/xbox.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 
 namespace xe {
 class ByteStream;
@@ -34,33 +34,7 @@ class KernelState;
 template <typename T>
 class object_ref;
 
-// https://www.nirsoft.net/kernel_struct/vista/DISPATCHER_HEADER.html
-typedef struct {
-  struct {
-    uint8_t type;
 
-    union {
-      uint8_t abandoned;
-      uint8_t absolute;
-      uint8_t npx_irql;
-      uint8_t signalling;
-    };
-    union {
-      uint8_t size;
-      uint8_t hand;
-    };
-    union {
-      uint8_t inserted;
-      uint8_t debug_active;
-      uint8_t dpc_active;
-    };
-  };
-
-  xe::be<uint32_t> signal_state;
-  xe::be<uint32_t> wait_list_flink;
-  xe::be<uint32_t> wait_list_blink;
-} X_DISPATCH_HEADER;
-static_assert_size(X_DISPATCH_HEADER, 0x10);
 
 // https://www.nirsoft.net/kernel_struct/vista/OBJECT_CREATE_INFORMATION.html
 struct X_OBJECT_CREATE_INFORMATION {

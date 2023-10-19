@@ -11,7 +11,7 @@
 #define XENIA_KERNEL_XBOXKRNL_XBOXKRNL_OB_H_
 
 #include "xenia/kernel/util/shim_utils.h"
-
+#include "xenia/kernel/kernel_guest_structures.h"
 namespace xe {
 namespace kernel {
 namespace xboxkrnl {

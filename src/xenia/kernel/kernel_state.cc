@@ -1206,8 +1206,10 @@ uint64_t KernelState::GetKernelInterruptTime() {
       ->interrupt_time;
 }
 void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
+  //  while (!GetKPCR()->unknown_8) {
 
-
+  //}
+}
 
 }  // namespace kernel
 }  // namespace xe

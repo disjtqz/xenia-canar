@@ -14,7 +14,7 @@
 
 #include "xenia/base/threading.h"
 #include "xenia/kernel/xobject.h"
-#include "xenia/xbox.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 
 namespace xe {
 namespace kernel {

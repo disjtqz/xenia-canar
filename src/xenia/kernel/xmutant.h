@@ -12,22 +12,10 @@
 
 #include "xenia/base/threading.h"
 #include "xenia/kernel/xobject.h"
-#include "xenia/xbox.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 
 namespace xe {
 namespace kernel {
-struct X_KTHREAD;
-struct X_KMUTANT {
-  X_DISPATCH_HEADER header;             //0x0
-  X_LIST_ENTRY unk_list;                //0x10
-  TypedGuestPointer<X_KTHREAD> owner;   //0x18
-  bool abandoned;                       //0x1C
-  //these might just be padding 
-  uint8_t unk_1D;                       //0x1D
-  uint8_t unk_1E;                       //0x1E
-  uint8_t unk_1F;                       //0x1F
-};
-static_assert_size(X_KMUTANT, 0x20);
 
 class XThread;
 
