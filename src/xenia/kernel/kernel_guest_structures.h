@@ -2,8 +2,8 @@
  ******************************************************************************
  * Xenia : Xbox 360 Emulator Research Project                                 *
  ******************************************************************************
- * Copyright 2023 Xenia Canary. All rights reserved.                             *
- * Released under the BSD license - see LICENSE in the root for more details. *
+ * Copyright 2023 Xenia Canary. All rights reserved. * Released under the BSD
+ *license - see LICENSE in the root for more details. *
  ******************************************************************************
  */
 
@@ -166,7 +166,6 @@ struct X_DISPATCH_HEADER {
 };
 static_assert_size(X_DISPATCH_HEADER, 0x10);
 
-
 // pretty much the vista KWAIT_BLOCK verbatim, except that sparebyte is gone and
 // WaitType is 2 bytes instead of 1
 struct X_KWAIT_BLOCK {
@@ -302,22 +301,34 @@ struct X_KPCR {
   uint8_t unk_2AC[0x2C];            // 0x2AC
 };
 
+/*
+    there must be two timer structures, because the size passed to
+   ObCreateObject does not make sense if we apply that structure size to the
+   timer embedded in KTHREAD
+*/
+struct X_KTIMER {
+  X_DISPATCH_HEADER header;  // 0x0
+  uint8_t unk_10[0x18];      // 0x10
+};
+static_assert_size(X_KTIMER, 0x28);
+
+struct X_EXTIMER {
+  X_KTIMER ktimer;               // 0x0
+  uint8_t unk_28[0x80u - 0x28];  // 0x28
+};
+
+static_assert_size(X_EXTIMER, 0x80);
+
 struct X_KTHREAD {
-  X_DISPATCH_HEADER header;       // 0x0
-  X_LIST_ENTRY mutants_list;      // 0x10
-  uint8_t unk_18[0x28];           // 0x18
-  xe::be<uint32_t> unk_40;        // 0x40
-  xe::be<uint32_t> unk_44;        // 0x44
-  xe::be<uint32_t> unk_48;        // 0x48
-  xe::be<uint32_t> unk_4C;        // 0x4C
-  uint8_t unk_50[0x4];            // 0x50
-  xe::be<uint16_t> unk_54;        // 0x54
-  xe::be<uint16_t> unk_56;        // 0x56
-  uint8_t unk_58[0x4];            // 0x58
-  xe::be<uint32_t> stack_base;    // 0x5C
-  xe::be<uint32_t> stack_limit;   // 0x60
-  xe::be<uint32_t> stack_kernel;  // 0x64
-  xe::be<uint32_t> tls_address;   // 0x68
+  X_DISPATCH_HEADER header;          // 0x0
+  X_LIST_ENTRY mutants_list;         // 0x10
+  X_KTIMER wait_timeout_timer;       // 0x18
+  X_KWAIT_BLOCK wait_timeout_block;  // 0x40
+  uint8_t unk_58[0x4];               // 0x58
+  xe::be<uint32_t> stack_base;       // 0x5C
+  xe::be<uint32_t> stack_limit;      // 0x60
+  xe::be<uint32_t> stack_kernel;     // 0x64
+  xe::be<uint32_t> tls_address;      // 0x68
   // state = is thread running, suspended, etc
   uint8_t thread_state;  // 0x6C
   // 0x70 = priority?
