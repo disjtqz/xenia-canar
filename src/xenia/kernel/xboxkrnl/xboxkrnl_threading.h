@@ -81,6 +81,9 @@ void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
                           xe::cpu::ppc::PPCContext* context);
 void xeKeEnterCriticalRegion(PPCContext* context);
 void xeKeLeaveCriticalRegion(PPCContext* context);
+
+void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
+                           PPCContext* context);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

@@ -858,6 +858,31 @@ void KeInitializeMutant_entry(pointer_t<X_KMUTANT> mutant,
 
 DECLARE_XBOXKRNL_EXPORT1(KeInitializeMutant, kThreading, kImplemented);
 
+void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
+                           PPCContext* context) {
+  xenia_assert(proctype < 3);
+  xenia_assert(type == 0 || type == 1);
+  // other fields are unmodified, they must carry through multiple calls of
+  // initialize
+  timer->header.process_type = proctype;
+  timer->header.inserted = 0;
+  timer->header.type = type + 8;
+  timer->header.signal_state = 0;
+  timer->unk_18.blink_ptr = 0;
+  timer->unk_18.flink_ptr = 0;
+  // todo: should initialize wait list in header
+  util::XeInitializeListHead(&timer->header.wait_list, context);
+  timer->due_time = 0;
+  timer->period = 0;
+}
+
+void KeInitializeTimerEx_entry(pointer_t<X_KTIMER> timer, dword_t type,
+                               dword_t proctype, const ppc_context_t& context) {
+  xeKeInitializeTimerEx(timer, type, proctype & 0xFF, context);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeInitializeTimerEx, kThreading, kImplemented);
+
+
 dword_result_t NtCreateTimer_entry(lpdword_t handle_ptr,
                                    lpvoid_t obj_attributes_ptr,
                                    dword_t timer_type) {
@@ -1323,7 +1348,7 @@ void xeExecuteDPCList(PPCContext* context) {
       context->processor->Execute(context->thread_state, dpc.routine, values,
                                   countof(values));
     }
-    //reinit list
+    // reinit list
     queued_dpcs.Initialize(context);
   }
   xboxkrnl::xeKeKfReleaseSpinLock(context, &v2->prcb_data.dpc_lock, 0, false);
@@ -1335,13 +1360,12 @@ void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
                                       unsigned int software_interrupt_mask,
                                       cpu::ppc::PPCContext* context) {
   if (new_irql < software_interrupt_mask) {
-    
     uint64_t saved_msr = context->msr;
 
     if (software_interrupt_mask >> 8) {
       GetKPCR(context)->current_irql =
           static_cast<unsigned char>(software_interrupt_mask >> 8);
-      uint32_t sw_state; 
+      uint32_t sw_state;
       do {
         context->msr |= 0x8000ULL;
         xeExecuteDPCList(context);

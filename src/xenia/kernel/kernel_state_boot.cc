@@ -162,6 +162,117 @@ static void HWClockCallback(cpu::Processor* processor) {
                                           kernel_state())) {
   }
 }
+static void DefaultInterruptProc(PPCContext* context) {}
+
+static void IPIInterruptProc(PPCContext* context) {}
+
+// ues _KTHREAD list_entry field at 0x94
+// this dpc uses none of the routine args
+static void DestroyThreadDpc(PPCContext* context) {
+
+  context->kernel_state->LockDispatcherAtIrql(context);
+
+  context->kernel_state->UnlockDispatcherAtIrql(context);
+}
+
+static void ThreadSwitchRelatedDpc(PPCContext* context) {
+  context->kernel_state->LockDispatcherAtIrql(context);
+  // iterates over threads in the game process + threads in the system process
+
+  context->kernel_state->UnlockDispatcherAtIrql(context);
+}
+
+void KernelState::InitProcessorStack(X_KPCR* pcr) {
+  pcr->unk_stack_5c = xboxkrnl::xeMmCreateKernelStack(0x4000, 2);
+  uint32_t other_stack = xboxkrnl::xeMmCreateKernelStack(0x4000, 2);
+  pcr->stack_base_ptr = other_stack;
+  pcr->alt_stack_base_ptr = other_stack;
+  pcr->use_alternative_stack = other_stack;
+  pcr->stack_end_ptr = other_stack - 0x4000;
+  pcr->alt_stack_end_ptr = other_stack - 0x4000;
+}
+
+void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
+  X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
+  memset(page_for, 0, 4096);
+  auto pcr = &page_for->pcr;
+  pcr->prcb_data.current_cpu = static_cast<uint8_t>(which_processor_index);
+  pcr->prcb_data.processor_mask = 1U << which_processor_index;
+  pcr->prcb = memory()->HostToGuestVirtual(&pcr->prcb_data);
+
+  XeInitializeListHead(&pcr->prcb_data.queued_dpcs_list_head, memory());
+  for (uint32_t i = 0; i < 32; ++i) {
+    util::XeInitializeListHead(&pcr->prcb_data.unk_68[i], memory());
+  }
+  pcr->prcb_data.unk_mask_64 = 0xF6DBFC03;
+  pcr->prcb_data.thread_exit_dpc.Initialize(
+      kernel_trampoline_group_.NewLongtermTrampoline(DestroyThreadDpc), 0);
+  // remember, DPC cpu indices start at 1
+  pcr->prcb_data.thread_exit_dpc.desired_cpu_number = which_processor_index + 1;
+  util::XeInitializeListHead(&pcr->prcb_data.terminating_threads_list, memory());
+
+  pcr->prcb_data.unk_18C.Initialize(
+      kernel_trampoline_group_.NewLongtermTrampoline(ThreadSwitchRelatedDpc),
+      0);
+
+  pcr->prcb_data.unk_18C.desired_cpu_number = which_processor_index + 1;
+
+  // this cpu needs special handling, its initializing the kernel
+  // InitProcessorStack gets called for it later, after all kernel init
+  if (which_processor_index == 0) {
+    uint32_t protdata = processor()->GetPCRForCPU(0); 
+    uint32_t protdata_stackbase = processor()->GetPCRForCPU(0) + 0x7000;
+
+    pcr->stack_base_ptr = protdata_stackbase;
+    pcr->alt_stack_base_ptr = protdata_stackbase;
+    pcr->use_alternative_stack = protdata_stackbase;
+    // it looks like it actually sets it to pcr3?? that seems wrong
+    // probably a hexrays/ida bug or even a kernel bug
+
+    // we are only giving it a page of stack though
+    pcr->alt_stack_end_ptr = protdata + 0x6000;
+    pcr->stack_end_ptr = protdata + 0x6000;
+  } else {
+    this->InitProcessorStack(pcr);
+  }
+  uint32_t default_interrupt =
+      kernel_trampoline_group_.NewLongtermTrampoline(DefaultInterruptProc);
+  for (uint32_t i = 0; i < 32; ++i) {
+    pcr->interrupt_handlers[i] = default_interrupt;
+  }
+
+  // todo: missing some interrupts here
+
+  pcr->interrupt_handlers[0x1E] =
+      kernel_trampoline_group_.NewLongtermTrampoline(IPIInterruptProc);
+
+  pcr->current_irql = 124;
+  pcr->thread_fpu_related = -1;
+  pcr->msr_mask = -1;
+  pcr->thread_vmx_related = -1;
+}
+// need to implement "initialize thread" function!
+// this gets called after initial pcr
+void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
+  X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
+  X_KTHREAD* thread = &page_for->idle_process_thread;
+  thread->thread_state = 2;
+  thread->priority = 31;
+  thread->unk_A4 = 2;
+  auto prcb_guest = memory()->HostToGuestVirtual(&page_for->pcr.prcb_data);
+  thread->a_prcb_ptr = prcb_guest;
+  thread->another_prcb_ptr = prcb_guest;
+  thread->current_cpu = page_for->pcr.prcb_data.current_cpu;
+
+  auto guest_thread = memory()->HostToGuestVirtual(thread);
+  page_for->pcr.prcb_data.current_thread = guest_thread;
+  page_for->pcr.prcb_data.idle_thread = guest_thread;
+}
+
+void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {
+  SetupProcessorPCR(cpunum);
+  SetupProcessorIdleThread(cpunum);
+}
 
 void KernelState::InitializeKernelGuestGlobals() {
   kernel_guest_globals_ = memory_->SystemHeapAlloc(sizeof(KernelGuestGlobals));
@@ -301,6 +412,10 @@ void KernelState::InitializeKernelGuestGlobals() {
            offsetof32(KernelGuestGlobals, IoDeviceObjectType)}};
   xboxkrnl::xeKeSetEvent(&block->UsbdBootEnumerationDoneEvent, 1, 0);
 
+
+  for (unsigned i = 0; i < 6; ++i) {
+    SetupKPCRPageForCPU(i);
+  }
   for (unsigned i = 0; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->idle_process_function_ =

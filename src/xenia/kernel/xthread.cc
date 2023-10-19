@@ -213,32 +213,52 @@ static uint8_t GetFakeCpuNumber(uint8_t proc_mask) {
 }
 
 void XThread::InitializeGuestObject() {
+  /*
+   * not doing this right at all! we're not using our threads context, because
+   * we may be on the host and have no underlying context. in reality we should
+   * have a context and acquire any locks using that context!
+   */
+  auto context_here = thread_state_->context();
   auto guest_thread = guest_object<X_KTHREAD>();
   auto thread_guest_ptr = guest_object();
   guest_thread->header.type = 6;
   guest_thread->suspend_count =
       (creation_params_.creation_flags & X_CREATE_SUSPENDED) ? 1 : 0;
   util::XeInitializeListHead(&guest_thread->mutants_list, memory());
-  guest_thread->unk_40 = (thread_guest_ptr + 0x20);
-  guest_thread->unk_44 = (thread_guest_ptr + 0x20);
-  guest_thread->unk_48 = (thread_guest_ptr);
-  uint32_t v6 = thread_guest_ptr + 0x18;
-  *(uint32_t*)&guest_thread->unk_54 = 16777729;
-  guest_thread->unk_4C = (v6);
-  guest_thread->stack_base = (this->stack_base_);
-  guest_thread->stack_limit = (this->stack_limit_);
-  guest_thread->stack_kernel = (this->stack_base_ - 240);
-  guest_thread->tls_address = (this->tls_static_address_);
-  guest_thread->thread_state = 0;
   uint32_t process_info_block_address =
       creation_params_.guest_process ? creation_params_.guest_process
                                      : this->kernel_state_->GetTitleProcess();
 
   X_KPROCESS* process =
       memory()->TranslateVirtual<X_KPROCESS*>(process_info_block_address);
+  auto process_type = process->process_type;
+
+
+  xboxkrnl::xeKeInitializeTimerEx(&guest_thread->wait_timeout_timer, 0,
+                                  process_type, context_here);
+
+  guest_thread->wait_timeout_block.object = memory()
+                                                ->HostToGuestVirtual(&guest_thread->wait_timeout_timer);
+  guest_thread->wait_timeout_block.wait_type = 1;
+  guest_thread->wait_timeout_block.thread = thread_guest_ptr;
+
+  auto timer_wait_header_list_entry = memory()->HostToGuestVirtual(
+      &guest_thread->wait_timeout_timer.header.wait_list);
+  
+  guest_thread->wait_timeout_block.wait_list_entry.blink_ptr =
+      timer_wait_header_list_entry;
+  guest_thread->wait_timeout_block.wait_list_entry.flink_ptr =
+      timer_wait_header_list_entry;
+  guest_thread->wait_timeout_block.wait_key = 258;
+  guest_thread->stack_base = (this->stack_base_);
+  guest_thread->stack_limit = (this->stack_limit_);
+  guest_thread->stack_kernel = (this->stack_base_ - 240);
+  guest_thread->tls_address = (this->tls_static_address_);
+  guest_thread->thread_state = 0;
+
   uint32_t kpcrb = pcr_address_ + offsetof(X_KPCR, prcb_data);
 
-  auto process_type = process->process_type;
+  
   guest_thread->process_type_dup = process_type;
   guest_thread->process_type = process_type;
   guest_thread->apc_lists[0].Initialize(memory());
@@ -263,12 +283,7 @@ void XThread::InitializeGuestObject() {
   guest_thread->creation_flags = this->creation_params_.creation_flags;
   guest_thread->unk_17C = 1;
 
-  /*
-   * not doing this right at all! we're not using our threads context, because
-   * we may be on the host and have no underlying context. in reality we should
-   * have a context and acquire any locks using that context!
-   */
-  auto context_here = thread_state_->context();
+  
   auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       context_here, &process->thread_list_spinlock);
 

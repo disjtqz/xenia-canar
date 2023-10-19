@@ -372,11 +372,6 @@ void XObject::SetNativePointer(uint32_t native_ptr, bool uninitialized) {
   // StashHandle(header, handle());
   kernel_state()->object_table()->MapGuestObjectToHostHandle(native_ptr,
                                                              handle());
-  if (HasDispatcherHeader(this->type())) {
-    memory()
-        ->TranslateVirtual<X_DISPATCH_HEADER*>(native_ptr)
-        ->wait_list_blink = handle();
-  }
   guest_object_ptr_ = native_ptr;
 }
 
@@ -430,9 +425,6 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
                  .release();
 
     if (HasDispatcherHeader(result->type())) {
-      if (header->wait_list_blink != host_handle) {
-        goto create_new;
-      }
 
       if (MapGuestTypeToHost(header->type) != result->type()) {
         goto create_new;
@@ -490,12 +482,7 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
         // return NULL;
     }
 
-    // Stash pointer in struct.
-    // FIXME: This assumes the object contains a dispatch header (some don't!)
-    // StashHandle(header, object->handle());
-    if (HasDispatcherHeader(object->type())) {
-      header->wait_list_blink = object->handle();
-    }
+
     kernel_state->object_table()->MapGuestObjectToHostHandle(guest_ptr,
                                                              object->handle());
     result = object;

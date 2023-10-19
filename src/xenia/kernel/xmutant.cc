@@ -25,45 +25,9 @@ XMutant::XMutant(KernelState* kernel_state)
 
 XMutant::XMutant() : XObject(kObjectType) {}
 
-XMutant::~XMutant() {
-  auto guest_mutant = guest_object<X_KMUTANT>();
-  if (guest_mutant) {
-    if (guest_mutant->header.wait_list_flink) {
-      auto event_for = kernel_state()->FreeInternalHandle<threading::Mutant>(
-          guest_mutant->header.wait_list_flink);
-      guest_mutant->header.wait_list_flink = 0;
-      if (event_for) {
-        delete event_for;
-      }
-    }
-  }
-}
+XMutant::~XMutant() {}
 
-void XMutant::Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes) {
-  auto context = cpu::ThreadState::Get()->context();
-
-  auto guest_globals = context->TranslateVirtual<KernelGuestGlobals*>(
-      kernel_state()->GetKernelGuestGlobals());
-  uint32_t guest_objptr = 0;
-  X_STATUS create_status =
-      xboxkrnl::xeObCreateObject(&guest_globals->ExMutantObjectType, attributes,
-                                 sizeof(X_KMUTANT), &guest_objptr, context);
-
-  xenia_assert(create_status == X_STATUS_SUCCESS);
-  xenia_assert(guest_objptr != 0);
-
-  auto guest_object = context->TranslateVirtual<X_KMUTANT*>(guest_objptr);
-  xboxkrnl::xeKeInitializeMutant(guest_object, initial_owner, context);
-  SetNativePointer(guest_objptr, false);
-
-  auto event_for = threading::Mutant::Create(initial_owner);
-
-  auto event_ptr = event_for.release();
-
-  uint32_t intrnl_handle =
-      kernel_state()->AllocateInternalHandle((void*)event_ptr);
-  guest_object->header.wait_list_flink = intrnl_handle;
-}
+void XMutant::Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes) {}
 
 void XMutant::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
   xe::FatalError("Unimplemented XMutant::InitializeNative");
@@ -71,43 +35,7 @@ void XMutant::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
 
 X_STATUS XMutant::ReleaseMutant(uint32_t priority_increment, bool abandon,
                                 bool wait) {
-  auto context = cpu::ThreadState::Get()->context();
-
-  uint32_t irql = kernel_state()->LockDispatcher(context);
-
-  auto mutant = guest_object<X_KMUTANT>();
-  auto event_for = kernel_state()->LookupInternalHandle<threading::Mutant>(
-      mutant->header.wait_list_flink);
-  event_for->Release();
-  uint32_t v10 = mutant->header.signal_state;
-  bool v12 = abandon == 0;
-  auto kpcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
-  uint32_t v14 = kpcr->prcb_data.current_thread.m_ptr;
-  int new_signalstate;
-  if (v12) {
-    if (mutant->owner != v14) {
-      kernel_state()->UnlockDispatcher(context, irql);
-      xenia_assert(false);
-
-      return X_STATUS_UNSUCCESSFUL;
-    }
-    new_signalstate = mutant->header.signal_state + 1;
-  } else {
-    new_signalstate = 1;
-    mutant->abandoned = 1;
-  }
-  mutant->header.signal_state = new_signalstate;
-
-  if (new_signalstate == 1) {
-    if (v10 <= 0) {
-      util::XeRemoveEntryList(&mutant->unk_list, context);
-    }
-    mutant->owner = 0;
-  }
-
-  kernel_state()->UnlockDispatcher(context, irql);
-
-  return v10;
+  return X_STATUS_UNSUCCESSFUL;
 }
 
 X_STATUS XMutant::GetSignaledStatus(X_STATUS success_in) {
@@ -127,12 +55,7 @@ object_ref<XMutant> XMutant::Restore(KernelState* kernel_state,
 
   return object_ref<XMutant>(mutant);
 }
-xe::threading::WaitHandle* XMutant::GetWaitHandle() {
-  X_KMUTANT* km = guest_object<X_KMUTANT>();
-
-  return kernel_state()->LookupInternalHandle<threading::Mutant>(
-      km->header.wait_list_flink);
-}
+xe::threading::WaitHandle* XMutant::GetWaitHandle() { return nullptr; }
 void XMutant::WaitCallback() {
   auto context = cpu::ThreadState::Get()->context();
 

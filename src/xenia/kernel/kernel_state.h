@@ -343,6 +343,7 @@ class KernelState {
   uint64_t GetKernelSystemTime();
   uint64_t GetKernelInterruptTime();
   X_KPCR_PAGE* KPCRPageForCpuNumber(uint32_t i);
+
  private:
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
   void InitializeProcess(X_KPROCESS* process, uint32_t type, char unk_18,
@@ -350,6 +351,9 @@ class KernelState {
   void SetProcessTLSVars(X_KPROCESS* process, int num_slots, int tls_data_size,
                          int tls_static_data_address);
   void InitializeKernelGuestGlobals();
+  void SetupProcessorPCR(uint32_t which_processor_index);
+  void SetupProcessorIdleThread(uint32_t which_processor_index);
+  void InitProcessorStack(X_KPCR* pcr);
   Emulator* emulator_;
   Memory* memory_;
   cpu::Processor* processor_;
@@ -392,6 +396,7 @@ class KernelState {
   xe_mutex internal_handle_table_mutex_;
   static void KernelIdleProcessFunction(cpu::ppc::PPCContext* context);
  
+  void SetupKPCRPageForCPU(uint32_t cpunum);
   friend class XObject;
  public:
   uint32_t dash_context_ = 0;

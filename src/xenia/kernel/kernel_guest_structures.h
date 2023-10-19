@@ -150,10 +150,7 @@ struct X_DISPATCH_HEADER {
       uint8_t npx_irql;
       uint8_t signalling;
     };
-    union {
-      uint8_t size;
-      uint8_t hand;
-    };
+    uint8_t process_type; //X_PROCTYPE_
     union {
       uint8_t inserted;
       uint8_t debug_active;
@@ -161,8 +158,7 @@ struct X_DISPATCH_HEADER {
     };
   };
   xe::be<uint32_t> signal_state;
-  xe::be<uint32_t> wait_list_flink;
-  xe::be<uint32_t> wait_list_blink;
+  X_LIST_ENTRY wait_list;
 };
 static_assert_size(X_DISPATCH_HEADER, 0x10);
 
@@ -208,7 +204,7 @@ struct X_KTHREAD;
 struct X_KPROCESS;
 struct X_KPRCB {
   TypedGuestPointer<X_KTHREAD> current_thread;  // 0x0
-  TypedGuestPointer<X_KTHREAD> unk_4;           // 0x4
+  TypedGuestPointer<X_KTHREAD> next_thread;     // 0x4
   TypedGuestPointer<X_KTHREAD> idle_thread;     // 0x8
   uint8_t current_cpu;                          // 0xC
   uint8_t unk_D[3];                             // 0xD
@@ -307,8 +303,11 @@ struct X_KPCR {
    timer embedded in KTHREAD
 */
 struct X_KTIMER {
-  X_DISPATCH_HEADER header;  // 0x0
-  uint8_t unk_10[0x18];      // 0x10
+  X_DISPATCH_HEADER header;   // 0x0
+  xe::be<uint64_t> due_time;  // 0x10
+  X_LIST_ENTRY unk_18;        // 0x18
+  xe::be<uint32_t> unk_20;    // 0x20
+  xe::be<uint32_t> period;    // 0x24
 };
 static_assert_size(X_KTIMER, 0x28);
 
