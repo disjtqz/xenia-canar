@@ -202,7 +202,7 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
 
   XeInitializeListHead(&pcr->prcb_data.queued_dpcs_list_head, memory());
   for (uint32_t i = 0; i < 32; ++i) {
-    util::XeInitializeListHead(&pcr->prcb_data.unk_68[i], memory());
+    util::XeInitializeListHead(&pcr->prcb_data.ready_threads_by_priority[i], memory());
   }
   pcr->prcb_data.unk_mask_64 = 0xF6DBFC03;
   pcr->prcb_data.thread_exit_dpc.Initialize(

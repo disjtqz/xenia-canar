@@ -70,7 +70,7 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
 
 X_STATUS xeProcessUserApcs(PPCContext* ctx);
 X_STATUS xeProcessKernelApcs(PPCContext* ctx);
-void xeExecuteDPCList(PPCContext* context);
+void xeHandleDPCsAndThreadSwapping(PPCContext* context);
 void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
                                       unsigned int software_interrupt_mask,
                                       cpu::ppc::PPCContext* context);
@@ -90,6 +90,10 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
 void xeHandleWaitTypeAll(PPCContext* context, X_KWAIT_BLOCK* block);
 void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
                                  int unk);
+uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
+                            PPCContext* ctx);
+uint32_t xeKeRemoveQueueDpc(XDPC* dpc, PPCContext* ctx);
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

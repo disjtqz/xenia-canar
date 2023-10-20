@@ -101,7 +101,7 @@ typedef struct {
 static_assert_size(X_EXCEPTION_RECORD, 0x50);
 
 struct X_KSPINLOCK {
-  xe::be<uint32_t> prcb_of_owner;
+  xe::be<uint32_t> pcr_of_owner;
 };
 static_assert_size(X_KSPINLOCK, 4);
 
@@ -244,15 +244,17 @@ struct X_KPRCB {
   // // 0x48
   xe::be<uint32_t> dpc_active;                  // 0x50
   X_KSPINLOCK enqueued_processor_threads_lock;  // 0x54
-  xe::be<uint32_t> unk_58;                      // 0x58
+  // if the idle thread is running, this is set to point to it, else 0
+  TypedGuestPointer<X_KTHREAD> running_idle_thread;  // 0x58
   // definitely scheduler related
   X_SINGLE_LIST_ENTRY enqueued_threads_list;  // 0x5C
-  xe::be<uint32_t> unk_60;                    // 0x60
+  //if bit 0 set, have a thread at priority 0, etc
+  xe::be<uint32_t> has_ready_thread_by_priority;                    // 0x60
   // i think the following mask has something to do with the array that comes
   // after
   xe::be<uint32_t> unk_mask_64;  // 0x64
 
-  X_LIST_ENTRY unk_68[32];  // 0x68
+  X_LIST_ENTRY ready_threads_by_priority[32];  // 0x68
   // ExTerminateThread tail calls a function that does KeInsertQueueDpc of this
   // dpc
   XDPC thread_exit_dpc;  // 0x168
@@ -274,12 +276,17 @@ struct X_KPCR {
   };
   uint8_t unk_0A[2];                 // 0xA
   uint8_t processtype_value_in_dpc;  // 0xC
-  uint8_t unk_0D[3];                 // 0xD
+  uint8_t timeslice_ended;           // 0xD
+  uint8_t timer_pending;             // 0xE
+  uint8_t unk_0F;                    // 0xF
   // used in KeSaveFloatingPointState / its vmx counterpart
   xe::be<uint32_t> thread_fpu_related;  // 0x10
   xe::be<uint32_t> thread_vmx_related;  // 0x14
   uint8_t current_irql;                 // 0x18
-  uint8_t unk_19[0x17];                 // 0x19
+  uint8_t unk_19;                       // 0x19
+  uint8_t unk_1A[2];                    // 0x1A
+  xe::be<uint32_t> timer_related;       // 0x1C
+  uint8_t unk_20[0x10];                 // 0x20
   xe::be<uint64_t> pcr_ptr;             // 0x30
 
   // this seems to be just garbage data? we can stash a pointer to context here
@@ -316,11 +323,11 @@ struct X_KPCR {
    timer embedded in KTHREAD
 */
 struct X_KTIMER {
-  X_DISPATCH_HEADER header;   // 0x0
-  xe::be<uint64_t> due_time;  // 0x10
-  X_LIST_ENTRY table_bucket_entry;        // 0x18
-  TypedGuestPointer<XDPC> dpc;    // 0x20
-  xe::be<uint32_t> period;    // 0x24
+  X_DISPATCH_HEADER header;         // 0x0
+  xe::be<uint64_t> due_time;        // 0x10
+  X_LIST_ENTRY table_bucket_entry;  // 0x18
+  TypedGuestPointer<XDPC> dpc;      // 0x20
+  xe::be<uint32_t> period;          // 0x24
 };
 static_assert_size(X_KTIMER, 0x28);
 

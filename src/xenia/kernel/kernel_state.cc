@@ -372,7 +372,7 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
     dispatch_thread_running_ = true;
 #if 1
     dispatch_thread_ = object_ref<XHostThread>(new XHostThread(
-        this, 128 * 1024, (0b100000)<<24,
+        this, 128 * 1024, (0b100000) << 24,
         [this]() {
           // As we run guest callbacks the debugger must be able to suspend us.
 
@@ -930,7 +930,10 @@ bool KernelState::Save(ByteStream* stream) {
 }
 
 // length of a guest timer tick is normally 1 millisecond
+// this interrupt executes exclusively on cpu 0. i think
 void KernelState::SystemClockInterrupt() {
+  auto context = cpu::ThreadState::Get()->context();
+
   X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
       memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
   uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
@@ -940,6 +943,23 @@ void KernelState::SystemClockInterrupt() {
   xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->system_time,
                                time_imprecise);
   xe::store_and_swap<uint32_t>(&lpKeTimeStampBundle->tick_count, uptime_ms);
+
+  auto kpcr = GetKPCR(context);
+
+  /*
+    check timers!
+  */
+
+  auto globals =
+      context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals());
+
+  for (auto& timer : globals->running_timers.IterateForward(context)) {
+    if (timer.due_time >= time_imprecise) {
+      kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
+      kpcr->unknown_8 = 2;
+      break;
+    }
+  }
 }
 
 uint32_t KernelState::GetKeTimestampBundle() {
@@ -1150,6 +1170,13 @@ void KernelState::DereferenceObject(cpu::ppc::PPCContext* context,
   xboxkrnl::xeObDereferenceObject(context, object);
 }
 
+void KernelState::AssertDispatcherLocked(cpu::ppc::PPCContext* context) {
+  xenia_assert(
+      context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
+          ->dispatcher_lock.pcr_of_owner ==
+      static_cast<uint32_t>(context->r[13]));
+}
+
 void KernelState::UpdateUsedUserProfiles() {
   const uint8_t used_slots_bitmask = GetConnectedUsers();
 
@@ -1206,9 +1233,14 @@ uint64_t KernelState::GetKernelInterruptTime() {
       ->interrupt_time;
 }
 void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
-  //  while (!GetKPCR()->unknown_8) {
+  GetKPCR(context)->prcb_data.running_idle_thread =
+      GetKPCR(context)->prcb_data.idle_thread;
 
-  //}
+  while (!GetKPCR()->unknown_8) {
+      //okay here, since we really have nothing going on 
+    threading::MaybeYield();
+  }
+  //looks identical to 
 }
 
 }  // namespace kernel

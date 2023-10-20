@@ -59,11 +59,11 @@ struct TerminateNotification {
 // a bit like the timers on KUSER_SHARED on normal win32
 // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
 struct X_TIME_STAMP_BUNDLE {
-  uint64_t interrupt_time;
+  xe::be<uint64_t> interrupt_time;
   // i assume system_time is in 100 ns intervals like on win32
-  uint64_t system_time;
-  uint32_t tick_count;
-  uint32_t padding;
+  xe::be<uint64_t> system_time;
+  xe::be<uint32_t> tick_count;
+  xe::be<uint32_t> padding;
 };
 struct X_UNKNOWN_TYPE_REFED {
   xe::be<uint32_t> field0;
@@ -298,6 +298,8 @@ class KernelState {
                                    uint32_t guest_object_type,
                                    uint32_t* object_out);
   void DereferenceObject(cpu::ppc::PPCContext* context,uint32_t object);
+
+  void AssertDispatcherLocked(cpu::ppc::PPCContext* context);
   uint32_t AllocateInternalHandle(void* ud);
   void* _FreeInternalHandle(uint32_t id);
   template<typename T>

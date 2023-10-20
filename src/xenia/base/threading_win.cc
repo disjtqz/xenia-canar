@@ -58,6 +58,9 @@ XE_NTDLL_IMPORT(NtDelayExecution, cls_NtDelayExecution,
 XE_NTDLL_IMPORT(NtQueryEvent, cls_NtQueryEvent, NtQueryEventPointer);
 XE_NTDLL_IMPORT(NtQueryInformationThread, cls_NtQueryInformationThread,
                 NtQueryInformationThreadPointer);
+
+XE_NTDLL_IMPORT(NtQueueApcThreadEx, cls_NtQueueApcThreadEx,
+                NtQueueApcThreadExPointer);
 namespace xe {
 namespace threading {
 
@@ -631,7 +634,7 @@ struct IPIContext {
   _CONTEXT initial_context_;
   HANDLE racy_handle_;
 };
-
+#if 1
 void IPIForwarder(IPIContext* context) {
   while (true) {
     __try {
@@ -720,6 +723,41 @@ bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
   }
   return true;
 }
+
+#else
+typedef union _USER_APC_OPTION {
+  ULONG_PTR UserApcFlags;
+  HANDLE MemoryReserveHandle;
+} USER_APC_OPTION, *PUSER_APC_OPTION;
+
+void IPIForwarder(void* sysarg1, void* sysarg2, void* sysarg3) {
+  IPIFunction func = reinterpret_cast<IPIFunction>(sysarg1);
+  void* ud = sysarg2;
+  uintptr_t* result_out = reinterpret_cast<uintptr_t*>(sysarg3);
+
+  uintptr_t scratch = func(ud);
+  if (result_out) {
+    *result_out = scratch;
+  }
+}
+
+bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
+                      uintptr_t* result_out) {
+  if (!ipi_mutex_.try_lock()) {
+    return false;
+  }
+  USER_APC_OPTION UserApcOption;
+  UserApcOption.UserApcFlags = QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC;
+  UserApcOption.MemoryReserveHandle = nullptr;
+  NTSTATUS invoke_res = NtQueueApcThreadExPointer
+          .invoke<NTSTATUS, HANDLE, USER_APC_OPTION, void (*)(void*, void*, void*), void*, void*, void*>(
+      this->handle_, UserApcOption, IPIForwarder, ipi_function, userdata,
+      result_out);
+  xenia_assert(invoke_res == 0);
+  ipi_mutex_.unlock();
+  return true;
+}
+#endif
 
 thread_local std::unique_ptr<Win32Thread> current_thread_ = nullptr;
 

@@ -1166,10 +1166,10 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
   auto old_irql = change_irql ? xeKfRaiseIrql(ctx, 2) : 0;
 
   PrefetchForCAS(lock);
-  assert_true(lock->prcb_of_owner != static_cast<uint32_t>(ctx->r[13]));
+  assert_true(lock->pcr_of_owner != static_cast<uint32_t>(ctx->r[13]));
   // Lock.
   while (!xe::atomic_cas(0, xe::byte_swap(static_cast<uint32_t>(ctx->r[13])),
-                         &lock->prcb_of_owner.value)) {
+                         &lock->pcr_of_owner.value)) {
   }
 
   return old_irql;
@@ -1184,9 +1184,9 @@ DECLARE_XBOXKRNL_EXPORT3(KfAcquireSpinLock, kThreading, kImplemented, kBlocking,
 
 void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                            uint32_t old_irql, bool change_irql) {
-  assert_true(lock->prcb_of_owner == static_cast<uint32_t>(ctx->r[13]));
+  assert_true(lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13]));
   // Unlock.
-  lock->prcb_of_owner.value = 0;
+  lock->pcr_of_owner.value = 0;
 
   if (change_irql) {
     // Unlock.
@@ -1218,7 +1218,7 @@ dword_result_t KeTryToAcquireSpinLockAtRaisedIrql_entry(
     pointer_t<X_KSPINLOCK> lock_ptr, const ppc_context_t& ppc_ctx) {
   // Lock.
   auto lock = reinterpret_cast<uint32_t*>(lock_ptr.host_address());
-  assert_true(lock_ptr->prcb_of_owner != static_cast<uint32_t>(ppc_ctx->r[13]));
+  assert_true(lock_ptr->pcr_of_owner != static_cast<uint32_t>(ppc_ctx->r[13]));
   PrefetchForCAS(lock);
   if (!ppc_ctx->processor->GuestAtomicCAS32(
           ppc_ctx, 0, static_cast<uint32_t>(ppc_ctx->r[13]),
@@ -1329,30 +1329,297 @@ dword_result_t KfRaiseIrql_entry(dword_t new_irql, const ppc_context_t& ctx) {
 
 DECLARE_XBOXKRNL_EXPORT2(KfRaiseIrql, kThreading, kImplemented, kHighFrequency);
 
+void AddTimer(PPCContext* context, X_KTIMER* timer) {
+  auto& timers = context
+                     ->TranslateVirtual<KernelGuestGlobals*>(
+                         context->kernel_state->GetKernelGuestGlobals())
+                     ->running_timers;
+
+  timers.InsertHead(timer, context);
+}
+
+int XeInsertTimerToList(PPCContext* context,
+                        X_TIME_STAMP_BUNDLE* KeTimeStampBundle, X_KTIMER* timer,
+                        int64_t time) {
+  int v3 = timer->period;
+
+  timer->header.inserted = 1;
+  timer->header.absolute = 0;
+  if (!v3) {
+    timer->header.signal_state = 0;
+  }
+
+  // todo: logic here is not so simple
+
+  if (time < 0) {
+    // i dont actually know where it sets due_time
+    timer->due_time = KeTimeStampBundle->system_time - time;
+    AddTimer(context, timer);
+    return 1;
+
+  } else {
+    // huh?
+    if (static_cast<int64_t>(KeTimeStampBundle->system_time - time) >= 0) {
+      // already done!
+      timer->header.signal_state = 1;
+      timer->header.inserted = 0;
+      return 0;
+    }
+
+    timer->header.absolute = 1;
+    timer->due_time = time;
+    AddTimer(context, timer);
+    return 1;
+  }
+}
+
+struct queued_timer_dpc_t {
+  XDPC* dpc;
+  uint32_t routine;
+  uint32_t context;
+};
+void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
+  xenia_assert(GetKPCR(context)->current_irql == IRQL_DISPATCH);
+
+  auto kernel = context->kernel_state;
+  std::vector<X_KTIMER*> expired_timers;
+  expired_timers.reserve(32);
+  auto globals = context->TranslateVirtual<KernelGuestGlobals*>(
+      kernel->GetKernelGuestGlobals());
+
+  kernel->LockDispatcherAtIrql(context);
+  uint64_t current_interrupt_time = globals->KeTimestampBundle.interrupt_time;
+
+  for (auto&& timer : globals->running_timers.IterateForward(context)) {
+    if (timer.due_time > current_interrupt_time) {
+      expired_timers.push_back(&timer);
+    }
+  }
+
+  for (auto&& timer_to_remove : expired_timers) {
+    util::XeRemoveEntryList(&timer_to_remove->table_bucket_entry, context);
+  }
+
+  // make sure we run timers in order of their expiration. i think this ordering
+  // is guaranteed by the kernel
+  std::sort(expired_timers.begin(), expired_timers.end(),
+            [](X_KTIMER* a, X_KTIMER* b) { return a->due_time < b->due_time; });
+
+  // 360 xboxkrnl uses an array of 16 of these, and loops collecting dpcs
+  // until the array is filled, then executes them, then checks for more timers
+  // and so on until all timers have been handled
+  // this does alter the ordering somewhat, but i doubt anything relies on that
+  std::vector<queued_timer_dpc_t> qdpcs{};
+  qdpcs.reserve(expired_timers.size());
+  uint64_t current_systemtime = globals->KeTimestampBundle.system_time;
+
+  for (auto&& timer : expired_timers) {
+    timer->header.inserted = 0;
+    timer->table_bucket_entry.Zero();
+
+    if (context->TranslateVirtual<X_LIST_ENTRY*>(
+            timer->header.wait_list.flink_ptr) != &timer->header.wait_list) {
+      xeDispatchSignalStateChange(context, &timer->header, 0);
+    }
+
+    if (timer->period) {
+      XeInsertTimerToList(context, &globals->KeTimestampBundle, timer,
+                          -10000LL * timer->period);
+    }
+
+    auto dpc = context->TranslateVirtual(timer->dpc);
+    // check if null
+    if (dpc != (XDPC*)context->virtual_membase) {
+      if (dpc->desired_cpu_number ||
+          dpc->desired_cpu_number ==
+              GetKPCR(context)->prcb_data.current_cpu + 1) {
+        // dpc is intended for us to execute
+        // save all data, i guess other dpcs might modify it?
+        qdpcs.emplace_back(dpc, dpc->routine, dpc->context);
+      } else {
+        xeKeInsertQueueDpc(dpc, static_cast<uint32_t>(current_systemtime),
+                           static_cast<uint32_t>(current_systemtime >> 32),
+                           context);
+      }
+    }
+  }
+  kernel->UnlockDispatcher(context, IRQL_DISPATCH);
+
+  for (auto&& queued_dpc : qdpcs) {
+    uint64_t dpc_args[] = {context->HostToGuestVirtual(queued_dpc.dpc),
+                           queued_dpc.context,
+                           static_cast<uint32_t>(current_systemtime),
+                           static_cast<uint32_t>(current_systemtime >> 32)};
+
+    context->processor->Execute(context->thread_state, queued_dpc.routine,
+                                dpc_args, countof(dpc_args));
+  }
+}
+static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {}
+
+void xeExecuteDPCList2(
+    PPCContext* context, uint32_t timer_unk,
+    util::X_TYPED_LIST<XDPC, offsetof(XDPC, list_entry)>& dpc_list,
+    uint32_t zero_register) {
+  xenia_assert(GetKPCR(context)->current_irql == IRQL_DISPATCH);
+
+  do {
+    // they only check if this value is nonzero. they probably
+    // just use r1 because its a readily available nonzero register
+    GetKPCR(context)->prcb_data.dpc_active = context->r[1];
+    uint32_t tmp_msr_mask = 0xFDFFD7FF;
+    GetKPCR(context)->msr_mask = tmp_msr_mask;
+    context->msr &= tmp_msr_mask;
+
+    if (timer_unk) {
+      uint32_t v4 = GetKPCR(context)->timer_related;
+      GetKPCR(context)->timer_pending = zero_register;
+      set_msr_interrupt_bits(context, 0xFFFF8000);
+      xeHandleTimers(context, v4);
+      set_msr_interrupt_bits(context, zero_register);
+    }
+    X_KSPINLOCK* spin = &GetKPCR(context)->prcb_data.dpc_lock;
+    while (true) {
+      xboxkrnl::xeKeKfAcquireSpinLock(context, spin, false);
+
+      if (dpc_list.empty(context)) {
+        xboxkrnl::xeKeKfReleaseSpinLock(context, spin, 0, false);
+        break;
+      }
+      auto dpc = dpc_list.HeadObject(context);
+      util::XeRemoveEntryList(&dpc->list_entry, context);
+      auto routine = dpc->routine;
+      auto ctx = dpc->context;
+      auto arg1 = dpc->arg1;
+      auto arg2 = dpc->arg2;
+      dpc->selected_cpu_number = zero_register;
+
+      xboxkrnl::xeKeKfReleaseSpinLock(context, spin, 0, false);
+
+      set_msr_interrupt_bits(context, 0xFFFF8000);
+      uint64_t dpc_args[] = {context->HostToGuestVirtual(dpc), ctx, arg1, arg2};
+      context->processor->Execute(context->thread_state, routine, dpc_args, 4);
+
+      // make sure the routine didnt change the irql
+      xenia_assert(GetKPCR(context)->current_irql == IRQL_DISPATCH);
+
+      set_msr_interrupt_bits(context, zero_register);
+
+      if (dpc_list.empty(context)) {
+        break;
+      }
+    }
+    GetKPCR(context)->prcb_data.dpc_active = zero_register;
+    GetKPCR(context)->prcb_data.dpc_related_40 = zero_register;
+
+    // this doesnt make much sense to me, so its likely an issue with the
+    // decompilation
+    timer_unk = dpc_list.flink_ptr;
+
+  } while (!dpc_list.empty(context));
+}
+using ready_thread_pointer_t =
+    ShiftedPointer<X_LIST_ENTRY, X_KTHREAD,
+                   offsetof(X_KTHREAD, ready_prcb_entry)>;
+
+static void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
+                                                    X_KTHREAD* kthread) {
+  xe::FatalError("Cant handle thread processor switching atm");
+}
+
+static void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
+  auto prcb_for_thread = context->TranslateVirtual(kthread->a_prcb_ptr);
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &prcb_for_thread->enqueued_processor_threads_lock, false);
+
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
+}
+
+static void xeProcessQueuedThreads(PPCContext* context,
+                                   bool under_dispatcher_lock) {
+  auto kernel = context->kernel_state;
+
+  if (under_dispatcher_lock) {
+    kernel->AssertDispatcherLocked(context);
+  } else {
+    kernel->LockDispatcherAtIrql(context);
+  }
+
+  uint32_t first_ready_thread =
+      GetKPCR(context)->prcb_data.enqueued_threads_list.next;
+
+  GetKPCR(context)->prcb_data.enqueued_threads_list.next = 0;
+
+  while (first_ready_thread) {
+    auto ready_thread =
+        context->TranslateVirtual<ready_thread_pointer_t>(first_ready_thread);
+    first_ready_thread = ready_thread->flink_ptr;
+    // xeEnqueueThreadPostWait sets it to 6
+    xenia_assert(ready_thread.GetAdjacent()->thread_state == 6);
+
+    uint32_t prcb =
+        static_cast<uint32_t>(context->r[13]) + offsetof(X_KPCR, prcb_data);
+
+    auto adj = ready_thread.GetAdjacent();
+    if (adj->a_prcb_ptr == prcb && adj->another_prcb_ptr != prcb) {
+      xeHandleReadyThreadOnDifferentProcessor(context, adj);
+    }
+    xeReallyQueueThread(context, adj);
+  }
+
+  kernel->AssertDispatcherLocked(context);
+  if (!under_dispatcher_lock) {
+    kernel->UnlockDispatcherAtIrql(context);
+  }
+}
+
+X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
+  xe::FatalError("xeSelectThreadDueToTimesliceExpiration unimplemented");
+  return nullptr;
+}
+
 // handles DPCS, also switches threads?
 // timer related?
-void xeExecuteDPCList(PPCContext* context) {
-  X_KPCR* v2 = GetKPCR(context);
-  auto saved_dpc_active = v2->prcb_data.dpc_active;
+void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
+  X_KTHREAD* next_thread = nullptr;
+  while (true) {
+    set_msr_interrupt_bits(context, 0);
+    if (!GetKPCR(context)->prcb_data.queued_dpcs_list_head.empty(context) ||
+        GetKPCR(context)->timer_pending) {
+      // todo: incomplete!
 
-  xboxkrnl::xeKeKfAcquireSpinLock(context, &v2->prcb_data.dpc_lock, false);
-  {
-    auto& queued_dpcs = v2->prcb_data.queued_dpcs_list_head;
-
-    for (auto&& dpc : queued_dpcs.IterateForward(context)) {
-      uint64_t values[] = {
-          context->HostToGuestVirtual(&dpc), dpc.context, dpc.arg1, dpc.arg2
-
-      };
-      context->processor->Execute(context->thread_state, dpc.routine, values,
-                                  countof(values));
+      xeExecuteDPCList2(context, GetKPCR(context)->timer_pending,
+                        GetKPCR(context)->prcb_data.queued_dpcs_list_head, 0);
     }
-    // reinit list
-    queued_dpcs.Initialize(context);
-  }
-  xboxkrnl::xeKeKfReleaseSpinLock(context, &v2->prcb_data.dpc_lock, 0, false);
+    set_msr_interrupt_bits(context, 0xFFFF8000);
 
-  v2->prcb_data.dpc_active = saved_dpc_active;
+    if (GetKPCR(context)->prcb_data.enqueued_threads_list.next) {
+      xeProcessQueuedThreads(context, false);
+    }
+
+    if (GetKPCR(context)->timeslice_ended) {
+      GetKPCR(context)->timeslice_ended = 0;
+      next_thread = xeSelectThreadDueToTimesliceExpiration(context);
+      break;
+    }
+    // failed to select a thread to switch to
+    if (!GetKPCR(context)->prcb_data.next_thread) {
+      return;
+    }
+
+    // some kind of lock acquire function here??
+
+    uint32_t thrd_u = GetKPCR(context)->prcb_data.next_thread.m_ptr;
+
+    if (!thrd_u) {
+      next_thread = nullptr;
+    } else {
+      next_thread = context->TranslateVirtual<X_KTHREAD*>(thrd_u);
+    }
+  }
+  // requeue ourselves
+  // GetKPCR(context)->prcb_data.current_thread
 }
 
 void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
@@ -1367,7 +1634,7 @@ void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
       uint32_t sw_state;
       do {
         context->msr |= 0x8000ULL;
-        xeExecuteDPCList(context);
+        xeHandleDPCsAndThreadSwapping(context);
         context->msr &= ~(0x8000ULL);
         sw_state = GetKPCR(context)->software_interrupt_state;
       } while (sw_state >> 8);
@@ -1693,11 +1960,10 @@ void KeInitializeDpc_entry(pointer_t<XDPC> dpc, lpvoid_t routine,
 DECLARE_XBOXKRNL_EXPORT2(KeInitializeDpc, kThreading, kImplemented, kSketchy);
 
 static void DPCIPIFunction(void* ud) {
-  xeExecuteDPCList(cpu::ThreadState::Get()->context());
+  xeHandleDPCsAndThreadSwapping(cpu::ThreadState::Get()->context());
 }
-
-dword_result_t KeInsertQueueDpc_entry(pointer_t<XDPC> dpc, dword_t arg1,
-                                      dword_t arg2, const ppc_context_t& ctx) {
+uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
+                            PPCContext* ctx) {
   bool result = false;
 
   auto old_irql = xeKfRaiseIrql(ctx, 124);
@@ -1710,7 +1976,7 @@ dword_result_t KeInsertQueueDpc_entry(pointer_t<XDPC> dpc, dword_t arg1,
         &ctx->kernel_state->KPCRPageForCpuNumber(dpc->desired_cpu_number - 1)
              ->pcr.prcb_data;
   } else {
-    target_prcb = &ctx.GetPCR()->prcb_data;
+    target_prcb = &GetKPCR(ctx)->prcb_data;
     inserted_cpunum = target_prcb->current_cpu + 1;
   }
 
@@ -1719,8 +1985,8 @@ dword_result_t KeInsertQueueDpc_entry(pointer_t<XDPC> dpc, dword_t arg1,
   if (dpc->selected_cpu_number == 0) {
     result = true;
     dpc->selected_cpu_number = inserted_cpunum;
-    dpc->arg1 = arg1.value();
-    dpc->arg2 = arg2.value();
+    dpc->arg1 = arg1;
+    dpc->arg2 = arg2;
     util::XeInsertTailList(&target_prcb->queued_dpcs_list_head,
                            &dpc->list_entry, ctx);
     if (!target_prcb->dpc_active && !target_prcb->dpc_related_40) {
@@ -1731,8 +1997,8 @@ dword_result_t KeInsertQueueDpc_entry(pointer_t<XDPC> dpc, dword_t arg1,
   xboxkrnl::xeKeKfReleaseSpinLock(ctx, &target_prcb->dpc_lock, 0, false);
 
   if (send_interrupt) {
-    if (target_prcb == &ctx.GetPCR()->prcb_data) {
-      ctx.GetPCR()->unknown_8 = 2;
+    if (target_prcb == &GetKPCR(ctx)->prcb_data) {
+      GetKPCR(ctx)->unknown_8 = 2;
     } else {
       uint32_t cpunum = inserted_cpunum - 1;
 
@@ -1748,10 +2014,14 @@ dword_result_t KeInsertQueueDpc_entry(pointer_t<XDPC> dpc, dword_t arg1,
   xboxkrnl::xeKfLowerIrql(ctx, old_irql);
   return result;
 }
+
+dword_result_t KeInsertQueueDpc_entry(pointer_t<XDPC> dpc, dword_t arg1,
+                                      dword_t arg2, const ppc_context_t& ctx) {
+  return xeKeInsertQueueDpc(dpc, arg1, arg2, ctx);
+}
 DECLARE_XBOXKRNL_EXPORT2(KeInsertQueueDpc, kThreading, kStub, kSketchy);
 
-dword_result_t KeRemoveQueueDpc_entry(pointer_t<XDPC> dpc,
-                                      const ppc_context_t& ctx) {
+uint32_t xeKeRemoveQueueDpc(XDPC* dpc, PPCContext* ctx) {
   bool result = false;
 
   auto old_irql = xeKfRaiseIrql(ctx, 124);
@@ -1776,6 +2046,11 @@ dword_result_t KeRemoveQueueDpc_entry(pointer_t<XDPC> dpc,
   xeKfLowerIrql(ctx, old_irql);
   return selected_cpu_number != 0;
 }
+
+dword_result_t KeRemoveQueueDpc_entry(pointer_t<XDPC> dpc,
+                                      const ppc_context_t& ctx) {
+  return xeKeRemoveQueueDpc(dpc, ctx);
+}
 DECLARE_XBOXKRNL_EXPORT1(KeRemoveQueueDpc, kThreading, kImplemented);
 
 // https://github.com/Cxbx-Reloaded/Cxbx-Reloaded/blob/51e4dfcaacfdbd1a9692272931a436371492f72d/import/OpenXDK/include/xboxkrnl/xboxkrnl.h#L1372
@@ -1797,7 +2072,7 @@ void ExInitializeReadWriteLock_entry(pointer_t<X_ERWLOCK> lock_ptr) {
   lock_ptr->readers_entry_count = 0;
   KeInitializeEvent_entry(&lock_ptr->writer_event, 1, 0);
   KeInitializeSemaphore_entry(&lock_ptr->reader_semaphore, 0, 0x7FFFFFFF);
-  lock_ptr->spin_lock.prcb_of_owner = 0;
+  lock_ptr->spin_lock.pcr_of_owner = 0;
 }
 DECLARE_XBOXKRNL_EXPORT1(ExInitializeReadWriteLock, kThreading, kImplemented);
 
@@ -2009,7 +2284,8 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
   // wait is over, so cancel the timeout timer
   if (thread->wait_timeout_timer.header.inserted) {
     thread->wait_timeout_timer.header.inserted = 0;
-    util::XeRemoveEntryList(&thread->wait_timeout_timer.table_bucket_entry, context);
+    util::XeRemoveEntryList(&thread->wait_timeout_timer.table_bucket_entry,
+                            context);
     thread->wait_timeout_timer.table_bucket_entry.flink_ptr = 0;
     thread->wait_timeout_timer.table_bucket_entry.blink_ptr = 0;
   }

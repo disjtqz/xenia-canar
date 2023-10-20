@@ -280,6 +280,11 @@ static_assert_size(X_VIDEO_MODE, 48);
 struct X_LIST_ENTRY {
   be<uint32_t> flink_ptr;  // next entry / head
   be<uint32_t> blink_ptr;  // previous entry / head
+
+  void Zero() {
+    flink_ptr = 0;
+    blink_ptr = 0;
+  }
 };
 static_assert_size(X_LIST_ENTRY, 8);
 
@@ -302,7 +307,6 @@ struct X_EX_TITLE_TERMINATE_REGISTRATION {
   X_LIST_ENTRY list_entry;                // 0x8 ??
 };
 static_assert_size(X_EX_TITLE_TERMINATE_REGISTRATION, 16);
-
 
 #pragma pack(pop)
 
