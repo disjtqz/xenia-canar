@@ -317,6 +317,8 @@ class KernelState {
   uint64_t GetKernelInterruptTime();
   X_KPCR_PAGE* KPCRPageForCpuNumber(uint32_t i);
 
+  void ContextSwitch(cpu::ppc::PPCContext* context, X_KTHREAD* guest);
+
  private:
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
   void InitializeProcess(X_KPROCESS* process, uint32_t type, char unk_18,

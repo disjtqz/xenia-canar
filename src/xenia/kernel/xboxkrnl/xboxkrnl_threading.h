@@ -10,9 +10,9 @@
 #ifndef XENIA_KERNEL_XBOXKRNL_XBOXKRNL_THREADING_H_
 #define XENIA_KERNEL_XBOXKRNL_XBOXKRNL_THREADING_H_
 
+#include "xenia/kernel/kernel_guest_structures.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xmutant.h"
-#include "xenia/kernel/kernel_guest_structures.h"
 
 namespace xe {
 namespace kernel {
@@ -26,8 +26,8 @@ uint32_t xeNtClearEvent(uint32_t handle);
 
 uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
                                       uint32_t wait_type, uint32_t wait_mode,
-                                      uint32_t alertable,
-                                      uint64_t* timeout_ptr, cpu::ppc::PPCContext* context);
+                                      uint32_t alertable, uint64_t* timeout_ptr,
+                                      cpu::ppc::PPCContext* context);
 
 uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
                                  uint32_t processor_mode, uint32_t alertable,
@@ -64,12 +64,17 @@ uint32_t xeNtQueueApcThread(uint32_t thread_handle, uint32_t apc_routine,
 void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql);
 unsigned char xeKfRaiseIrql(PPCContext* ctx, unsigned char new_irql);
 
-void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock, uint32_t old_irql, bool change_irql=true);
+void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
+                           uint32_t old_irql, bool change_irql = true);
 uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                                bool change_irql = true);
 
 X_STATUS xeProcessUserApcs(PPCContext* ctx);
 X_STATUS xeProcessKernelApcs(PPCContext* ctx);
+void xeExecuteDPCList2(
+    PPCContext* context, uint32_t timer_unk,
+    util::X_TYPED_LIST<XDPC, offsetof(XDPC, list_entry)>& dpc_list,
+    uint32_t zero_register);
 void xeHandleDPCsAndThreadSwapping(PPCContext* context);
 void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
                                       unsigned int software_interrupt_mask,
@@ -84,7 +89,7 @@ void xeKeLeaveCriticalRegion(PPCContext* context);
 
 void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
                            PPCContext* context);
-//dispatcher header helpers
+// dispatcher header helpers
 void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
                              X_STATUS wait_result, int unknown);
 void xeHandleWaitTypeAll(PPCContext* context, X_KWAIT_BLOCK* block);
@@ -93,7 +98,6 @@ void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
 uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
                             PPCContext* ctx);
 uint32_t xeKeRemoveQueueDpc(XDPC* dpc, PPCContext* ctx);
-
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

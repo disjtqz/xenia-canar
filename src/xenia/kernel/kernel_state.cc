@@ -1215,6 +1215,29 @@ void* KernelState::_FreeInternalHandle(uint32_t id) {
 X_KPCR_PAGE* KernelState::KPCRPageForCpuNumber(uint32_t i) {
   return memory()->TranslateVirtual<X_KPCR_PAGE*>(processor()->GetPCRForCPU(i));
 }
+
+void KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
+  X_HANDLE host_handle;
+
+  if (!object_table()->HostHandleForGuestObject(
+          context->HostToGuestVirtual(guest), host_handle)) {
+    // if theres no host object for this guest thread, its definitely the idle
+    // thread for this processor
+    xenia_assert(guest->process_type == X_PROCTYPE_IDLE &&
+                 guest->process_type_dup == X_PROCTYPE_IDLE &&
+                 guest->process == GetIdleProcess());
+    auto prcb = context->TranslateVirtual(guest->a_prcb_ptr);
+
+    xenia_assert(prcb == &GetKPCR(context)->prcb_data);
+
+    auto hw_thread = processor()->GetCPUThread(prcb->current_cpu);
+
+    hw_thread->YieldToScheduler();
+  } else {
+    object_table()->LookupObject<XThread>(host_handle)->YieldCPU();
+  }
+}
+
 uint32_t KernelState::GetKernelTickCount() {
   return memory()
       ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
@@ -1231,14 +1254,21 @@ uint64_t KernelState::GetKernelInterruptTime() {
       ->interrupt_time;
 }
 void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
-  GetKPCR(context)->prcb_data.running_idle_thread =
-      GetKPCR(context)->prcb_data.idle_thread;
+  while (true) {
+    GetKPCR(context)->prcb_data.running_idle_thread =
+        GetKPCR(context)->prcb_data.idle_thread;
 
-  while (!GetKPCR()->unknown_8) {
-    // okay here, since we really have nothing going on
-    threading::MaybeYield();
+    while (!GetKPCR()->unknown_8) {
+      // okay here, since we really have nothing going on
+      threading::MaybeYield();
+    }
+
+    /*
+      it doesnt call this function in normal kernel, but the code just looks to
+      be it inlined
+    */
+    xboxkrnl::xeHandleDPCsAndThreadSwapping(context);
   }
-  // looks identical to
 }
 
 }  // namespace kernel

@@ -233,18 +233,17 @@ void XThread::InitializeGuestObject() {
       memory()->TranslateVirtual<X_KPROCESS*>(process_info_block_address);
   auto process_type = process->process_type;
 
-
   xboxkrnl::xeKeInitializeTimerEx(&guest_thread->wait_timeout_timer, 0,
                                   process_type, context_here);
 
-  guest_thread->wait_timeout_block.object = memory()
-                                                ->HostToGuestVirtual(&guest_thread->wait_timeout_timer);
+  guest_thread->wait_timeout_block.object =
+      memory()->HostToGuestVirtual(&guest_thread->wait_timeout_timer);
   guest_thread->wait_timeout_block.wait_type = 1;
   guest_thread->wait_timeout_block.thread = thread_guest_ptr;
 
   auto timer_wait_header_list_entry = memory()->HostToGuestVirtual(
       &guest_thread->wait_timeout_timer.header.wait_list);
-  
+
   guest_thread->wait_timeout_block.wait_list_entry.blink_ptr =
       timer_wait_header_list_entry;
   guest_thread->wait_timeout_block.wait_list_entry.flink_ptr =
@@ -258,7 +257,6 @@ void XThread::InitializeGuestObject() {
 
   uint32_t kpcrb = pcr_address_ + offsetof(X_KPCR, prcb_data);
 
-  
   guest_thread->process_type_dup = process_type;
   guest_thread->process_type = process_type;
   guest_thread->apc_lists[0].Initialize(memory());
@@ -283,7 +281,6 @@ void XThread::InitializeGuestObject() {
   guest_thread->creation_flags = this->creation_params_.creation_flags;
   guest_thread->unk_17C = 1;
 
-  
   auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       context_here, &process->thread_list_spinlock);
 
@@ -679,6 +676,12 @@ void XThread::Schedule() {
 }
 
 void XThread::YieldCPU() { HWThread()->YieldToScheduler(); }
+
+void XThread::SwitchToDirect() {
+  this->SetCurrentThread();
+  cpu::ThreadState::Bind(thread_state());
+  fiber()->SwitchTo();
+}
 void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
   // May be called during thread creation - don't skip if current == new.
 

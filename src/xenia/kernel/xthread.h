@@ -125,6 +125,10 @@ class XThread : public XObject {
   void SetCurrentThread();
   void Schedule();
   void YieldCPU();
+
+  void SwitchToDirect(); 
+
+  
   cpu::HWThread* HWThread();
   cpu::ThreadState* thread_state() { return thread_state_; }
   bool can_debugger_suspend() { return false; }

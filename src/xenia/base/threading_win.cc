@@ -639,7 +639,7 @@ void IPIForwarder(IPIContext* context) {
   while (true) {
     __try {
       context->result_ = context->function_(context->userdata_);
-    } __except (EXCEPTION_CONTINUE_EXECUTION) {
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
       ;
     }
   }
@@ -683,7 +683,7 @@ bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
   if (!ctx_to_use) {
     ctx_to_use = new IPIContext();
     memset(ctx_to_use, 0, sizeof(IPIContext));
-    //cached_ipi_context_ = ctx_to_use;
+    cached_ipi_context_ = ctx_to_use;
     ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
   }
   ctx_to_use->initial_context_.ContextFlags = CONTEXT_FULL;
