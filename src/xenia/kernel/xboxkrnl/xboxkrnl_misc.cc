@@ -125,7 +125,8 @@ static qword_result_t KeQueryInterruptTime_entry(const ppc_context_t& ctx) {
   X_TIME_STAMP_BUNDLE* bundle =
       ctx->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(ts_bundle);
 
-  return xe::load_and_swap<uint64_t>(&bundle->interrupt_time);
+  uint64_t int_time= bundle->interrupt_time;
+  return int_time;
 }
 DECLARE_XBOXKRNL_EXPORT1(KeQueryInterruptTime, kNone, kImplemented);
 }  // namespace xboxkrnl

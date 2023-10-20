@@ -639,11 +639,11 @@ void IPIForwarder(IPIContext* context) {
   while (true) {
     __try {
       context->result_ = context->function_(context->userdata_);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (EXCEPTION_CONTINUE_EXECUTION) {
       ;
     }
   }
- // SetEvent(context->racy_handle_);
+  SetEvent(context->racy_handle_);
   RtlRestoreContext(&context->saved_context_, nullptr);
 }
 
@@ -683,8 +683,8 @@ bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
   if (!ctx_to_use) {
     ctx_to_use = new IPIContext();
     memset(ctx_to_use, 0, sizeof(IPIContext));
-    cached_ipi_context_ = ctx_to_use;
-    //ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    //cached_ipi_context_ = ctx_to_use;
+    ctx_to_use->racy_handle_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
   }
   ctx_to_use->initial_context_.ContextFlags = CONTEXT_FULL;
   ctx_to_use->saved_context_.ContextFlags = CONTEXT_FULL;
@@ -717,7 +717,7 @@ bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
       SetThreadContext(this->handle_, &ctx_to_use->initial_context_);
 
   bool resumed = this->Resume(nullptr);
-
+  WaitForSingleObject(ctx_to_use->racy_handle_, INFINITE);
   if (result_out) {
     *result_out = ctx_to_use->result_;
   }

@@ -298,6 +298,7 @@ void KernelState::InitializeKernelGuestGlobals() {
   InitializeHandleTable(&block->SystemThreadIdTable, X_PROCTYPE_SYSTEM, 0xFB,
                         0);
 
+  block->running_timers.Initialize(memory());
   uint32_t oddobject_offset =
       kernel_guest_globals_ + offsetof(KernelGuestGlobals, OddObj);
 

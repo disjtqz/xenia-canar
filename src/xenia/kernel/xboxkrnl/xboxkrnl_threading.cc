@@ -1435,7 +1435,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
               GetKPCR(context)->prcb_data.current_cpu + 1) {
         // dpc is intended for us to execute
         // save all data, i guess other dpcs might modify it?
-        qdpcs.emplace_back(dpc, dpc->routine, dpc->context);
+        qdpcs.push_back(queued_timer_dpc_t{dpc, dpc->routine, dpc->context});
       } else {
         xeKeInsertQueueDpc(dpc, static_cast<uint32_t>(current_systemtime),
                            static_cast<uint32_t>(current_systemtime >> 32),
@@ -1466,7 +1466,7 @@ void xeExecuteDPCList2(
   do {
     // they only check if this value is nonzero. they probably
     // just use r1 because its a readily available nonzero register
-    GetKPCR(context)->prcb_data.dpc_active = context->r[1];
+    GetKPCR(context)->prcb_data.dpc_active = static_cast<uint32_t>(context->r[1]);
     uint32_t tmp_msr_mask = 0xFDFFD7FF;
     GetKPCR(context)->msr_mask = tmp_msr_mask;
     context->msr &= tmp_msr_mask;
@@ -1552,8 +1552,8 @@ static void xeProcessQueuedThreads(PPCContext* context,
   GetKPCR(context)->prcb_data.enqueued_threads_list.next = 0;
 
   while (first_ready_thread) {
-    auto ready_thread =
-        context->TranslateVirtual<ready_thread_pointer_t>(first_ready_thread);
+    ready_thread_pointer_t ready_thread =
+        context->TranslateVirtual<X_LIST_ENTRY*>(first_ready_thread);
     first_ready_thread = ready_thread->flink_ptr;
     // xeEnqueueThreadPostWait sets it to 6
     xenia_assert(ready_thread.GetAdjacent()->thread_state == 6);

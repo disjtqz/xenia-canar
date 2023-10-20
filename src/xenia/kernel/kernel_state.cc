@@ -938,11 +938,9 @@ void KernelState::SystemClockInterrupt() {
       memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
   uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
   uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
-  xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->interrupt_time,
-                               time_imprecise);
-  xe::store_and_swap<uint64_t>(&lpKeTimeStampBundle->system_time,
-                               time_imprecise);
-  xe::store_and_swap<uint32_t>(&lpKeTimeStampBundle->tick_count, uptime_ms);
+  lpKeTimeStampBundle->interrupt_time = time_imprecise;
+  lpKeTimeStampBundle->system_time = time_imprecise;
+  lpKeTimeStampBundle->tick_count = uptime_ms;
 
   auto kpcr = GetKPCR(context);
 
@@ -1237,10 +1235,10 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       GetKPCR(context)->prcb_data.idle_thread;
 
   while (!GetKPCR()->unknown_8) {
-      //okay here, since we really have nothing going on 
+    // okay here, since we really have nothing going on
     threading::MaybeYield();
   }
-  //looks identical to 
+  // looks identical to
 }
 
 }  // namespace kernel

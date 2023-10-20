@@ -22,6 +22,7 @@ struct ShiftedPointer {
     m_base = base;
     return *this;
   }
+  ShiftedPointer(TBase* base) { m_base = base; }
 
   inline this_type& operator=(this_type other) {
     m_base = other.m_base;
