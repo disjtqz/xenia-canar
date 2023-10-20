@@ -35,7 +35,7 @@
 #include "xenia/memory.h"
 #include "xenia/vfs/virtual_file_system.h"
 #include "xenia/kernel/kernel_guest_structures.h"
-
+#include "xenia/kernel/util/guest_timer_list.h"
 namespace xe {
 class ByteStream;
 class Emulator;
@@ -111,7 +111,14 @@ struct KernelGuestGlobals {
   util::X_HANDLE_TABLE TitleThreadIdTable;
   util::X_HANDLE_TABLE SystemThreadIdTable;
 
+  //util::X_TIMER_TABLE timer_table;
+
+  //for very bad timer impl
+  util::X_TYPED_LIST<X_KTIMER, offsetof(X_KTIMER, table_bucket_entry)>
+      running_timers;
+
   X_TIME_STAMP_BUNDLE KeTimestampBundle;
+
 };
 
 struct X_KPCR_PAGE;

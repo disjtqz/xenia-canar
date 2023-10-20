@@ -318,8 +318,8 @@ struct X_KPCR {
 struct X_KTIMER {
   X_DISPATCH_HEADER header;   // 0x0
   xe::be<uint64_t> due_time;  // 0x10
-  X_LIST_ENTRY unk_18;        // 0x18
-  xe::be<uint32_t> unk_20;    // 0x20
+  X_LIST_ENTRY table_bucket_entry;        // 0x18
+  TypedGuestPointer<XDPC> dpc;    // 0x20
   xe::be<uint32_t> period;    // 0x24
 };
 static_assert_size(X_KTIMER, 0x28);

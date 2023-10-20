@@ -868,8 +868,8 @@ void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
   timer->header.inserted = 0;
   timer->header.type = type + 8;
   timer->header.signal_state = 0;
-  timer->unk_18.blink_ptr = 0;
-  timer->unk_18.flink_ptr = 0;
+  timer->table_bucket_entry.blink_ptr = 0;
+  timer->table_bucket_entry.flink_ptr = 0;
   // todo: should initialize wait list in header
   util::XeInitializeListHead(&timer->header.wait_list, context);
   timer->due_time = 0;
@@ -2009,9 +2009,9 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
   // wait is over, so cancel the timeout timer
   if (thread->wait_timeout_timer.header.inserted) {
     thread->wait_timeout_timer.header.inserted = 0;
-    util::XeRemoveEntryList(&thread->wait_timeout_timer.unk_18, context);
-    thread->wait_timeout_timer.unk_18.flink_ptr = 0;
-    thread->wait_timeout_timer.unk_18.blink_ptr = 0;
+    util::XeRemoveEntryList(&thread->wait_timeout_timer.table_bucket_entry, context);
+    thread->wait_timeout_timer.table_bucket_entry.flink_ptr = 0;
+    thread->wait_timeout_timer.table_bucket_entry.blink_ptr = 0;
   }
   auto unk_ptr = thread->unkptr_118;
   if (unk_ptr) {
