@@ -124,9 +124,17 @@ static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {
   thread->thread_state = 1;
   auto& list_for_priority = thread_prcb->ready_threads_by_priority[priority];
   if (unk) {
-    list_for_priority.InsertHead(thread, context);
+    auto v6 = list_for_priority.flink_ptr;
+    thread->ready_prcb_entry.blink_ptr = &list_for_priority;
+    thread_ready_list_entry->flink_ptr = v6;
+    v6->blink_ptr = thread_ready_list_entry;
+    list_for_priority.flink_ptr = thread_ready_list_entry;
   } else {
-    list_for_priority.InsertTail(thread, context);
+    auto v7 = list_for_priority.blink_ptr;
+    thread_ready_list_entry->flink_ptr = &list_for_priority;
+    thread->ready_prcb_entry.blink_ptr = v7;
+    v7->flink_ptr = thread_ready_list_entry;
+    list_for_priority.blink_ptr = thread_ready_list_entry;
   }
 
   thread_prcb->has_ready_thread_by_priority =

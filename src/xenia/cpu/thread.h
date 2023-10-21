@@ -19,7 +19,7 @@ namespace xe {
 namespace cpu {
 class ThreadState;
 
-    // Represents a thread that runs guest code.
+// Represents a thread that runs guest code.
 class Thread {
  public:
   Thread();
@@ -68,16 +68,6 @@ class HWThread {
   void RunIdleProcess();
 
   static uintptr_t IPIWrapperFunction(void* ud);
-
- public:
-  HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
-  ~HWThread();
-
-  bool AreInterruptsDisabled();
-
-  bool HasBooted() {
-      return ready_;
-  }
   volatile bool ready_ = false;
   std::unique_ptr<threading::Thread> os_thread_;
 
@@ -90,7 +80,6 @@ class HWThread {
 
   RunnableThread* last_run_thread_ = nullptr;
 
-
   threading::AtomicListHeader guest_ipi_list_;
 
   std::unique_ptr<threading::Thread> guest_ipi_dispatch_worker_;
@@ -98,13 +87,37 @@ class HWThread {
   // set by kernel
   void (*idle_process_function_)(ppc::PPCContext* context) = nullptr;
 
+  void (*boot_function_)(ppc::PPCContext* context, void* ud) = nullptr;
+  void* boot_ud_= nullptr;
+ public:
+  HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
+  ~HWThread();
+
+  bool AreInterruptsDisabled();
+
+  void SetBootFunction(void (*f)(ppc::PPCContext*, void*), void* ud) {
+    boot_function_ = f;
+    boot_ud_ = ud;
+  }
+  bool HasBooted() { return ready_; }
+
+  void SetDecrementerTicks(uint32_t ticks);
+  void SetDecrementerInterruptCallback(void (*decr)(void* ud), void* ud);
+
+  void SetIdleProcessFunction(
+      void (*idle_process_function)(ppc::PPCContext* context)) {
+    idle_process_function_ = idle_process_function;
+  }
+
+  void Boot() { os_thread_->Resume(); }
+
   void EnqueueRunnableThread(RunnableThread* rth);
 
   void YieldToScheduler();
 
   bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud);
-  //SendGuestIPI is designed to run on a guest thread
-  //it ought to be nonblocking, unlike TrySendHostIPI
+  // SendGuestIPI is designed to run on a guest thread
+  // it ought to be nonblocking, unlike TrySendHostIPI
   bool SendGuestIPI(void (*ipi_func)(void*), void* ud);
 };
 

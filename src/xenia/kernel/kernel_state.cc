@@ -60,7 +60,7 @@ KernelState::KernelState(Emulator* emulator)
   achievement_manager_ = std::make_unique<AchievementManager>();
   user_profiles_.emplace(0, std::make_unique<xam::UserProfile>(0));
 
-  InitializeKernelGuestGlobals();
+  BootKernel();
 
   auto content_root = emulator_->content_root();
   if (!content_root.empty()) {
@@ -275,8 +275,8 @@ static void LaunchModuleInterrupt(void* ud) {
   auto kernel = kernel_state();
   kernel->SetExecutableModule(*launch->module);
   launch->thread = 
-      new XThread(kernel_state(), (*launch->module)->stack_size(), 0,
-      (*launch->module)->entry_point(), 0, X_CREATE_SUSPENDED, true, true);
+      new XThread(kernel_state(), (*launch->module)->stack_size(), 0, (*launch->module)->entry_point(), 0,
+                               0x1000100|X_CREATE_SUSPENDED, true, true);
 
   launch->thread->set_name("Main XThread");
 

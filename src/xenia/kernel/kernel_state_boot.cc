@@ -158,8 +158,7 @@ static void GuestClockInterruptForwarder(void* ud) {
 static void HWClockCallback(cpu::Processor* processor) {
   auto thrd0 = processor->GetCPUThread(0);
 
-  while (!thrd0->SendGuestIPI(GuestClockInterruptForwarder,
-                                          kernel_state())) {
+  while (!thrd0->SendGuestIPI(GuestClockInterruptForwarder, kernel_state())) {
   }
 }
 static void DefaultInterruptProc(PPCContext* context) {}
@@ -169,7 +168,6 @@ static void IPIInterruptProc(PPCContext* context) {}
 // ues _KTHREAD list_entry field at 0x94
 // this dpc uses none of the routine args
 static void DestroyThreadDpc(PPCContext* context) {
-
   context->kernel_state->LockDispatcherAtIrql(context);
 
   context->kernel_state->UnlockDispatcherAtIrql(context);
@@ -195,7 +193,7 @@ void KernelState::InitProcessorStack(X_KPCR* pcr) {
 void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
   X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
   memset(page_for, 0, 4096);
-  page_for->pcr.emulated_interrupt = reinterpret_cast<uint64_t>(&page_for->pcr);
+  
   auto pcr = &page_for->pcr;
   pcr->prcb_data.current_cpu = static_cast<uint8_t>(which_processor_index);
   pcr->prcb_data.processor_mask = 1U << which_processor_index;
@@ -203,14 +201,16 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
 
   XeInitializeListHead(&pcr->prcb_data.queued_dpcs_list_head, memory());
   for (uint32_t i = 0; i < 32; ++i) {
-    util::XeInitializeListHead(&pcr->prcb_data.ready_threads_by_priority[i], memory());
+    util::XeInitializeListHead(&pcr->prcb_data.ready_threads_by_priority[i],
+                               memory());
   }
   pcr->prcb_data.unk_mask_64 = 0xF6DBFC03;
   pcr->prcb_data.thread_exit_dpc.Initialize(
       kernel_trampoline_group_.NewLongtermTrampoline(DestroyThreadDpc), 0);
   // remember, DPC cpu indices start at 1
   pcr->prcb_data.thread_exit_dpc.desired_cpu_number = which_processor_index + 1;
-  util::XeInitializeListHead(&pcr->prcb_data.terminating_threads_list, memory());
+  util::XeInitializeListHead(&pcr->prcb_data.terminating_threads_list,
+                             memory());
 
   pcr->prcb_data.unk_18C.Initialize(
       kernel_trampoline_group_.NewLongtermTrampoline(ThreadSwitchRelatedDpc),
@@ -221,7 +221,7 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
   // this cpu needs special handling, its initializing the kernel
   // InitProcessorStack gets called for it later, after all kernel init
   if (which_processor_index == 0) {
-    uint32_t protdata = processor()->GetPCRForCPU(0); 
+    uint32_t protdata = processor()->GetPCRForCPU(0);
     uint32_t protdata_stackbase = processor()->GetPCRForCPU(0) + 0x7000;
 
     pcr->stack_base_ptr = protdata_stackbase;
@@ -274,8 +274,7 @@ void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {
   SetupProcessorPCR(cpunum);
   SetupProcessorIdleThread(cpunum);
 }
-
-void KernelState::InitializeKernelGuestGlobals() {
+void KernelState::BootInitializeStatics() {
   kernel_guest_globals_ = memory_->SystemHeapAlloc(sizeof(KernelGuestGlobals));
 
   KernelGuestGlobals* block =
@@ -412,21 +411,69 @@ void KernelState::InitializeKernelGuestGlobals() {
       {XObject::Type::Device,
        kernel_guest_globals_ +
            offsetof32(KernelGuestGlobals, IoDeviceObjectType)}};
+}
+
+void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
+  KernelGuestGlobals* block =
+      memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
+
+  
   xboxkrnl::xeKeSetEvent(&block->UsbdBootEnumerationDoneEvent, 1, 0);
 
-
-  for (unsigned i = 0; i < 6; ++i) {
+  for (unsigned i = 1; i < 6; ++i) {
     SetupKPCRPageForCPU(i);
   }
+  for (unsigned i = 1; i < 6; ++i) {
+    auto cpu_thread = processor()->GetCPUThread(i);
+    cpu_thread->Boot();
+  }
+}
+
+void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
+                                   X_KPCR* kpcr) {
+
+}
+
+void KernelState::HWThreadBootFunction(
+    cpu::ppc::PPCContext* context,void* ud
+                                       ) {
+
+  KernelState* ks = reinterpret_cast<KernelState*>(ud);
+
+  /*
+    todo: the hypervisor or bootloader does some initialization before this point
+
+  */
+
+  auto kpcr = GetKPCR(context);
+  kpcr->emulated_interrupt = reinterpret_cast<uint64_t>(kpcr);
+  auto cpunum = ks->GetPCRCpuNum(kpcr);
+
+  kpcr->prcb_data.current_cpu = cpunum;
+  kpcr->prcb_data.processor_mask = 1U << cpunum;
+
+
+  if (cpunum == 0) {
+    ks->BootCPU0(context, kpcr);
+  } else {
+    ks->BootCPU1Through5(context, kpcr);
+  }
+}
+void KernelState::BootKernel() {
+  BootInitializeStatics();
+
+
   for (unsigned i = 0; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
-    cpu_thread->idle_process_function_ =
-        &KernelState::KernelIdleProcessFunction;
-    cpu_thread->os_thread_->Resume();
+    cpu_thread->SetIdleProcessFunction(&KernelState::KernelIdleProcessFunction);
+    cpu_thread->SetBootFunction(&KernelState::HWThreadBootFunction, this);
   }
+  SetupKPCRPageForCPU(0);
+  //cpu 0 boots all other cpus
+  processor()->GetCPUThread(0)->Boot();
 
   while (!processor()->AllHWThreadsBooted()) {
-    threading::NanoSleep(10000);//10 microseconds
+    threading::NanoSleep(10000);  // 10 microseconds
   }
   processor()->GetHWClock()->SetInterruptCallback(HWClockCallback);
 

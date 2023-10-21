@@ -23,10 +23,12 @@
 #include "xenia/base/mutex.h"
 #include "xenia/cpu/backend/backend.h"
 #include "xenia/cpu/export_resolver.h"
+#include "xenia/kernel/kernel_guest_structures.h"
+#include "xenia/kernel/util/guest_object_table.h"
+#include "xenia/kernel/util/guest_timer_list.h"
 #include "xenia/kernel/util/kernel_fwd.h"
 #include "xenia/kernel/util/native_list.h"
 #include "xenia/kernel/util/object_table.h"
-#include "xenia/kernel/util/guest_object_table.h"
 #include "xenia/kernel/util/xdbf_utils.h"
 #include "xenia/kernel/xam/app_manager.h"
 #include "xenia/kernel/xam/content_manager.h"
@@ -34,8 +36,6 @@
 #include "xenia/kernel/xevent.h"
 #include "xenia/memory.h"
 #include "xenia/vfs/virtual_file_system.h"
-#include "xenia/kernel/kernel_guest_structures.h"
-#include "xenia/kernel/util/guest_timer_list.h"
 namespace xe {
 class ByteStream;
 class Emulator;
@@ -48,7 +48,6 @@ namespace xe {
 namespace kernel {
 
 constexpr fourcc_t kKernelSaveSignature = make_fourcc("KRNL");
-
 
 struct TerminateNotification {
   uint32_t guest_routine;
@@ -111,14 +110,13 @@ struct KernelGuestGlobals {
   util::X_HANDLE_TABLE TitleThreadIdTable;
   util::X_HANDLE_TABLE SystemThreadIdTable;
 
-  //util::X_TIMER_TABLE timer_table;
+  // util::X_TIMER_TABLE timer_table;
 
-  //for very bad timer impl
+  // for very bad timer impl
   util::X_TYPED_LIST<X_KTIMER, offsetof(X_KTIMER, table_bucket_entry)>
       running_timers;
 
   X_TIME_STAMP_BUNDLE KeTimestampBundle;
-
 };
 
 struct X_KPCR_PAGE;
@@ -283,32 +281,34 @@ class KernelState {
   uint32_t CreateKeTimestampBundle();
   void SystemClockInterrupt();
 
-  void BeginDPCImpersonation(cpu::ppc::PPCContext* context, DPCImpersonationScope& scope);
+  void BeginDPCImpersonation(cpu::ppc::PPCContext* context,
+                             DPCImpersonationScope& scope);
   void EndDPCImpersonation(cpu::ppc::PPCContext* context,
                            DPCImpersonationScope& end_scope);
 
-  void EmulateCPInterruptDPC(uint32_t interrupt_callback,uint32_t interrupt_callback_data, uint32_t source,
+  void EmulateCPInterruptDPC(uint32_t interrupt_callback,
+                             uint32_t interrupt_callback_data, uint32_t source,
                              uint32_t cpu);
   uint32_t LockDispatcher(cpu::ppc::PPCContext* context);
   void UnlockDispatcher(cpu::ppc::PPCContext* context, uint32_t irql);
 
   void LockDispatcherAtIrql(cpu::ppc::PPCContext* context);
   void UnlockDispatcherAtIrql(cpu::ppc::PPCContext* context);
-  uint32_t ReferenceObjectByHandle(cpu::ppc::PPCContext* context,uint32_t handle,
-                                   uint32_t guest_object_type,
+  uint32_t ReferenceObjectByHandle(cpu::ppc::PPCContext* context,
+                                   uint32_t handle, uint32_t guest_object_type,
                                    uint32_t* object_out);
-  void DereferenceObject(cpu::ppc::PPCContext* context,uint32_t object);
+  void DereferenceObject(cpu::ppc::PPCContext* context, uint32_t object);
 
   void AssertDispatcherLocked(cpu::ppc::PPCContext* context);
   uint32_t AllocateInternalHandle(void* ud);
   void* _FreeInternalHandle(uint32_t id);
-  template<typename T>
+  template <typename T>
   T* LookupInternalHandle(uint32_t id) {
     std::unique_lock lock{internal_handle_table_mutex_};
     return reinterpret_cast<T*>(internal_handles_.find(id)->second);
   }
-  template <typename T=void>
-  T* FreeInternalHandle(uint32_t id){
+  template <typename T = void>
+  T* FreeInternalHandle(uint32_t id) {
     return reinterpret_cast<T*>(_FreeInternalHandle(id));
   }
 
@@ -325,10 +325,29 @@ class KernelState {
                          char unk_19, char unk_1A);
   void SetProcessTLSVars(X_KPROCESS* process, int num_slots, int tls_data_size,
                          int tls_static_data_address);
-  void InitializeKernelGuestGlobals();
+
+  void BootKernel();
+  /*
+    initializes objects/data that is normally pre-initialized in the rdata
+    section of the kernel, or any other data that does not require execution on
+    a PPCContext to init
+  */
+  void BootInitializeStatics();
+
+  //the cpu number is encoded in the pcr address
+  uint32_t GetPCRCpuNum(X_KPCR* pcr) {
+    return (memory_->HostToGuestVirtual(pcr) >> 12) & 0xF;
+  }
+
+  void BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr);
+  void BootCPU1Through5(cpu::ppc::PPCContext* context, X_KPCR* kpcr);
+
+  static void HWThreadBootFunction(cpu::ppc::PPCContext* context, void* ud);
+
   void SetupProcessorPCR(uint32_t which_processor_index);
   void SetupProcessorIdleThread(uint32_t which_processor_index);
   void InitProcessorStack(X_KPCR* pcr);
+
   Emulator* emulator_;
   Memory* memory_;
   cpu::Processor* processor_;
@@ -358,21 +377,23 @@ class KernelState {
   std::condition_variable_any dispatch_cond_;
   std::list<std::function<void()>> dispatch_queue_;
 
-  BitMap tls_bitmap_;\
+  BitMap tls_bitmap_;
   std::unique_ptr<xe::threading::HighResolutionTimer> timestamp_timer_;
   cpu::backend::GuestTrampolineGroup kernel_trampoline_group_;
-  //fixed address referenced by dashboards. Data is currently unknown
+  // fixed address referenced by dashboards. Data is currently unknown
   uint32_t strange_hardcoded_page_ = 0x8E038634 & (~0xFFFF);
   uint32_t strange_hardcoded_location_ = 0x8E038634;
 
-  // assign integer ids to arbitrary data, for stuffing threading::WaitHandle into header flink_ptr
+  // assign integer ids to arbitrary data, for stuffing threading::WaitHandle
+  // into header flink_ptr
   std::unordered_map<uint32_t, void*> internal_handles_;
   uint32_t current_internal_handle_ = 0x66180000;
   xe_mutex internal_handle_table_mutex_;
   static void KernelIdleProcessFunction(cpu::ppc::PPCContext* context);
- 
+
   void SetupKPCRPageForCPU(uint32_t cpunum);
   friend class XObject;
+
  public:
   uint32_t dash_context_ = 0;
   std::unordered_map<XObject::Type, uint32_t>

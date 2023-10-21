@@ -86,9 +86,7 @@ uint32_t Processor::GetPCRForCPU(uint32_t cpu_num) {
   return protdata_ + (4096 * cpu_num);
 }
 Processor::Processor(xe::Memory* memory, ExportResolver* export_resolver)
-    : memory_(memory), export_resolver_(export_resolver) {
-
-}
+    : memory_(memory), export_resolver_(export_resolver) {}
 
 Processor::~Processor() {
   {
@@ -181,26 +179,16 @@ bool Processor::Setup(std::unique_ptr<backend::Backend> backend) {
 
   protdata_ = 0x801B0000;
 
-  for (unsigned cpu_index = 0; cpu_index < 6; ++cpu_index) {
-    uint32_t stack_base = stacks_for_idle_threads[cpu_index].stackbase;
-    uint32_t stack_end = stacks_for_idle_threads[cpu_index].stack_end;
-    // yikes, idle threads stack can underflow into pcr page 5
-    if (cpu_index == 0) {
-      // already allocated!
-      stack_base = protdata_ + 0x7000;
-    } else {
-      bool success = memory_->LookupHeap(stack_end)->AllocFixed(
-          stack_end, stack_base - stack_end, 4096,
-          MemoryAllocationFlag::kMemoryAllocationCommit,
-          MemoryProtectFlag::kMemoryProtectRead |
-              MemoryProtectFlag::kMemoryProtectWrite);
-      xenia_assert(success);
-    }
+  /*
+    set all processors initial stack to be what cpu 0's ought to be. cpu 0 is
+    going to assign them their own stacks during the boot process in the kernel
+  */
+  for (unsigned i = 0; i < 6; ++i) {
     // idle threadid must be 0
     cpu::ThreadState* processor_idle_state =
-        new cpu::ThreadState(this, 0, stack_base, GetPCRForCPU(cpu_index));
-    hw_threads_.push_back(
-        std::make_unique<HWThread>(cpu_index, processor_idle_state));
+        new cpu::ThreadState(this, i, 0x801B7000, GetPCRForCPU(i));
+
+    hw_threads_.push_back(std::make_unique<HWThread>(i, processor_idle_state));
   }
 
   hw_clock_ = std::make_unique<cpu::HWClock>(this);

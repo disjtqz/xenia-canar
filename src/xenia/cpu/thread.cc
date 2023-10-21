@@ -46,6 +46,11 @@ void HWThread::RunIdleProcess() {
 void HWThread::ThreadFunc() {
   idle_process_fiber_ = threading::Fiber::CreateFromThread();
   cpu::ThreadState::Bind(idle_process_threadstate_);
+
+  if (boot_function_) {
+    boot_function_(idle_process_threadstate_->context(), boot_ud_);
+  }
+
   ready_ = true;
   idle_process_threadstate_->processor()->NotifyHWThreadBooted(cpu_number_);
 
