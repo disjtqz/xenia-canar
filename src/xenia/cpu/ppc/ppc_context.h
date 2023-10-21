@@ -462,6 +462,11 @@ typedef struct alignas(64) PPCContext_s {
   inline T* TranslateVirtual(TypedGuestPointer<T> guest_address) {
     return TranslateVirtual<T*>(guest_address.m_ptr);
   }
+  template<typename T>
+  bool IsNull(T* host) {
+    return host == (T*)virtual_membase;
+  }
+
   template <typename T>
   inline uint32_t HostToGuestVirtual(T* host_ptr) XE_RESTRICT const {
 #if XE_PLATFORM_WIN32 == 1

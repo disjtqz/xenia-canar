@@ -50,9 +50,12 @@ HWClock::HWClock(Processor* processor) : processor_(processor) {
   threading::Thread::CreationParameters crparams{};
   crparams.stack_size = 65536;
   crparams.initial_priority = threading::ThreadPriority::kAboveNormal;
+  crparams.create_suspended = true;
   timer_thread_ = threading::Thread::Create(
       crparams, std::bind(&HWClock::WorkerThreadMain, this));
 }
 HWClock::~HWClock() {}
+
+void HWClock::Start() { timer_thread_->Resume(); }
 }  // namespace cpu
 }  // namespace xe

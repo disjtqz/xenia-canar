@@ -428,6 +428,8 @@ void KernelState::InitializeKernelGuestGlobals() {
     threading::NanoSleep(10000);//10 microseconds
   }
   processor()->GetHWClock()->SetInterruptCallback(HWClockCallback);
+
+  processor()->GetHWClock()->Start();
 }
 
 }  // namespace kernel

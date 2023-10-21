@@ -34,7 +34,6 @@ static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {
   // todo: implement!
 }
 
-
 using ready_thread_pointer_t =
     ShiftedPointer<X_LIST_ENTRY, X_KTHREAD,
                    offsetof(X_KTHREAD, ready_prcb_entry)>;
@@ -44,10 +43,134 @@ static void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
   xe::FatalError("Cant handle thread processor switching atm");
 }
 
+static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {
+  auto priority = thread->priority;
+  auto thread_prcb = context->TranslateVirtual(thread->a_prcb_ptr);
+  auto thread_ready_list_entry = &thread->ready_prcb_entry;
+  thread->thread_state = 1;
+  auto& list_for_priority = thread_prcb->ready_threads_by_priority[priority];
+  if (unk) {
+    list_for_priority.InsertHead(thread, context);
+  } else {
+    list_for_priority.InsertTail(thread, context);
+  }
+
+  thread_prcb->has_ready_thread_by_priority =
+      thread_prcb->has_ready_thread_by_priority | (1U << priority);
+}
+
+static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
+  if (context->TranslateVirtual(thread->another_prcb_ptr) ==
+      &GetKPCR(context)->prcb_data) {
+    unsigned char unk = thread->unk_BD;
+    thread->unk_BD = 0;
+    insert_8009CFE0(context, thread, unk);
+  } else {
+    thread->thread_state = 6;
+    auto kpcr = GetKPCR(context);
+    thread->ready_prcb_entry.flink_ptr =
+        kpcr->prcb_data.enqueued_threads_list.next;
+    kpcr->prcb_data.enqueued_threads_list.next =
+        context->HostToGuestVirtual(&thread->ready_prcb_entry);
+    kpcr->unknown_8 = 2;
+  }
+}
+/*
+    performs bitscanning on the bitmask of available thread priorities to
+    select the first runnable one that is greater than or equal to the prio arg
+*/
+static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
+                                       int priority) {
+  auto v3 = prcb->has_ready_thread_by_priority;
+  if ((prcb->has_ready_thread_by_priority & ~((1 << priority) - 1) & v3) == 0) {
+    return nullptr;
+  }
+  auto v4 = xe::lzcnt(prcb->has_ready_thread_by_priority &
+                      ~((1 << priority) - 1) & v3);
+  auto v5 = 31 - v4;
+
+  auto result = prcb->ready_threads_by_priority[31 - v4].HeadObject(context);
+
+  auto v7 = result->ready_prcb_entry.flink_ptr;
+  auto v8 = result->ready_prcb_entry.blink_ptr;
+  context->TranslateVirtual<X_LIST_ENTRY*>(v8)->flink_ptr = v7;
+  context->TranslateVirtual<X_LIST_ENTRY*>(v7)->blink_ptr = v8;
+  if (v8 == v7) {
+    prcb->has_ready_thread_by_priority =
+        prcb->has_ready_thread_by_priority & (~(1 << v5));
+  }
+  return result;
+}
+
+void HandleCpuThreadDisownedIPI(void* ud) { xenia_assert(false); }
+
 static void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   auto prcb_for_thread = context->TranslateVirtual(kthread->a_prcb_ptr);
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &prcb_for_thread->enqueued_processor_threads_lock, false);
+
+  auto thread_priority = kthread->priority;
+  auto unk_BD = kthread->unk_BD;
+  kthread->unk_BD = 0;
+  if ((prcb_for_thread->has_ready_thread_by_priority &
+       (1 << thread_priority)) == 0) {
+    insert_8009CFE0(context, kthread, unk_BD);
+    xboxkrnl::xeKeKfReleaseSpinLock(
+        context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
+    return;
+  }
+
+  if (prcb_for_thread->running_idle_thread != 0) {
+    xenia_assert(prcb_for_thread->running_idle_thread.m_ptr ==
+                 prcb_for_thread->idle_thread.m_ptr);
+
+    prcb_for_thread->running_idle_thread = 0;
+  label_6:
+    kthread->thread_state = 3;
+    prcb_for_thread->next_thread = context->HostToGuestVirtual(kthread);
+
+    xboxkrnl::xeKeKfReleaseSpinLock(
+        context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
+
+    uint32_t old_cpu_for_thread = kthread->current_cpu;
+    if (old_cpu_for_thread != GetKPCR(context)->prcb_data.current_cpu) {
+      /*
+          do a non-blocking host IPI here. we need to be sure the original cpu
+         this thread belonged to has given it up before we continue
+      */
+      context->processor->GetCPUThread(old_cpu_for_thread)
+          ->TrySendInterruptFromHost(HandleCpuThreadDisownedIPI,
+                                     (void*)kthread);
+    }
+    return;
+  }
+
+  X_KTHREAD* next_thread =
+      context->TranslateVirtual(prcb_for_thread->next_thread);
+
+  if (!prcb_for_thread->next_thread) {
+    if (thread_priority >
+        context->TranslateVirtual(prcb_for_thread->current_thread)->priority) {
+      context->TranslateVirtual(prcb_for_thread->current_thread)->unk_BD = 1;
+      goto label_6;
+    }
+    insert_8009CFE0(context, kthread, unk_BD);
+    xboxkrnl::xeKeKfReleaseSpinLock(
+        context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
+    return;
+  }
+
+  kthread->thread_state = 3;
+
+  prcb_for_thread->next_thread = context->HostToGuestVirtual(kthread);
+  uint32_t v10 = next_thread->priority;
+  auto v11 = context->TranslateVirtual(next_thread->a_prcb_ptr);
+
+  next_thread->thread_state = 1;
+  v11->ready_threads_by_priority[v10].InsertHead(next_thread, context);
+
+  v11->has_ready_thread_by_priority =
+      v11->has_ready_thread_by_priority | (1 << v10);
 
   xboxkrnl::xeKeKfReleaseSpinLock(
       context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
@@ -137,9 +260,13 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
   }
   // requeue ourselves
   // GetKPCR(context)->prcb_data.current_thread
+  auto& prcb = GetKPCR(context)->prcb_data;
+  auto ble = context->TranslateVirtual(prcb.current_thread);
+  prcb.next_thread = 0;
+  prcb.current_thread = context->HostToGuestVirtual(next_thread);
+  insert_8009D048(context, ble);
+  context->kernel_state->ContextSwitch(context, next_thread);
 }
-
-
 
 void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
                              X_STATUS wait_result, int unknown) {

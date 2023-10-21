@@ -28,6 +28,7 @@ class HWClock {
     interrupt_callback_ = callback;
   }
 
+  void Start();
  private:
   Processor* processor_;
   std::unique_ptr<threading::Thread> timer_thread_;

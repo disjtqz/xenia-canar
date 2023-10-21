@@ -253,8 +253,8 @@ struct X_KPRCB {
   // i think the following mask has something to do with the array that comes
   // after
   xe::be<uint32_t> unk_mask_64;  // 0x64
-
-  X_LIST_ENTRY ready_threads_by_priority[32];  // 0x68
+  //have to hardcode this offset, KTHREAD not defined yet
+  util::X_TYPED_LIST<X_KTHREAD, 0x94> ready_threads_by_priority[32];  // 0x68
   // ExTerminateThread tail calls a function that does KeInsertQueueDpc of this
   // dpc
   XDPC thread_exit_dpc;  // 0x168
