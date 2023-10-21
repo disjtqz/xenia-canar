@@ -29,6 +29,14 @@
 namespace xe {
 namespace kernel {
 namespace xboxkrnl {
+static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk);
+static void insert_8009D048(PPCContext* context, X_KTHREAD* thread);
+static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
+                                       int priority);
+static void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread);
+static void xeProcessQueuedThreads(PPCContext* context,
+                                   bool under_dispatcher_lock);
+X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context);
 
 static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {
   // todo: implement!
@@ -40,7 +48,35 @@ using ready_thread_pointer_t =
 
 static void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
                                                     X_KTHREAD* kthread) {
-  xe::FatalError("Cant handle thread processor switching atm");
+  auto kpcr = GetKPCR(context);
+  auto v3 = &kpcr->prcb_data;
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &kpcr->prcb_data.enqueued_processor_threads_lock, false);
+
+  if (kthread->thread_state != 2) {
+    // xe::FatalError("Doing some fpu/vmx shit here?");
+    // it looks like its saving the fpu and vmx state
+    // we don't have to do this i think, because we already have different
+    // PPCContext per guest thread
+  }
+  // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/ntos/ke/kthread_state.htm
+  switch (kthread->thread_state) {
+    case 1: {  // ready
+      auto v23 = kthread->ready_prcb_entry.flink_ptr;
+      auto v24 = kthread->ready_prcb_entry.blink_ptr;
+      v24->flink_ptr = v23;
+      v23->blink_ptr = v24;
+      if (v24 == v23) {
+        v3->has_ready_thread_by_priority =
+            v3->has_ready_thread_by_priority & (~(1 << kthread->priority));
+      }
+
+      break;
+    }
+  }
+
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
 }
 
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {

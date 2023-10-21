@@ -18,10 +18,24 @@
 #include "xenia/cpu/processor.h"
 
 #include "xenia/xbox.h"
+#define THREADSTATE_USE_TEB
+
 namespace xe {
 namespace cpu {
-
+#if !defined(THREADSTATE_USE_TEB)
 thread_local ThreadState* thread_state_ = nullptr;
+#endif
+// Teb Wow32Reserved
+
+#define TEB_OFFSET_CONTEXT 0x100
+
+static ppc::PPCContext* CurrentContext() {
+  return reinterpret_cast<ppc::PPCContext*>(__readgsqword(TEB_OFFSET_CONTEXT));
+}
+
+static void SetCurrentContext(ppc::PPCContext* context) {
+  __writegsqword(TEB_OFFSET_CONTEXT, reinterpret_cast<uint64_t>(context));
+}
 
 static void* AllocateContext() {
   size_t granularity = xe::memory::allocation_granularity();
@@ -77,8 +91,7 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
 
   // Allocate with 64b alignment.
 
-  context_ = reinterpret_cast<ppc::PPCContext*>(
-	  AllocateContext());
+  context_ = reinterpret_cast<ppc::PPCContext*>(AllocateContext());
   processor->backend()->InitializeBackendContext(context_);
   assert_true(((uint64_t)context_ & 0x3F) == 0);
   std::memset(context_, 0, sizeof(ppc::PPCContext));
@@ -97,9 +110,11 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
   // fixme: VSCR must be set here!
   context_->msr = 0x9030;  // dumped from a real 360, 0x8000
 
-  //this register can be used for arbitrary data according to the PPC docs
-  //but the suggested use is to mark which vector registers are in use, for faster save/restore
-  //it seems unlikely anything uses this, especially since we have way more than 32 vrs, but setting it to all ones seems closer to correct than 0
+  // this register can be used for arbitrary data according to the PPC docs
+  // but the suggested use is to mark which vector registers are in use, for
+  // faster save/restore it seems unlikely anything uses this, especially since
+  // we have way more than 32 vrs, but setting it to all ones seems closer to
+  // correct than 0
   context_->vrsave = ~0u;
 }
 
@@ -107,9 +122,16 @@ ThreadState::~ThreadState() {
   if (backend_data_) {
     processor_->backend()->FreeThreadData(backend_data_);
   }
+#if !defined(THREADSTATE_USE_TEB)
   if (thread_state_ == this) {
     thread_state_ = nullptr;
   }
+#else
+  auto cc = CurrentContext();
+  if (cc && cc->thread_state == this) {
+    SetCurrentContext(nullptr);
+  }
+#endif
   if (context_) {
     processor_->backend()->DeinitializeBackendContext(context_);
     FreeContext(reinterpret_cast<void*>(context_));
@@ -117,13 +139,35 @@ ThreadState::~ThreadState() {
 }
 
 void ThreadState::Bind(ThreadState* thread_state) {
+#if defined(THREADSTATE_USE_TEB)
+  SetCurrentContext(thread_state->context());
+#else
   thread_state_ = thread_state;
+#endif
+}
+ppc::PPCContext* ThreadState::GetContext() {
+#if defined(THREADSTATE_USE_TEB)
+  return CurrentContext();
+#else
+  return thread_state_ ? thread_state_->context() : nullptr;
+#endif
+}
+ThreadState* ThreadState::Get() {
+#if defined(THREADSTATE_USE_TEB)
+  auto context = CurrentContext();
+  if (context) {
+    return context->thread_state;
+  }
+  return nullptr;
+#else
+  return thread_state_;
+#endif
 }
 
-ThreadState* ThreadState::Get() { return thread_state_; }
-
 uint32_t ThreadState::GetThreadID() {
-  return thread_state_ ? thread_state_->thread_id_ : 0xFFFFFFFF;
+  auto ts = ThreadState::Get();
+
+  return ts ? ts->thread_id_ : 0xFFFFFFFF;
 }
 
 }  // namespace cpu

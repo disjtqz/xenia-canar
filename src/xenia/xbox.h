@@ -13,12 +13,23 @@
 #include <string>
 
 #include "xenia/base/memory.h"
-
+#include "xenia/cpu/thread_state.h"
+#include "xenia/guest_pointers.h"
 // TODO(benvanik): split this header, cleanup, etc.
 // clang-format off
 
 namespace xe {
+template <typename T>
+struct EZPointer : public TypedGuestPointer<T> {
+    using TypedGuestPointer::operator=;
+  inline T* operator->() {
+    return cpu::ThreadState::GetContext()->TranslateVirtual<T*>(m_ptr);
+  }
+  inline T& operator*() {
+    return *cpu::ThreadState::GetContext()->TranslateVirtual<T*>(m_ptr);
+  }
 
+};
 #pragma pack(push, 4)
 
 typedef uint32_t X_HANDLE;
@@ -277,9 +288,10 @@ struct X_VIDEO_MODE {
 static_assert_size(X_VIDEO_MODE, 48);
 
 // https://docs.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry
+struct X_LIST_ENTRY;
 struct X_LIST_ENTRY {
-  be<uint32_t> flink_ptr;  // next entry / head
-  be<uint32_t> blink_ptr;  // previous entry / head
+  EZPointer<X_LIST_ENTRY> flink_ptr;  // next entry / head
+  EZPointer<X_LIST_ENTRY> blink_ptr;  // previous entry / head
 
   void Zero() {
     flink_ptr = 0;

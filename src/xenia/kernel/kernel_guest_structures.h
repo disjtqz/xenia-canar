@@ -10,11 +10,11 @@
 #ifndef XENIA_KERNEL_KERNEL_GUEST_STRUCTURES_H_
 #define XENIA_KERNEL_KERNEL_GUEST_STRUCTURES_H_
 #include "xenia/base/memory.h"
-#include "xenia/guest_pointers.h"
 #include "xenia/kernel/util/native_list.h"
 #include "xenia/xbox.h"
 namespace xe {
 namespace kernel {
+
 enum Irql : uint8_t {
   IRQL_PASSIVE = 0,
   IRQL_APC = 1,
@@ -248,12 +248,12 @@ struct X_KPRCB {
   TypedGuestPointer<X_KTHREAD> running_idle_thread;  // 0x58
   // definitely scheduler related
   X_SINGLE_LIST_ENTRY enqueued_threads_list;  // 0x5C
-  //if bit 0 set, have a thread at priority 0, etc
-  xe::be<uint32_t> has_ready_thread_by_priority;                    // 0x60
+  // if bit 0 set, have a thread at priority 0, etc
+  xe::be<uint32_t> has_ready_thread_by_priority;  // 0x60
   // i think the following mask has something to do with the array that comes
   // after
   xe::be<uint32_t> unk_mask_64;  // 0x64
-  //have to hardcode this offset, KTHREAD not defined yet
+  // have to hardcode this offset, KTHREAD not defined yet
   util::X_TYPED_LIST<X_KTHREAD, 0x94> ready_threads_by_priority[32];  // 0x68
   // ExTerminateThread tail calls a function that does KeInsertQueueDpc of this
   // dpc

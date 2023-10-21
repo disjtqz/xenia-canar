@@ -42,10 +42,11 @@ struct TypedGuestPointer {
     m_ptr = ptr;
     return *this;
   }
-  inline bool operator==(uint32_t ptr) const { return m_ptr == ptr; }
-  inline bool operator!=(uint32_t ptr) const { return m_ptr != ptr; }
+  //inline bool operator==(uint32_t ptr) const { return m_ptr == ptr; }
+//  inline bool operator!=(uint32_t ptr) const { return m_ptr != ptr; }
   // use value directly, no endian swap needed
-  inline bool operator!() const { return !m_ptr.value; }
+  //inline bool operator!() const { return !m_ptr.value; }
+  inline operator uint32_t() const { return m_ptr; }
 };
 }  // namespace xe
 
