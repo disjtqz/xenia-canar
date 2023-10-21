@@ -10,8 +10,12 @@
 #include "xenia/cpu/thread.h"
 #include "xenia/base/atomic.h"
 #include "xenia/cpu/thread_state.h"
-#include "xenia/kernel/kernel_state.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 #include "xenia/cpu/processor.h"
+DEFINE_bool(emulate_guest_interrupts_in_software, false,
+            "If true, emulate guest interrupts by repeatedly checking a "
+            "location on the PCR. Otherwise uses host ipis.",
+            "CPU");
 namespace xe {
 namespace cpu {
 
@@ -81,7 +85,7 @@ void HWThread::GuestIPIWorkerThreadFunc() {
       continue;
     }
     while (!TrySendInterruptFromHost(list_entry->function_, list_entry->ud_)) {
-      threading::MaybeYield();
+      threading::NanoSleep(10000);
     }
     delete list_entry;
   }
@@ -154,18 +158,53 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
   return 1;
 }
-
+#define NO_RESULT_MAGIC     0x69420777777ULL
 bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
   GuestInterruptWrapper wrapper{};
   wrapper.ipi_func = ipi_func;
   wrapper.ud = ud;
   wrapper.thiz = this;
   // ipi wrapper returns 0 if current context has interrupts disabled
-  uintptr_t result_from_call = 0;
+  volatile uintptr_t result_from_call = 0;
+  if (cvars::emulate_guest_interrupts_in_software) {
+    auto processor = idle_process_threadstate_->context()->processor;
+    auto pcr = processor->GetPCRForCPU(this->cpu_number_);
 
-  while (!os_thread_->IPI(IPIWrapperFunction, &wrapper, &result_from_call) ||
-         result_from_call == 0) {
-    threading::MaybeYield();
+    kernel::X_KPCR* p_pcr =
+        processor->memory()->TranslateVirtual<kernel::X_KPCR*>(pcr);
+
+    ppc::PPCInterruptRequest request;
+    request.func_ = IPIWrapperFunction;
+    request.ud_ = (void*)&wrapper;
+    request.result_out_ = (uintptr_t*) & result_from_call;
+
+    while (result_from_call == 0) {
+      result_from_call = NO_RESULT_MAGIC;
+      while (!xe::atomic_cas(reinterpret_cast<uint64_t>(p_pcr),
+                             reinterpret_cast<uint64_t>(&request),
+                             &p_pcr->emulated_interrupt)) {
+      }
+
+      while (p_pcr->emulated_interrupt ==
+             reinterpret_cast<uint64_t>(&request)) {
+      }
+      // guest has read the interrupt, now wait for it to change our value
+
+
+      while (result_from_call == NO_RESULT_MAGIC) {
+      
+      }
+
+    }
+
+    return true;
+
+  } else {
+    while (
+        !os_thread_->IPI(IPIWrapperFunction, &wrapper, (uintptr_t*) & result_from_call) ||
+           result_from_call == 0) {
+      threading::NanoSleep(10000);
+    }
   }
   return true;
 }

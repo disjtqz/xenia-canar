@@ -1259,6 +1259,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
         GetKPCR(context)->prcb_data.idle_thread;
 
     while (!GetKPCR()->unknown_8) {
+      context->CheckInterrupt();
       // okay here, since we really have nothing going on
       threading::MaybeYield();
     }

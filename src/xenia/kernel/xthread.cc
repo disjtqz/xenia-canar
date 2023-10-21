@@ -405,7 +405,7 @@ X_STATUS XThread::Create() {
   pcr->pcr_ptr = pcr_address_;
   pcr->prcb_data.current_thread = guest_object();
   pcr->prcb = pcr_address_ + offsetof(X_KPCR, prcb_data);
-  pcr->host_stash = reinterpret_cast<uint64_t>(thread_state_->context());
+  pcr->emulated_interrupt = reinterpret_cast<uint64_t>(pcr);
   pcr->stack_base_ptr = stack_base_;
   pcr->stack_end_ptr = stack_limit_;
 

@@ -9,17 +9,17 @@
 
 #ifndef XENIA_CPU_THREAD_H_
 #define XENIA_CPU_THREAD_H_
-
+#include "xenia/base/cvar.h"
 #include "xenia/base/threading.h"
 
 #include <cstdint>
 #include "xenia/cpu/ppc/ppc_context.h"
-
+DECLARE_bool(emulate_guest_interrupts_in_software);
 namespace xe {
 namespace cpu {
 class ThreadState;
 
-// Represents a thread that runs guest code.
+    // Represents a thread that runs guest code.
 class Thread {
  public:
   Thread();

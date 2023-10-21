@@ -213,6 +213,7 @@ class X64Backend : public Backend {
   void* vrsqrtefp_vector_helper = nullptr;
   void* vrsqrtefp_scalar_helper = nullptr;
   void* frsqrtefp_helper = nullptr;
+  void* emulated_interrupt_helper_ = nullptr;
  private:
 #if XE_X64_PROFILER_AVAILABLE == 1
   GuestProfilerData profiler_data_;

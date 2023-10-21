@@ -217,10 +217,10 @@ struct X_KTHREAD;
 struct X_KPROCESS;
 struct X_KPRCB {
   EZPointer<X_KTHREAD> current_thread;  // 0x0
-  EZPointer<X_KTHREAD> next_thread;             // 0x4
+  EZPointer<X_KTHREAD> next_thread;     // 0x4
   EZPointer<X_KTHREAD> idle_thread;     // 0x8
-  uint8_t current_cpu;                          // 0xC
-  uint8_t unk_D[3];                             // 0xD
+  uint8_t current_cpu;                  // 0xC
+  uint8_t unk_D[3];                     // 0xD
   // should only have 1 bit set, used for ipis
   xe::be<uint32_t> processor_mask;  // 0x10
   // incremented in clock interrupt
@@ -293,7 +293,7 @@ struct X_KPCR {
   // as a hack for now
   union {
     uint8_t unk_38[8];    // 0x38
-    uint64_t host_stash;  // 0x38
+    volatile uint64_t emulated_interrupt;  // 0x38
   };
   uint8_t unk_40[28];                      // 0x40
   xe::be<uint32_t> unk_stack_5c;           // 0x5C
@@ -387,10 +387,10 @@ struct X_KTHREAD {
   uint8_t current_cpu;                           // 0xBF
   // these two pointers point to KPRCBs, but seem to be rarely referenced, if at
   // all
-  EZPointer<X_KPRCB> a_prcb_ptr;                // 0xC0
+  EZPointer<X_KPRCB> a_prcb_ptr;        // 0xC0
   EZPointer<X_KPRCB> another_prcb_ptr;  // 0xC4
-  uint8_t unk_C8[8];                            // 0xC8
-  xe::be<uint32_t> stack_alloc_base;            // 0xD0
+  uint8_t unk_C8[8];                    // 0xC8
+  xe::be<uint32_t> stack_alloc_base;    // 0xD0
   // uint8_t unk_D4[0x5C];               // 0xD4
   XAPC on_suspend;      // 0xD4
   X_KSEMAPHORE unk_FC;  // 0xFC

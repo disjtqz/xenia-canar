@@ -3240,6 +3240,7 @@ struct DELAY_EXECUTION
       e.CallNativeSafe((void*)MaybeYieldForwarder);
     } else {
       e.pause();
+      e.EmitEmulatedInterruptCheck();
     }
   }
 };

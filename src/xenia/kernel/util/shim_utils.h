@@ -567,6 +567,7 @@ struct ExportRegistrerHelper {
         new cpu::Export(ORDINAL, xe::cpu::Export::Type::kFunction, name, TAGS);
     struct X {
       static void Trampoline(PPCContext* ppc_context) {
+        ppc_context->CheckInterrupt();
         Param::Init init = {
             ppc_context,
             0,
@@ -589,6 +590,7 @@ struct ExportRegistrerHelper {
               KernelTrampoline(fn, std::forward<std::tuple<Ps...>>(params),
                                std::make_index_sequence<sizeof...(Ps)>());
           result.Store(ppc_context);
+          ppc_context->CheckInterrupt();
           if (TAGS &
               (xe::cpu::ExportTag::kLog | xe::cpu::ExportTag::kLogResult)) {
             // TODO(benvanik): log result.

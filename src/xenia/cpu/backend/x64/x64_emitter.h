@@ -383,6 +383,7 @@ class X64Emitter : public Xbyak::CodeGenerator {
   DEFINESHIFTER(vpshld)
   DEFINESHIFTER(vpshlq)
 
+  void EmitEmulatedInterruptCheck();
  protected:
   void* Emplace(const EmitFunctionInfo& func_info,
                 GuestFunction* function = nullptr);

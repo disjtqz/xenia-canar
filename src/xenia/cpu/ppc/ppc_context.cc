@@ -13,8 +13,10 @@
 #include <cstdlib>
 
 #include "xenia/base/assert.h"
+#include "xenia/base/atomic.h"
 #include "xenia/base/string_util.h"
-
+#include "xenia/kernel/kernel_guest_structures.h"
+#include "xenia/cpu/thread.h"
 namespace xe {
 namespace cpu {
 namespace ppc {
@@ -193,7 +195,37 @@ bool PPCContext::CompareRegWithString(const char* name, const char* value,
     return false;
   }
 }
+XE_NOINLINE
+static void ReallyDoInterrupt(PPCContext* context) {
+  auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
+  if (kpcr->emulated_interrupt != reinterpret_cast<uint64_t>(kpcr)) {
+    auto xchged = xe::atomic_exchange(reinterpret_cast<uint64_t>(kpcr),
+                                      &kpcr->emulated_interrupt);
+    if (xchged != reinterpret_cast<uint64_t>(kpcr)) {
+      auto ireq = reinterpret_cast<PPCInterruptRequest*>(xchged);
 
+      uintptr_t result = ireq->func_(ireq->ud_);
+
+      if (ireq->result_out_) {
+        *ireq->result_out_ = result;
+      }
+    }
+  }
+}
+
+void PPCContext::CheckInterrupt() {
+  if (!cvars::emulate_guest_interrupts_in_software) {
+    return;
+  } else {
+    auto kpcr = this->TranslateVirtualGPR<kernel::X_KPCR*>(this->r[13]);
+
+    if (kpcr->emulated_interrupt == reinterpret_cast<uint64_t>(kpcr)) {
+      return;
+    } else {
+      ReallyDoInterrupt(this);
+    }
+  }
+}
 }  // namespace ppc
 }  // namespace cpu
 }  // namespace xe

@@ -38,6 +38,7 @@
 #include "xenia/cpu/processor.h"
 #include "xenia/cpu/symbol.h"
 #include "xenia/cpu/thread_state.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 
 DEFINE_bool(debugprint_trap_log, false,
             "Log debugprint traps to the active debugger", "CPU");
@@ -294,7 +295,7 @@ bool X64Emitter::Emit(HIRBuilder* builder, EmitFunctionInfo& func_info) {
   synchronize_stack_on_next_instruction_ = false;
   while (block) {
     ForgetMxcsrMode();  // at start of block, mxcsr mode is undefined
-
+    EmitEmulatedInterruptCheck();
     // Mark block labels.
     auto label = block->label_head;
     while (label) {
@@ -1832,6 +1833,30 @@ void X64Emitter::EnsureSynchronizedGuestAndHostStack() {
 
   L(return_from_sync);
 }
+void X64Emitter::EmitEmulatedInterruptCheck() {
+  if (!cvars::emulate_guest_interrupts_in_software) {
+    return;
+  }
+  Xbyak::Label& after_interrupt_check = NewCachedLabel();
+
+  mov(eax, dword[GetContextReg() + offsetof(ppc::PPCContext, r[13])]);
+  //assume PCR is never in physical memory!
+  add(rax, GetMembaseReg());
+  cmp(qword[rax + offsetof(kernel::X_KPCR, emulated_interrupt)], rax);
+  
+  Xbyak::Label& do_emulated_interrupt_label =
+      AddToTail([&after_interrupt_check](X64Emitter& e, Xbyak::Label& our_tail_label) {
+        e.L(our_tail_label);
+
+        e.call(e.backend()->emulated_interrupt_helper_);
+
+        e.jmp(after_interrupt_check, e.T_NEAR);
+      });
+  jnz(do_emulated_interrupt_label, CodeGenerator::T_NEAR);
+
+  L(after_interrupt_check);
+}
+
 }  // namespace x64
 }  // namespace backend
 }  // namespace cpu

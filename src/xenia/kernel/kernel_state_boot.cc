@@ -195,6 +195,7 @@ void KernelState::InitProcessorStack(X_KPCR* pcr) {
 void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
   X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
   memset(page_for, 0, 4096);
+  page_for->pcr.emulated_interrupt = reinterpret_cast<uint64_t>(&page_for->pcr);
   auto pcr = &page_for->pcr;
   pcr->prcb_data.current_cpu = static_cast<uint8_t>(which_processor_index);
   pcr->prcb_data.processor_mask = 1U << which_processor_index;

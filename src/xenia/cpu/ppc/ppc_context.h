@@ -30,7 +30,11 @@ class KernelState;
 namespace xe {
 namespace cpu {
 namespace ppc {
-
+struct PPCInterruptRequest {
+  uintptr_t (*func_)(void* ud);
+  void* ud_;
+  uintptr_t* result_out_;
+};
 // Map:
 // 0-31: GPR
 // 32-63: FPR
@@ -462,7 +466,7 @@ typedef struct alignas(64) PPCContext_s {
   inline T* TranslateVirtual(TypedGuestPointer<T> guest_address) {
     return TranslateVirtual<T*>(guest_address.m_ptr);
   }
-  template<typename T>
+  template <typename T>
   bool IsNull(T* host) {
     return host == (T*)virtual_membase;
   }
@@ -494,6 +498,8 @@ typedef struct alignas(64) PPCContext_s {
 
   void DisableEI() { msr &= ~0x8000ULL; }
   void EnableEI() { msr |= 0x8000ULL; }
+
+  void CheckInterrupt();
 } PPCContext;
 #pragma pack(pop)
 constexpr size_t ppcctx_size = sizeof(PPCContext);
