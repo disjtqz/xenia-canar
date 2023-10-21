@@ -265,12 +265,44 @@ object_ref<XModule> KernelState::GetModule(const std::string_view name,
   }
   return nullptr;
 }
+struct LaunchInterrupt {
+  object_ref<UserModule>* module;
+  XThread* thread;
+};
+
+static void LaunchModuleInterrupt(void* ud) {
+  LaunchInterrupt* launch = reinterpret_cast<LaunchInterrupt*>(ud);
+  auto kernel = kernel_state();
+  kernel->SetExecutableModule(*launch->module);
+  launch->thread = 
+      new XThread(kernel_state(), (*launch->module)->stack_size(), 0,
+      (*launch->module)->entry_point(), 0, X_CREATE_SUSPENDED, true, true);
+
+  launch->thread->set_name("Main XThread");
+
+  X_STATUS result = launch->thread->Create();
+  if (XFAILED(result)) {
+    XELOGE("Could not create launch thread: {:08X}", result);
+    
+    delete launch->thread;
+    launch->thread = nullptr;
+    return;
+  }
+
+  // Waits for a debugger client, if desired.
+  kernel->emulator()->processor()->PreLaunch();
+
+  // Resume the thread now.
+  // If the debugger has requested a suspend this will just decrement the
+  // suspend count without resuming it until the debugger wants.
+  launch->thread->Resume();
+}
 
 object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   if (!module->is_executable()) {
     return nullptr;
   }
-
+  #if 0
   SetExecutableModule(module);
   XELOGI("KernelState: Launching module...");
 
@@ -298,6 +330,22 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   thread->Resume();
 
   return thread;
+  #else
+  //this is pretty bad
+  LaunchInterrupt li;
+  li.module = &module;
+  li.thread = nullptr;
+  while (!processor()->GetCPUThread(0)->TrySendInterruptFromHost(
+      LaunchModuleInterrupt, &li)) {
+    threading::NanoSleep(10000);
+  }
+  if (li.thread) {
+    return object_ref<XThread>(li.thread);
+  } else {
+    return nullptr;
+  }
+
+  #endif
 }
 
 object_ref<UserModule> KernelState::GetExecutableModule() {
@@ -1254,6 +1302,8 @@ uint64_t KernelState::GetKernelInterruptTime() {
       ->interrupt_time;
 }
 void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
+  context->kernel_state = kernel_state();
+
   while (true) {
     GetKPCR(context)->prcb_data.running_idle_thread =
         GetKPCR(context)->prcb_data.idle_thread;

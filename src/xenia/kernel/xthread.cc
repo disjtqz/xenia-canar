@@ -23,6 +23,7 @@
 #include "xenia/cpu/ppc/ppc_decode_data.h"
 #include "xenia/cpu/processor.h"
 #include "xenia/emulator.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/user_module.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
@@ -665,6 +666,7 @@ cpu::HWThread* XThread::HWThread() {
   return kernel_state()->processor()->GetCPUThread(cpunum);
 }
 void XThread::Schedule() {
+#if 0
   auto context = thread_state()->context();
   context->r[13] = pcr_address_;
 
@@ -673,6 +675,36 @@ void XThread::Schedule() {
   runnable_entry_.list_entry_.next_ = nullptr;
   runnable_entry_.kthread_ = guest_object_ptr_;
   HWThread()->EnqueueRunnableThread(&runnable_entry_);
+
+#else
+  // incorrect, but w/e
+    #if 0
+  auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
+
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      thread_state()->context(),
+      &kpcr_for->prcb_data.enqueued_processor_threads_lock, false);
+
+  auto old_next = kpcr_for->prcb_data.enqueued_threads_list.next;
+  auto native_thread = guest_object<X_KTHREAD>();
+
+  kpcr_for->prcb_data.enqueued_threads_list.next =
+      memory()->HostToGuestVirtual(&native_thread->ready_prcb_entry);
+
+  native_thread->ready_prcb_entry.flink_ptr = old_next;
+  native_thread->thread_state = 6;
+  kpcr_for->unknown_8 = 2;
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      thread_state()->context(),
+      &kpcr_for->prcb_data.enqueued_processor_threads_lock, 0, false);
+
+  #else
+  auto context = cpu::ThreadState::Get()->context();  // thread_state()->context();
+  uint32_t old_irql =kernel_state()->LockDispatcher(context);
+  xboxkrnl::xeReallyQueueThread(context, guest_object<X_KTHREAD>());
+  kernel_state()->UnlockDispatcher(context, old_irql);
+    #endif
+#endif
 }
 
 void XThread::YieldCPU() { HWThread()->YieldToScheduler(); }
@@ -690,12 +722,10 @@ void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
   pcr_address_ = context->processor->GetPCRForCPU(cpu_index);
   context->r[13] = pcr_address_;
   X_KPCR& pcr = *memory()->TranslateVirtual<X_KPCR*>(pcr_address_);
-  pcr.prcb_data.current_cpu = cpu_index;
 
   if (is_guest_thread()) {
     X_KTHREAD& thread_object =
         *memory()->TranslateVirtual<X_KTHREAD*>(guest_object());
-    thread_object.current_cpu = cpu_index;
   }
   if (!initial) {
     xe::FatalError("Need to change cpu!");

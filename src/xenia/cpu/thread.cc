@@ -135,7 +135,7 @@ void HWThread::YieldToScheduler() { this->idle_process_fiber_->SwitchTo(); }
 // theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
 bool HWThread::AreInterruptsDisabled() {
   auto context = cpu::ThreadState::Get()->context();
-  if ((context->msr & 0x8000) == 0) {
+  if (!context->ExternalInterruptsEnabled()) {
     return true;
   }
   return false;

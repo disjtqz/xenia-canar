@@ -33,7 +33,6 @@ static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk);
 static void insert_8009D048(PPCContext* context, X_KTHREAD* thread);
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority);
-static void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread);
 static void xeProcessQueuedThreads(PPCContext* context,
                                    bool under_dispatcher_lock);
 X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context);
@@ -179,7 +178,7 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
 
 void HandleCpuThreadDisownedIPI(void* ud) { xenia_assert(false); }
 
-static void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
+void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   auto prcb_for_thread = context->TranslateVirtual(kthread->a_prcb_ptr);
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &prcb_for_thread->enqueued_processor_threads_lock, false);
@@ -331,6 +330,7 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
       next_thread = nullptr;
     } else {
       next_thread = context->TranslateVirtual<X_KTHREAD*>(thrd_u);
+      break;
     }
   }
   // requeue ourselves
