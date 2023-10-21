@@ -36,7 +36,7 @@ class ThreadState {
   static void Bind(ThreadState* thread_state);
   static ThreadState* Get();
   static uint32_t GetThreadID();
- // XE_NOALIAS
+  XE_NOALIAS
   static ppc::PPCContext* GetContext();
 
   

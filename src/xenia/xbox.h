@@ -22,11 +22,20 @@ namespace xe {
 template <typename T>
 struct EZPointer : public TypedGuestPointer<T> {
     using TypedGuestPointer::operator=;
+        T* xlat() {
+            return cpu::ThreadState::GetContext()->TranslateVirtual<T*>(m_ptr);
+        }
   inline T* operator->() {
-    return cpu::ThreadState::GetContext()->TranslateVirtual<T*>(m_ptr);
+    return xlat();
   }
   inline T& operator*() {
-    return *cpu::ThreadState::GetContext()->TranslateVirtual<T*>(m_ptr);
+    return *xlat();
+  }
+
+  inline EZPointer<T>& operator = (T* ptr) {
+      
+      this->m_ptr = cpu::ThreadState::GetContext()->HostToGuestVirtual(ptr);
+      return *this;
   }
 
 };
@@ -294,8 +303,8 @@ struct X_LIST_ENTRY {
   EZPointer<X_LIST_ENTRY> blink_ptr;  // previous entry / head
 
   void Zero() {
-    flink_ptr = 0;
-    blink_ptr = 0;
+    flink_ptr = 0U;
+    blink_ptr = 0U;
   }
 };
 static_assert_size(X_LIST_ENTRY, 8);

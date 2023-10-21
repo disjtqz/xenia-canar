@@ -868,8 +868,8 @@ void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
   timer->header.inserted = 0;
   timer->header.type = type + 8;
   timer->header.signal_state = 0;
-  timer->table_bucket_entry.blink_ptr = 0;
-  timer->table_bucket_entry.flink_ptr = 0;
+  timer->table_bucket_entry.blink_ptr = 0U;
+  timer->table_bucket_entry.flink_ptr = 0U;
   // todo: should initialize wait list in header
   util::XeInitializeListHead(&timer->header.wait_list, context);
   timer->due_time = 0;

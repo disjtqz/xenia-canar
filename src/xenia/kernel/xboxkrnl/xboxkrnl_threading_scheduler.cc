@@ -70,13 +70,52 @@ static void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
         v3->has_ready_thread_by_priority =
             v3->has_ready_thread_by_priority & (~(1 << kthread->priority));
       }
-
       break;
+    }
+    case 2: {  // running
+      if (!v3->next_thread) {
+        auto v22 = xeScanForReadyThread(context, v3, 0);
+        if (!v22) {
+          v22 = v3->idle_thread.xlat();
+          v3->running_idle_thread = v22;
+        }
+        v22->thread_state = 3;
+        v3->next_thread = v22;
+        GetKPCR(context)->unknown_8 = 2;
+      }
+      xboxkrnl::xeKeKfReleaseSpinLock(
+          context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
+      return;
+    }
+    case 3: {  // standby
+      auto v21 = xeScanForReadyThread(context, v3, 0);
+      if (!v21) {
+        v21 = v3->idle_thread.xlat();
+        v3->running_idle_thread = v21;
+      }
+      v21->thread_state = 3;
+      v3->next_thread = v21;
+      break;
+    }
+    default: {
+      auto v19 = kthread->another_prcb_ptr;
+      auto v20 = v19->current_cpu;
+      kthread->a_prcb_ptr = v19;
+      kthread->current_cpu = v20;
+      xboxkrnl::xeKeKfReleaseSpinLock(
+          context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
+      return;
     }
   }
 
+  auto v25 = kthread->another_prcb_ptr;
+  auto v26 = v25->current_cpu;
+  kthread->a_prcb_ptr = v25;
+  kthread->current_cpu = v26;
+
   xboxkrnl::xeKeKfReleaseSpinLock(
       context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
+  xeReallyQueueThread(context, kthread);
 }
 
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {
@@ -160,7 +199,7 @@ static void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
     xenia_assert(prcb_for_thread->running_idle_thread.m_ptr ==
                  prcb_for_thread->idle_thread.m_ptr);
 
-    prcb_for_thread->running_idle_thread = 0;
+    prcb_for_thread->running_idle_thread = 0U;
   label_6:
     kthread->thread_state = 3;
     prcb_for_thread->next_thread = context->HostToGuestVirtual(kthread);
@@ -298,7 +337,7 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
   // GetKPCR(context)->prcb_data.current_thread
   auto& prcb = GetKPCR(context)->prcb_data;
   auto ble = context->TranslateVirtual(prcb.current_thread);
-  prcb.next_thread = 0;
+  prcb.next_thread = 0U;
   prcb.current_thread = context->HostToGuestVirtual(next_thread);
   insert_8009D048(context, ble);
   context->kernel_state->ContextSwitch(context, next_thread);
@@ -327,8 +366,8 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
     thread->wait_timeout_timer.header.inserted = 0;
     util::XeRemoveEntryList(&thread->wait_timeout_timer.table_bucket_entry,
                             context);
-    thread->wait_timeout_timer.table_bucket_entry.flink_ptr = 0;
-    thread->wait_timeout_timer.table_bucket_entry.blink_ptr = 0;
+    thread->wait_timeout_timer.table_bucket_entry.flink_ptr = 0U;
+    thread->wait_timeout_timer.table_bucket_entry.blink_ptr = 0U;
   }
   auto unk_ptr = thread->unkptr_118;
   if (unk_ptr) {

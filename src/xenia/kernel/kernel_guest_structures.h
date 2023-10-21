@@ -216,9 +216,9 @@ static_assert_size(X_KEVENT, 0x10);
 struct X_KTHREAD;
 struct X_KPROCESS;
 struct X_KPRCB {
-  TypedGuestPointer<X_KTHREAD> current_thread;  // 0x0
-  TypedGuestPointer<X_KTHREAD> next_thread;     // 0x4
-  TypedGuestPointer<X_KTHREAD> idle_thread;     // 0x8
+  EZPointer<X_KTHREAD> current_thread;  // 0x0
+  EZPointer<X_KTHREAD> next_thread;             // 0x4
+  EZPointer<X_KTHREAD> idle_thread;     // 0x8
   uint8_t current_cpu;                          // 0xC
   uint8_t unk_D[3];                             // 0xD
   // should only have 1 bit set, used for ipis
@@ -245,7 +245,7 @@ struct X_KPRCB {
   xe::be<uint32_t> dpc_active;                  // 0x50
   X_KSPINLOCK enqueued_processor_threads_lock;  // 0x54
   // if the idle thread is running, this is set to point to it, else 0
-  TypedGuestPointer<X_KTHREAD> running_idle_thread;  // 0x58
+  EZPointer<X_KTHREAD> running_idle_thread;  // 0x58
   // definitely scheduler related
   X_SINGLE_LIST_ENTRY enqueued_threads_list;  // 0x5C
   // if bit 0 set, have a thread at priority 0, etc
@@ -387,8 +387,8 @@ struct X_KTHREAD {
   uint8_t current_cpu;                           // 0xBF
   // these two pointers point to KPRCBs, but seem to be rarely referenced, if at
   // all
-  TypedGuestPointer<X_KPRCB> a_prcb_ptr;        // 0xC0
-  TypedGuestPointer<X_KPRCB> another_prcb_ptr;  // 0xC4
+  EZPointer<X_KPRCB> a_prcb_ptr;                // 0xC0
+  EZPointer<X_KPRCB> another_prcb_ptr;  // 0xC4
   uint8_t unk_C8[8];                            // 0xC8
   xe::be<uint32_t> stack_alloc_base;            // 0xD0
   // uint8_t unk_D4[0x5C];               // 0xD4

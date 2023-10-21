@@ -145,6 +145,7 @@ void ThreadState::Bind(ThreadState* thread_state) {
   thread_state_ = thread_state;
 #endif
 }
+XE_NOALIAS
 ppc::PPCContext* ThreadState::GetContext() {
 #if defined(THREADSTATE_USE_TEB)
   return CurrentContext();
