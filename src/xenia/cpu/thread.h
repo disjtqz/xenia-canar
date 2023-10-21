@@ -56,6 +56,55 @@ struct RunnableThread {
   cpu::ThreadState* thread_state_;
   uint32_t kthread_;
 };
+class HWThread;
+
+/*
+    decrementer interrupt handler
+    runs at the same rate as the timebase
+
+
+    according to KeQueryPerformanceFrequency, there are 50000000 timebase ticks
+   per second
+
+    the normal decrementer interrupt does 0x7FFFFFFF ticks
+    that means that the decrementer has an interval of 42 seconds? that cant be
+   right
+
+    xeSelectThreadDueToTimesliceExpiration sets the decrementer to 50000, which
+   is 1 millisecond
+
+    this makes more sense: the decrementer signals the end of the timeslice. in
+   the interrupt, it gets set to an impossibly large value so it wont trigger
+   again. the kernel isnt setting it because it wants it to take 42 seconds to
+   trigger. so lets just treat 0x7FFFFFFF as a special value that disables the
+   decrementer
+
+
+*/
+static constexpr int32_t DECREMENTER_DISABLE = 0x7FFFFFFF;
+class HWDecrementer {
+  volatile int32_t value_ = -1;
+  HWThread* hw_thread_ = 0;
+  std::unique_ptr<threading::Thread> worker_;
+
+  std::unique_ptr<threading::Timer> timer_;
+  std::unique_ptr<threading::Event> wrote_;
+  void (*interrupt_callback_)(void* ud);
+  void* ud_;
+
+  void WorkerMain();
+
+ public:
+  HWDecrementer(HWThread* owner);
+  ~HWDecrementer();
+
+  void Set(int32_t value);
+
+  void SetInterruptCallback(void (*decr)(void* ud), void* ud) {
+    interrupt_callback_ = decr;
+    ud_ = ud;
+  }
+};
 
 class HWThread {
   void ThreadFunc();
@@ -88,11 +137,14 @@ class HWThread {
   void (*idle_process_function_)(ppc::PPCContext* context) = nullptr;
 
   void (*boot_function_)(ppc::PPCContext* context, void* ud) = nullptr;
-  void* boot_ud_= nullptr;
+  void* boot_ud_ = nullptr;
+  std::unique_ptr<HWDecrementer> decrementer_;
+
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
   ~HWThread();
 
+  uint32_t cpu_number() const { return cpu_number_; }
   bool AreInterruptsDisabled();
 
   void SetBootFunction(void (*f)(ppc::PPCContext*, void*), void* ud) {
@@ -101,8 +153,10 @@ class HWThread {
   }
   bool HasBooted() { return ready_; }
 
-  void SetDecrementerTicks(uint32_t ticks);
-  void SetDecrementerInterruptCallback(void (*decr)(void* ud), void* ud);
+  void SetDecrementerTicks(int32_t ticks) { decrementer_->Set(ticks); }
+  void SetDecrementerInterruptCallback(void (*decr)(void* ud), void* ud) {
+    decrementer_->SetInterruptCallback(decr, ud);
+  }
 
   void SetIdleProcessFunction(
       void (*idle_process_function)(ppc::PPCContext* context)) {

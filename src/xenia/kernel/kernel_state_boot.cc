@@ -467,6 +467,8 @@ void KernelState::BootKernel() {
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->SetIdleProcessFunction(&KernelState::KernelIdleProcessFunction);
     cpu_thread->SetBootFunction(&KernelState::HWThreadBootFunction, this);
+    cpu_thread->SetDecrementerInterruptCallback(
+        &KernelState::KernelDecrementerInterrupt, nullptr);
   }
   SetupKPCRPageForCPU(0);
   //cpu 0 boots all other cpus

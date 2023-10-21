@@ -284,7 +284,8 @@ struct X_KPCR {
   xe::be<uint32_t> thread_vmx_related;  // 0x14
   uint8_t current_irql;                 // 0x18
   uint8_t unk_19;                       // 0x19
-  uint8_t unk_1A[2];                    // 0x1A
+  uint8_t unk_1A;                       // 0x1A
+  uint8_t unk_1B;                       // 0x1B
   xe::be<uint32_t> timer_related;       // 0x1C
   uint8_t unk_20[0x10];                 // 0x20
   xe::be<uint64_t> pcr_ptr;             // 0x30
@@ -292,7 +293,7 @@ struct X_KPCR {
   // this seems to be just garbage data? we can stash a pointer to context here
   // as a hack for now
   union {
-    uint8_t unk_38[8];    // 0x38
+    uint8_t unk_38[8];                     // 0x38
     volatile uint64_t emulated_interrupt;  // 0x38
   };
   uint8_t unk_40[28];                      // 0x40

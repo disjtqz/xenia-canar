@@ -9,9 +9,9 @@
 
 #include "xenia/cpu/thread.h"
 #include "xenia/base/atomic.h"
+#include "xenia/cpu/processor.h"
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/kernel_guest_structures.h"
-#include "xenia/cpu/processor.h"
 DEFINE_bool(emulate_guest_interrupts_in_software, false,
             "If true, emulate guest interrupts by repeatedly checking a "
             "location on the PCR. Otherwise uses host ipis.",
@@ -29,6 +29,66 @@ bool Thread::IsInThread() { return current_thread_ != nullptr; }
 Thread* Thread::GetCurrentThread() { return current_thread_; }
 uint32_t Thread::GetCurrentThreadId() {
   return Thread::GetCurrentThread()->thread_state()->thread_id();
+}
+
+void HWDecrementer::WorkerMain() {
+  threading::WaitHandle* cancellable[2];
+  cancellable[0] = this->timer_.get();
+  cancellable[1] = this->wrote_.get();
+
+  while (true) {
+    threading::Wait(this->wrote_.get(), false);
+
+  cancelled:
+    int32_t decrementer_ticks = this->value_;
+
+    if (decrementer_ticks < 0) {
+      // negative value means signal immediately
+      goto do_ipi;
+    }
+
+    double wait_time_in_nanoseconds =
+        (static_cast<double>(decrementer_ticks) / 50000000.0) * 1000000000.0;
+    timer_->SetOnceAfter(chrono::hundrednanoseconds(
+        static_cast<long long>(wait_time_in_nanoseconds / 100.0)));
+    {
+      auto [result, which] = threading::WaitAny(cancellable, 2, false);
+      // if the index is wrote_, our interrupt has been cancelled and a new one
+      // needs setting up
+      if (which == 1) {
+        goto cancelled;
+      }
+    }
+
+  do_ipi:
+    // timer was signalled
+    // send using sendguestipi, which is async. the interrupt may set the
+    // decrementer again!
+    hw_thread_->SendGuestIPI(interrupt_callback_, ud_);
+  }
+}
+
+HWDecrementer::HWDecrementer(HWThread* owner) : hw_thread_(owner) {
+  wrote_ = threading::Event::CreateAutoResetEvent(false);
+  timer_ = threading::Timer::CreateManualResetTimer();
+  value_ = 0x7FFFFFFF;
+  threading::Thread::CreationParameters crparams;
+  crparams.stack_size = 65536;
+  // use a much higher priority than the hwthread itself so that we get more
+  // accurate timing
+  crparams.initial_priority = threading::ThreadPriority::kHighest;
+
+  worker_ = threading::Thread::Create(
+      crparams, std::bind(&HWDecrementer::WorkerMain, this));
+  worker_->set_affinity_mask(1ULL << owner->cpu_number());
+  worker_->set_name("Decrementer Thread " +
+                    std::to_string(owner->cpu_number()));
+}
+HWDecrementer ::~HWDecrementer() {}
+
+void HWDecrementer::Set(int32_t value) {
+  this->value_ = value;
+  this->wrote_->Set();
 }
 
 bool HWThread::HandleInterrupts() { return false; }
@@ -99,10 +159,11 @@ void HWThread::GuestIPIWorkerThreadFunc() {
 HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
     : cpu_number_(cpu_number),
       idle_process_threadstate_(thread_state),
-      runnable_thread_list_() {
+      runnable_thread_list_(),
+      decrementer_(std::make_unique<HWDecrementer>(this)) {
   threading::Thread::CreationParameters params;
   params.create_suspended = true;
-  params.initial_priority = threading::ThreadPriority::kAboveNormal;
+  params.initial_priority = threading::ThreadPriority::kNormal;
   params.stack_size = 16 * 1024 * 1024;
 
   os_thread_ =
@@ -163,7 +224,7 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
   return 1;
 }
-#define NO_RESULT_MAGIC     0x69420777777ULL
+#define NO_RESULT_MAGIC 0x69420777777ULL
 bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
   GuestInterruptWrapper wrapper{};
   wrapper.ipi_func = ipi_func;
@@ -181,7 +242,7 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
     ppc::PPCInterruptRequest request;
     request.func_ = IPIWrapperFunction;
     request.ud_ = (void*)&wrapper;
-    request.result_out_ = (uintptr_t*) & result_from_call;
+    request.result_out_ = (uintptr_t*)&result_from_call;
 
     while (result_from_call == 0) {
       result_from_call = NO_RESULT_MAGIC;
@@ -195,18 +256,15 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
       }
       // guest has read the interrupt, now wait for it to change our value
 
-
       while (result_from_call == NO_RESULT_MAGIC) {
-      
       }
-
     }
 
     return true;
 
   } else {
-    while (
-        !os_thread_->IPI(IPIWrapperFunction, &wrapper, (uintptr_t*) & result_from_call) ||
+    while (!os_thread_->IPI(IPIWrapperFunction, &wrapper,
+                            (uintptr_t*)&result_from_call) ||
            result_from_call == 0) {
       threading::NanoSleep(10000);
     }

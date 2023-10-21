@@ -390,7 +390,7 @@ class KernelState {
   uint32_t current_internal_handle_ = 0x66180000;
   xe_mutex internal_handle_table_mutex_;
   static void KernelIdleProcessFunction(cpu::ppc::PPCContext* context);
-
+  static void KernelDecrementerInterrupt(void* ud);
   void SetupKPCRPageForCPU(uint32_t cpunum);
   friend class XObject;
 
