@@ -156,9 +156,11 @@ static void GuestClockInterruptForwarder(void* ud) {
 // called by HWClock on hw clock thread. sends an interrupt to guest cpu 0 to
 // run the kernels clock interrupt function
 static void HWClockCallback(cpu::Processor* processor) {
-  auto thrd0 = processor->GetCPUThread(0);
+  for (unsigned thrd = 0; thrd < 6; ++thrd) {
+    auto thrd0 = processor->GetCPUThread(thrd);
 
-  while (!thrd0->SendGuestIPI(GuestClockInterruptForwarder, kernel_state())) {
+    while (!thrd0->SendGuestIPI(GuestClockInterruptForwarder, kernel_state())) {
+    }
   }
 }
 static void DefaultInterruptProc(PPCContext* context) {}
@@ -193,7 +195,7 @@ void KernelState::InitProcessorStack(X_KPCR* pcr) {
 void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
   X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
   memset(page_for, 0, 4096);
-  
+
   auto pcr = &page_for->pcr;
   pcr->prcb_data.current_cpu = static_cast<uint8_t>(which_processor_index);
   pcr->prcb_data.processor_mask = 1U << which_processor_index;
@@ -417,7 +419,6 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   KernelGuestGlobals* block =
       memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
 
-  
   xboxkrnl::xeKeSetEvent(&block->UsbdBootEnumerationDoneEvent, 1, 0);
 
   for (unsigned i = 1; i < 6; ++i) {
@@ -430,18 +431,15 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
 }
 
 void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
-                                   X_KPCR* kpcr) {
+                                   X_KPCR* kpcr) {}
 
-}
-
-void KernelState::HWThreadBootFunction(
-    cpu::ppc::PPCContext* context,void* ud
-                                       ) {
-
+void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
+                                       void* ud) {
   KernelState* ks = reinterpret_cast<KernelState*>(ud);
 
   /*
-    todo: the hypervisor or bootloader does some initialization before this point
+    todo: the hypervisor or bootloader does some initialization before this
+    point
 
   */
 
@@ -452,7 +450,6 @@ void KernelState::HWThreadBootFunction(
   kpcr->prcb_data.current_cpu = cpunum;
   kpcr->prcb_data.processor_mask = 1U << cpunum;
 
-
   if (cpunum == 0) {
     ks->BootCPU0(context, kpcr);
   } else {
@@ -462,7 +459,6 @@ void KernelState::HWThreadBootFunction(
 void KernelState::BootKernel() {
   BootInitializeStatics();
 
-
   for (unsigned i = 0; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->SetIdleProcessFunction(&KernelState::KernelIdleProcessFunction);
@@ -471,7 +467,7 @@ void KernelState::BootKernel() {
         &KernelState::KernelDecrementerInterrupt, nullptr);
   }
   SetupKPCRPageForCPU(0);
-  //cpu 0 boots all other cpus
+  // cpu 0 boots all other cpus
   processor()->GetCPUThread(0)->Boot();
 
   while (!processor()->AllHWThreadsBooted()) {

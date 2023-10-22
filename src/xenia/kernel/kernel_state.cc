@@ -978,32 +978,48 @@ bool KernelState::Save(ByteStream* stream) {
 }
 
 // length of a guest timer tick is normally 1 millisecond
-// this interrupt executes exclusively on cpu 0. i think
 void KernelState::SystemClockInterrupt() {
+  // todo: set interrupt priority, irql
   auto context = cpu::ThreadState::Get()->context();
-
-  X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
-      memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
-  uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
-  uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
-  lpKeTimeStampBundle->interrupt_time = time_imprecise;
-  lpKeTimeStampBundle->system_time = time_imprecise;
-  lpKeTimeStampBundle->tick_count = uptime_ms;
 
   auto kpcr = GetKPCR(context);
 
-  /*
-    check timers!
-  */
+  auto cpu_num = GetPCRCpuNum(kpcr);
 
-  auto globals =
-      context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals());
+  // only cpu 0 updates timestamp bundle + timers
+  if (cpu_num == 0) {
+    X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
+        memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
+    uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
+    uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
+    lpKeTimeStampBundle->interrupt_time = time_imprecise;
+    lpKeTimeStampBundle->system_time = time_imprecise;
+    lpKeTimeStampBundle->tick_count = uptime_ms;
 
-  for (auto& timer : globals->running_timers.IterateForward(context)) {
-    if (timer.due_time >= time_imprecise) {
-      kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
+    /*
+      check timers!
+    */
+
+    auto globals =
+        context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals());
+
+    for (auto& timer : globals->running_timers.IterateForward(context)) {
+      if (timer.due_time >= time_imprecise) {
+        kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
+        kpcr->unknown_8 = 2;
+        break;
+      }
+    }
+  }
+
+  auto current_thread = kpcr->prcb_data.current_thread.xlat();
+  auto idle_thread = kpcr->prcb_data.idle_thread.xlat();
+  if (idle_thread != current_thread) {
+    auto v16 = current_thread->unk_B4 - 3;
+    current_thread->unk_B4 = v16;
+    if (v16 <= 0) {
+      kpcr->timeslice_ended = 2;
       kpcr->unknown_8 = 2;
-      break;
     }
   }
 }

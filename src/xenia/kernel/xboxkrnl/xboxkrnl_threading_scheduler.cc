@@ -297,7 +297,105 @@ static void xeProcessQueuedThreads(PPCContext* context,
 }
 
 X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
-  xe::FatalError("xeSelectThreadDueToTimesliceExpiration unimplemented");
+  auto pcr = GetKPCR(context);
+  auto prcb = &pcr->prcb_data;
+
+  auto list_lock = &prcb->enqueued_processor_threads_lock;
+
+  xboxkrnl::xeKeKfAcquireSpinLock(context, list_lock, false);
+
+  auto current_thread = context->TranslateVirtual(prcb->current_thread);
+
+  if (current_thread->unk_B4 <= 0) {
+    auto current_process = current_thread->process;
+    if (current_process->unk_1B && current_thread->priority >= 0x12u) {
+      current_thread->unk_B4 = 0x7FFFFFFF;
+    } else {
+      auto current_prio = current_thread->priority;
+      current_thread->unk_B4 = current_process->unk_0C;
+      if ((unsigned int)current_prio < 0x12) {
+        current_prio = current_prio - current_thread->unk_BA - 1;
+        if (current_prio < current_thread->unk_B9) {
+          current_prio = current_thread->unk_B9;
+        }
+        current_thread->unk_BA = 0;
+      }
+      current_thread->priority = current_prio;
+      if (prcb->next_thread) {
+        current_thread->unk_BD = 0;
+      } else {
+        auto v7 = xeScanForReadyThread(context, prcb, current_prio);
+        if (v7) {
+          v7->thread_state = 3;
+          prcb->next_thread = v7;
+        }
+      }
+    }
+  }
+  uint32_t unk_mask;
+
+  if (pcr->unk_1A) {
+    pcr->unk_1A = 0;
+    pcr->unk_1B = 0;
+    pcr->unk_19 = 1;
+
+    uint32_t cpunum = context->kernel_state->GetPCRCpuNum(pcr);
+    auto hw_thread = context->processor->GetCPUThread(cpunum);
+    // todo: this is a variable that isnt in rdata, it might be modified by
+    // other things, so this timeout might not be 100% accurate
+    hw_thread->SetDecrementerTicks(50000);
+
+    unk_mask = 0xEDB403FF;
+  } else {
+    if (!pcr->unk_1B) {
+      auto result = prcb->next_thread.xlat();
+      if (result) {
+        // not releasing the spinlock! this appears to be intentional
+        return result;
+      }
+      xboxkrnl::xeKeKfReleaseSpinLock(context, list_lock, 0, false);
+      return nullptr;
+    }
+    pcr->unk_1B = 0;
+    pcr->unk_19 = 0;
+    unk_mask = 0xF6DBFC03;
+  }
+  X_KTHREAD* v12;
+  if (prcb->unk_mask_64 != unk_mask) {
+    auto next_thread = prcb->next_thread.xlat();
+    prcb->unk_mask_64 = unk_mask;
+    if (next_thread) {
+      prcb->next_thread = 0U;
+      insert_8009CFE0(context, next_thread, 1);
+    }
+    auto prcb_idle_thread = prcb->idle_thread.xlat();
+    auto current_prio2 = current_thread->priority;
+    prcb->running_idle_thread = 0U;
+    if (current_thread == prcb_idle_thread ||
+        ((1 << current_prio2) & unk_mask) == 0) {
+      v12 = xeScanForReadyThread(context, prcb, 0);
+
+      if (!v12) {
+        v12 = prcb->idle_thread.xlat();
+        prcb->running_idle_thread = v12;
+      }
+      if (v12 == current_thread) {
+        xboxkrnl::xeKeKfReleaseSpinLock(context, list_lock, 0, false);
+        return nullptr;
+      }
+    } else {
+      v12 = xeScanForReadyThread(context, prcb, current_prio2);
+      if (!v12) {
+        xboxkrnl::xeKeKfReleaseSpinLock(context, list_lock, 0, false);
+
+        return nullptr;
+      }
+    }
+    v12->thread_state = 3;
+    prcb->next_thread = v12;
+  }
+  xboxkrnl::xeKeKfReleaseSpinLock(context, list_lock, 0, false);
+
   return nullptr;
 }
 

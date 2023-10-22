@@ -23,7 +23,12 @@ template <typename T>
 struct EZPointer : public TypedGuestPointer<T> {
     using TypedGuestPointer::operator=;
         T* xlat() {
+            if(m_ptr){
             return cpu::ThreadState::GetContext()->TranslateVirtual<T*>(m_ptr);
+            }
+            else {
+                return nullptr;
+            }
         }
   inline T* operator->() {
     return xlat();

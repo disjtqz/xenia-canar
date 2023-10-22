@@ -362,7 +362,7 @@ struct X_KTHREAD {
   uint8_t process_type;
   // apc_mode determines which list an apc goes into
   util::X_TYPED_LIST<XAPC, offsetof(XAPC, list_entry)> apc_lists[2];
-  TypedGuestPointer<X_KPROCESS> process;         // 0x84
+  EZPointer<X_KPROCESS> process;                 // 0x84
   uint8_t unk_88;                                // 0x88
   uint8_t running_kernel_apcs;                   // 0x89
   uint8_t unk_8A;                                // 0x8A
@@ -377,7 +377,7 @@ struct X_KTHREAD {
   TypedGuestPointer<X_KWAIT_BLOCK> wait_blocks;  // 0xA8
   uint8_t unk_AC[4];                             // 0xAC
   int32_t apc_disable_count;                     // 0xB0
-  uint8_t unk_B4[4];                             // 0xB4
+  xe::be<int32_t> unk_B4;                        // 0xB4
   uint8_t unk_B8;                                // 0xB8
   uint8_t unk_B9;                                // 0xB9
   uint8_t unk_BA;                                // 0xBA
@@ -386,40 +386,40 @@ struct X_KTHREAD {
   uint8_t unk_BD;                                // 0xBD
   uint8_t terminated;                            // 0xBE
   uint8_t current_cpu;                           // 0xBF
-  // these two pointers point to KPRCBs, but seem to be rarely referenced, if at
-  // all
-  EZPointer<X_KPRCB> a_prcb_ptr;        // 0xC0
-  EZPointer<X_KPRCB> another_prcb_ptr;  // 0xC4
-  uint8_t unk_C8[8];                    // 0xC8
-  xe::be<uint32_t> stack_alloc_base;    // 0xD0
-  // uint8_t unk_D4[0x5C];               // 0xD4
-  XAPC on_suspend;      // 0xD4
-  X_KSEMAPHORE unk_FC;  // 0xFC
-  // this is an entry in
-  X_LIST_ENTRY process_threads;     // 0x110
-  xe::be<uint32_t> unkptr_118;      // 0x118
-  xe::be<uint32_t> unk_11C;         // 0x11C
-  xe::be<uint32_t> unk_120;         // 0x120
-  xe::be<uint32_t> unk_124;         // 0x124
-  xe::be<uint32_t> unk_128;         // 0x128
-  xe::be<uint32_t> unk_12C;         // 0x12C
-  xe::be<uint64_t> create_time;     // 0x130
-  xe::be<uint64_t> exit_time;       // 0x138
-  xe::be<uint32_t> exit_status;     // 0x140
-  xe::be<uint32_t> unk_144;         // 0x144
-  xe::be<uint32_t> unk_148;         // 0x148
-  xe::be<uint32_t> thread_id;       // 0x14C
-  xe::be<uint32_t> start_address;   // 0x150
-  xe::be<uint32_t> unk_154;         // 0x154
-  xe::be<uint32_t> unk_158;         // 0x158
-  uint8_t unk_15C[0x4];             // 0x15C
-  xe::be<uint32_t> last_error;      // 0x160
-  xe::be<uint32_t> fiber_ptr;       // 0x164
-  uint8_t unk_168[0x4];             // 0x168
-  xe::be<uint32_t> creation_flags;  // 0x16C
-  uint8_t unk_170[0xC];             // 0x170
-  xe::be<uint32_t> unk_17C;         // 0x17C
-  uint8_t unk_180[0x930];           // 0x180
+  EZPointer<X_KPRCB> a_prcb_ptr;                 // 0xC0
+  EZPointer<X_KPRCB> another_prcb_ptr;           // 0xC4
+  uint8_t unk_C8;                                // 0xC8
+  uint8_t unk_C9;                                // 0xC9
+  uint8_t unk_CA;                                // 0xCA
+  uint8_t unk_CB;                                // 0xCB
+  xe::be<uint32_t> unk_CC;                       // 0xCC
+  xe::be<uint32_t> stack_alloc_base;             // 0xD0
+  XAPC on_suspend;                               // 0xD4
+  X_KSEMAPHORE unk_FC;                           // 0xFC
+  X_LIST_ENTRY process_threads;                  // 0x110
+  xe::be<uint32_t> unkptr_118;                   // 0x118
+  xe::be<uint32_t> unk_11C;                      // 0x11C
+  xe::be<uint32_t> unk_120;                      // 0x120
+  xe::be<uint32_t> unk_124;                      // 0x124
+  xe::be<uint32_t> unk_128;                      // 0x128
+  xe::be<uint32_t> unk_12C;                      // 0x12C
+  xe::be<uint64_t> create_time;                  // 0x130
+  xe::be<uint64_t> exit_time;                    // 0x138
+  xe::be<uint32_t> exit_status;                  // 0x140
+  xe::be<uint32_t> unk_144;                      // 0x144
+  xe::be<uint32_t> unk_148;                      // 0x148
+  xe::be<uint32_t> thread_id;                    // 0x14C
+  xe::be<uint32_t> start_address;                // 0x150
+  xe::be<uint32_t> unk_154;                      // 0x154
+  xe::be<uint32_t> unk_158;                      // 0x158
+  uint8_t unk_15C[0x4];                          // 0x15C
+  xe::be<uint32_t> last_error;                   // 0x160
+  xe::be<uint32_t> fiber_ptr;                    // 0x164
+  uint8_t unk_168[0x4];                          // 0x168
+  xe::be<uint32_t> creation_flags;               // 0x16C
+  uint8_t unk_170[0xC];                          // 0x170
+  xe::be<uint32_t> unk_17C;                      // 0x17C
+  uint8_t unk_180[0x930];                        // 0x180
 
   // This struct is actually quite long... so uh, not filling this out!
 };
@@ -440,7 +440,7 @@ struct X_KPROCESS {
   // list of threads in this process, guarded by the spinlock above
   X_LIST_ENTRY thread_list;
 
-  xe::be<uint32_t> unk_0C;
+  xe::be<int32_t> unk_0C;
   // kernel sets this to point to a section of size 0x2F700 called CLRDATAA,
   // except it clears bit 31 of the pointer. in 17559 the address is 0x801C0000,
   // so it sets this ptr to 0x1C0000

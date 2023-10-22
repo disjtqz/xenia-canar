@@ -282,6 +282,21 @@ void XThread::InitializeGuestObject() {
   guest_thread->creation_flags = this->creation_params_.creation_flags;
   guest_thread->unk_17C = 1;
 
+
+  guest_thread->thread_state = 0;
+
+  //priority related values
+  guest_thread->unk_C8 = process->unk_18;
+  auto v19 = process->unk_19;
+  guest_thread->unk_C9 = v19;
+  auto v20 = process->unk_1A;
+  guest_thread->unk_B9 = v19;
+  guest_thread->priority = v19;
+  guest_thread->unk_CA = v20;
+  //timeslice related
+  guest_thread->unk_B4 = process->unk_0C;
+
+
   auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       context_here, &process->thread_list_spinlock);
 
@@ -424,6 +439,7 @@ X_STATUS XThread::Create() {
 
     cpu::ThreadState::Bind(thread_state_);
     running_ = true;
+    xboxkrnl::xeKfLowerIrql(thread_state_->context(), IRQL_PASSIVE);
     Execute();
     running_ = false;
 
@@ -703,9 +719,9 @@ void XThread::Schedule() {
       cpu::ThreadState::Get()->context();  // thread_state()->context();
   uint32_t old_irql = kernel_state()->LockDispatcher(context);
   xboxkrnl::xeReallyQueueThread(context, guest_object<X_KTHREAD>());
-  
-    auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
-  //kpcr_for->unknown_8 = 2;
+
+  auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
+  // kpcr_for->unknown_8 = 2;
   kernel_state()->UnlockDispatcher(context, old_irql);
 #endif
 #endif
@@ -727,10 +743,10 @@ void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
   context->r[13] = pcr_address_;
   X_KPCR& pcr = *memory()->TranslateVirtual<X_KPCR*>(pcr_address_);
 
-  if (is_guest_thread()) {
-    X_KTHREAD& thread_object =
-        *memory()->TranslateVirtual<X_KTHREAD*>(guest_object());
-  }
+  X_KTHREAD& thread_object =
+      *memory()->TranslateVirtual<X_KTHREAD*>(guest_object());
+  thread_object.current_cpu = cpu_index;
+
   if (!initial) {
     xe::FatalError("Need to change cpu!");
   }
