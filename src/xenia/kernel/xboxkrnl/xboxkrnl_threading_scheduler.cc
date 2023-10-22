@@ -80,7 +80,7 @@ static void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
         }
         v22->thread_state = 3;
         v3->next_thread = v22;
-        GetKPCR(context)->unknown_8 = 2;
+        GetKPCR(context)->generic_software_interrupt = 2;
       }
       xboxkrnl::xeKeKfReleaseSpinLock(
           context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
@@ -154,7 +154,7 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
         kpcr->prcb_data.enqueued_threads_list.next;
     kpcr->prcb_data.enqueued_threads_list.next =
         context->HostToGuestVirtual(&thread->ready_prcb_entry);
-    kpcr->unknown_8 = 2;
+    kpcr->generic_software_interrupt = 2;
   }
 }
 /*
@@ -405,6 +405,8 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
   X_KTHREAD* next_thread = nullptr;
   while (true) {
     set_msr_interrupt_bits(context, 0);
+    
+    GetKPCR(context)->generic_software_interrupt = 0;
     if (!GetKPCR(context)->prcb_data.queued_dpcs_list_head.empty(context) ||
         GetKPCR(context)->timer_pending) {
       // todo: incomplete!

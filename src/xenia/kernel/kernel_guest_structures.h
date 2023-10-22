@@ -270,7 +270,8 @@ struct X_KPCR {
   union {
     xe::be<uint16_t> software_interrupt_state;  // 0x8
     struct {
-      uint8_t unknown_8;                     // 0x8
+      // covers timers, dpcs, thread switches
+      uint8_t generic_software_interrupt;    // 0x 8                   // 0x8
       uint8_t apc_software_interrupt_state;  // 0x9
     };
   };
@@ -368,7 +369,7 @@ struct X_KTHREAD {
   uint8_t unk_8A;                                // 0x8A
   uint8_t may_queue_apcs;                        // 0x8B
   X_KSPINLOCK apc_lock;                          // 0x8C
-  uint8_t unk_90[4];                             // 0x90
+  xe::be<uint32_t> unk_90;                       // 0x90
   X_LIST_ENTRY ready_prcb_entry;                 // 0x94
   xe::be<uint32_t> msr_mask;                     // 0x9C
   xe::be<X_STATUS> wait_result;                  // 0xA0

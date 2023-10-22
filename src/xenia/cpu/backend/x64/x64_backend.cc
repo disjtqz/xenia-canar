@@ -1155,8 +1155,9 @@ static void NativeCall(void* ctx) {
 
 void* X64HelperEmitter::EmitEmulatedInterruptHelper() {
   _code_offsets code_offsets = {};
+  pop(r9);
   CallNativeSafe(NativeCall);
-  ret();
+  jmp(r9);
   code_offsets.prolog_stack_alloc = getSize();
   code_offsets.body = getSize();
   code_offsets.epilog = getSize();

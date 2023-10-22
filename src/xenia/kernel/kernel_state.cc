@@ -1006,7 +1006,7 @@ void KernelState::SystemClockInterrupt() {
     for (auto& timer : globals->running_timers.IterateForward(context)) {
       if (timer.due_time >= time_imprecise) {
         kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
-        kpcr->unknown_8 = 2;
+        kpcr->generic_software_interrupt = 2;
         break;
       }
     }
@@ -1019,7 +1019,7 @@ void KernelState::SystemClockInterrupt() {
     current_thread->unk_B4 = v16;
     if (v16 <= 0) {
       kpcr->timeslice_ended = 2;
-      kpcr->unknown_8 = 2;
+      kpcr->generic_software_interrupt = 2;
     }
   }
 }
@@ -1281,6 +1281,33 @@ X_KPCR_PAGE* KernelState::KPCRPageForCpuNumber(uint32_t i) {
 }
 
 void KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
+  // todo: disable interrupts here!
+  // this is incomplete
+  auto pre_swap = [this, context, guest]() {
+    auto kpcr = GetKPCR();
+
+    guest->thread_state = 2;
+    auto stkbase = guest->stack_base;
+    auto stklim = guest->stack_limit;
+    // it sets r1 to this? i dont think we need, because we have different
+    // contexts
+    auto kstask = guest->stack_kernel;
+
+    auto thrd_tls = guest->tls_address;
+
+    uint64_t old_msr = context->msr;
+    context->DisableEI();
+
+    kpcr->stack_base_ptr = stkbase;
+    kpcr->stack_end_ptr = stklim;
+    kpcr->tls_ptr = thrd_tls;
+
+    guest->unk_90 += 1;
+    xenia_assert(kpcr->prcb_data.enqueued_processor_threads_lock.pcr_of_owner ==
+                 context->HostToGuestVirtual(kpcr));
+    context->msr = old_msr;
+    kpcr->prcb_data.enqueued_processor_threads_lock.pcr_of_owner = 0;
+  };
   X_HANDLE host_handle;
 
   if (!object_table()->HostHandleForGuestObject(
@@ -1295,10 +1322,12 @@ void KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
     xenia_assert(prcb == &GetKPCR(context)->prcb_data);
 
     auto hw_thread = processor()->GetCPUThread(prcb->current_cpu);
-
+    pre_swap();
     hw_thread->YieldToScheduler();
   } else {
-    object_table()->LookupObject<XThread>(host_handle)->YieldCPU();
+    auto xthrd = object_table()->LookupObject<XThread>(host_handle).release();
+    pre_swap();
+    xthrd->SwitchToDirect();
   }
 }
 cpu::XenonInterruptController* KernelState::InterruptControllerFromPCR(
@@ -1336,7 +1365,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
     GetKPCR(context)->prcb_data.running_idle_thread =
         GetKPCR(context)->prcb_data.idle_thread;
 
-    while (!GetKPCR()->unknown_8) {
+    while (!GetKPCR(context)->generic_software_interrupt) {
       context->CheckInterrupt();
       // okay here, since we really have nothing going on
       threading::MaybeYield();
@@ -1363,7 +1392,7 @@ void KernelState::KernelDecrementerInterrupt(void* ud) {
   if (r5 == 0) {
     return;
   }
-  kpcr->unknown_8 = r7;
+  kpcr->generic_software_interrupt = r7;
   kpcr->unk_1B = r7;
   kpcr->timeslice_ended = r7;
   uint32_t r4 = kpcr->software_interrupt_state;

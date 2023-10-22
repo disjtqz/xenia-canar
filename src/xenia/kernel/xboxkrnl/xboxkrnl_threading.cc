@@ -1903,7 +1903,7 @@ uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
 
   if (send_interrupt) {
     if (target_prcb == &GetKPCR(ctx)->prcb_data) {
-      GetKPCR(ctx)->unknown_8 = 2;
+      GetKPCR(ctx)->generic_software_interrupt = 2;
     } else {
       uint32_t cpunum = inserted_cpunum - 1;
 
