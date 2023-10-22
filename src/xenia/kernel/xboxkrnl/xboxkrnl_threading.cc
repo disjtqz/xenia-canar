@@ -1279,6 +1279,7 @@ dword_result_t KeRaiseIrqlToDpcLevel_entry(const ppc_context_t& ctx) {
     XELOGE("KeRaiseIrqlToDpcLevel - old_irql > 2");
   }
 
+  //oddly, this does not set the current interrupt priority
   pcr->current_irql = 2;
 
   return old_irql;
@@ -1293,9 +1294,7 @@ void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql) {
   }
   kpcr->current_irql = new_irql;
 
-  auto ic = kernel_state()->InterruptControllerFromPCR(ctx, kpcr);
-  ic->WriteRegisterOffset(8, static_cast<uint64_t>(new_irql));
-  uint64_t ack = ic->ReadRegisterOffset(8);
+  kernel_state()->SetCurrentInterruptPriority(ctx, kpcr, new_irql);
 
   if (new_irql < 2) {
     // the called function does a ton of other stuff including changing the
@@ -1322,9 +1321,7 @@ unsigned char xeKfRaiseIrql(PPCContext* ctx, unsigned char new_irql) {
   if (old_irql > (unsigned int)new_irql) {
     XELOGE("KfRaiseIrql - old_irql > new_irql!");
   }
-  auto ic = kernel_state()->InterruptControllerFromPCR(ctx, v1);
-  ic->WriteRegisterOffset(8, static_cast<uint64_t>(new_irql));
-  uint64_t ack = ic->ReadRegisterOffset(8);
+  kernel_state()->SetCurrentInterruptPriority(ctx, v1, new_irql);
   return old_irql;
 }
 // used by aurora's nova plugin
@@ -1464,7 +1461,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
   }
 }
 static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {
-    //todo: implement!
+  // todo: implement!
 }
 
 void xeExecuteDPCList2(
@@ -1476,7 +1473,8 @@ void xeExecuteDPCList2(
   do {
     // they only check if this value is nonzero. they probably
     // just use r1 because its a readily available nonzero register
-    GetKPCR(context)->prcb_data.dpc_active = static_cast<uint32_t>(context->r[1]);
+    GetKPCR(context)->prcb_data.dpc_active =
+        static_cast<uint32_t>(context->r[1]);
     uint32_t tmp_msr_mask = 0xFDFFD7FF;
     GetKPCR(context)->msr_mask = tmp_msr_mask;
     context->msr &= tmp_msr_mask;
@@ -2169,7 +2167,6 @@ pointer_result_t InterlockedFlushSList_entry(
   return first;
 }
 DECLARE_XBOXKRNL_EXPORT1(InterlockedFlushSList, kThreading, kImplemented);
-
 
 }  // namespace xboxkrnl
 }  // namespace kernel

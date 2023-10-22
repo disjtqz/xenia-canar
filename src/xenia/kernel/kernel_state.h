@@ -323,7 +323,8 @@ class KernelState {
     return (memory_->HostToGuestVirtual(pcr) >> 12) & 0xF;
   }
   cpu::XenonInterruptController* InterruptControllerFromPCR(cpu::ppc::PPCContext* context, X_KPCR* pcr);
-
+  void SetCurrentInterruptPriority(cpu::ppc::PPCContext* context, X_KPCR* pcr,
+                                   uint32_t priority);
  private:
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
   void InitializeProcess(X_KPROCESS* process, uint32_t type, char unk_18,

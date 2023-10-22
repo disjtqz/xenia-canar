@@ -1291,6 +1291,13 @@ cpu::XenonInterruptController* KernelState::InterruptControllerFromPCR(
   auto hwthread = processor()->GetCPUThread(cpunum);
   return hwthread->interrupt_controller();
 }
+
+void KernelState::SetCurrentInterruptPriority(cpu::ppc::PPCContext* context,
+                                              X_KPCR* pcr, uint32_t priority) {
+  auto ic = kernel_state()->InterruptControllerFromPCR(context, pcr);
+  ic->WriteRegisterOffset(8, static_cast<uint64_t>(priority));
+  uint64_t ack = ic->ReadRegisterOffset(8);
+}
 uint32_t KernelState::GetKernelTickCount() {
   return memory()
       ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
