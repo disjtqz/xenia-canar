@@ -318,6 +318,11 @@ class KernelState {
   X_KPCR_PAGE* KPCRPageForCpuNumber(uint32_t i);
 
   void ContextSwitch(cpu::ppc::PPCContext* context, X_KTHREAD* guest);
+  // the cpu number is encoded in the pcr address
+  uint32_t GetPCRCpuNum(X_KPCR* pcr) {
+    return (memory_->HostToGuestVirtual(pcr) >> 12) & 0xF;
+  }
+  cpu::XenonInterruptController* InterruptControllerFromPCR(cpu::ppc::PPCContext* context, X_KPCR* pcr);
 
  private:
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
@@ -333,11 +338,6 @@ class KernelState {
     a PPCContext to init
   */
   void BootInitializeStatics();
-
-  //the cpu number is encoded in the pcr address
-  uint32_t GetPCRCpuNum(X_KPCR* pcr) {
-    return (memory_->HostToGuestVirtual(pcr) >> 12) & 0xF;
-  }
 
   void BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr);
   void BootCPU1Through5(cpu::ppc::PPCContext* context, X_KPCR* kpcr);

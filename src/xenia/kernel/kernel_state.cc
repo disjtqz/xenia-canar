@@ -274,16 +274,16 @@ static void LaunchModuleInterrupt(void* ud) {
   LaunchInterrupt* launch = reinterpret_cast<LaunchInterrupt*>(ud);
   auto kernel = kernel_state();
   kernel->SetExecutableModule(*launch->module);
-  launch->thread = 
-      new XThread(kernel_state(), (*launch->module)->stack_size(), 0, (*launch->module)->entry_point(), 0,
-                               0x1000100|X_CREATE_SUSPENDED, true, true);
+  launch->thread = new XThread(kernel_state(), (*launch->module)->stack_size(),
+                               0, (*launch->module)->entry_point(), 0,
+                               0x1000100 | X_CREATE_SUSPENDED, true, true);
 
   launch->thread->set_name("Main XThread");
 
   X_STATUS result = launch->thread->Create();
   if (XFAILED(result)) {
     XELOGE("Could not create launch thread: {:08X}", result);
-    
+
     delete launch->thread;
     launch->thread = nullptr;
     return;
@@ -302,7 +302,7 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   if (!module->is_executable()) {
     return nullptr;
   }
-  #if 0
+#if 0
   SetExecutableModule(module);
   XELOGI("KernelState: Launching module...");
 
@@ -330,8 +330,8 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   thread->Resume();
 
   return thread;
-  #else
-  //this is pretty bad
+#else
+  // this is pretty bad
   LaunchInterrupt li;
   li.module = &module;
   li.thread = nullptr;
@@ -345,7 +345,7 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
     return nullptr;
   }
 
-  #endif
+#endif
 }
 
 object_ref<UserModule> KernelState::GetExecutableModule() {
@@ -1285,7 +1285,12 @@ void KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
     object_table()->LookupObject<XThread>(host_handle)->YieldCPU();
   }
 }
-
+cpu::XenonInterruptController* KernelState::InterruptControllerFromPCR(
+    cpu::ppc::PPCContext* context, X_KPCR* pcr) {
+  uint32_t cpunum = kernel_state()->GetPCRCpuNum(pcr);
+  auto hwthread = processor()->GetCPUThread(cpunum);
+  return hwthread->interrupt_controller();
+}
 uint32_t KernelState::GetKernelTickCount() {
   return memory()
       ->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle())
@@ -1332,7 +1337,7 @@ void KernelState::KernelDecrementerInterrupt(void* ud) {
   auto cpu = context->processor->GetCPUThread(
       context->kernel_state->GetPCRCpuNum(kpcr));
   cpu->SetDecrementerTicks(r6);
-  if (r5==0) {
+  if (r5 == 0) {
     return;
   }
   kpcr->unknown_8 = r7;

@@ -185,6 +185,8 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   guest_ipi_dispatch_worker_->set_affinity_mask(1ULL << cpu_number_);
   guest_ipi_dispatch_worker_->set_name(
       std::string("PPC HW Thread IPI Worker ") + std::to_string(cpu_number));
+  interrupt_controller_ = std::make_unique<XenonInterruptController>(
+      this, thread_state->processor());
 }
 HWThread::~HWThread() {
   xenia_assert(false);  // dctor not implemented yet

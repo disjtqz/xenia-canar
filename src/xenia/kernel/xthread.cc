@@ -678,7 +678,7 @@ void XThread::Schedule() {
 
 #else
   // incorrect, but w/e
-    #if 0
+#if 0
   auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
 
   xboxkrnl::xeKeKfAcquireSpinLock(
@@ -698,12 +698,16 @@ void XThread::Schedule() {
       thread_state()->context(),
       &kpcr_for->prcb_data.enqueued_processor_threads_lock, 0, false);
 
-  #else
-  auto context = cpu::ThreadState::Get()->context();  // thread_state()->context();
-  uint32_t old_irql =kernel_state()->LockDispatcher(context);
+#else
+  auto context =
+      cpu::ThreadState::Get()->context();  // thread_state()->context();
+  uint32_t old_irql = kernel_state()->LockDispatcher(context);
   xboxkrnl::xeReallyQueueThread(context, guest_object<X_KTHREAD>());
+  
+    auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
+  //kpcr_for->unknown_8 = 2;
   kernel_state()->UnlockDispatcher(context, old_irql);
-    #endif
+#endif
 #endif
 }
 

@@ -1292,6 +1292,11 @@ void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql) {
     XELOGE("KfLowerIrql : new_irql > kpcr->current_irql!");
   }
   kpcr->current_irql = new_irql;
+
+  auto ic = kernel_state()->InterruptControllerFromPCR(ctx, kpcr);
+  ic->WriteRegisterOffset(8, static_cast<uint64_t>(new_irql));
+  uint64_t ack = ic->ReadRegisterOffset(8);
+
   if (new_irql < 2) {
     // the called function does a ton of other stuff including changing the
     // irql and interrupt_related
@@ -1317,6 +1322,9 @@ unsigned char xeKfRaiseIrql(PPCContext* ctx, unsigned char new_irql) {
   if (old_irql > (unsigned int)new_irql) {
     XELOGE("KfRaiseIrql - old_irql > new_irql!");
   }
+  auto ic = kernel_state()->InterruptControllerFromPCR(ctx, v1);
+  ic->WriteRegisterOffset(8, static_cast<uint64_t>(new_irql));
+  uint64_t ack = ic->ReadRegisterOffset(8);
   return old_irql;
 }
 // used by aurora's nova plugin

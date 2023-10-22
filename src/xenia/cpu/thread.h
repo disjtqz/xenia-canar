@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include "xenia/cpu/ppc/ppc_context.h"
+#include "xenia/cpu/xenon_interrupt_controller.h"
 DECLARE_bool(emulate_guest_interrupts_in_software);
 namespace xe {
 namespace cpu {
@@ -139,6 +140,7 @@ class HWThread {
   void (*boot_function_)(ppc::PPCContext* context, void* ud) = nullptr;
   void* boot_ud_ = nullptr;
   std::unique_ptr<HWDecrementer> decrementer_;
+  std::unique_ptr<XenonInterruptController> interrupt_controller_;
 
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
@@ -173,6 +175,9 @@ class HWThread {
   // SendGuestIPI is designed to run on a guest thread
   // it ought to be nonblocking, unlike TrySendHostIPI
   bool SendGuestIPI(void (*ipi_func)(void*), void* ud);
+  XenonInterruptController* interrupt_controller() {
+    return interrupt_controller_.get();
+  }
 };
 
 }  // namespace cpu
