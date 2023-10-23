@@ -45,8 +45,8 @@ using ready_thread_pointer_t =
     ShiftedPointer<X_LIST_ENTRY, X_KTHREAD,
                    offsetof(X_KTHREAD, ready_prcb_entry)>;
 
-static void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
-                                                    X_KTHREAD* kthread) {
+void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
+                                             X_KTHREAD* kthread) {
   auto kpcr = GetKPCR(context);
   auto v3 = &kpcr->prcb_data;
   xboxkrnl::xeKeKfAcquireSpinLock(
@@ -405,7 +405,7 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
   X_KTHREAD* next_thread = nullptr;
   while (true) {
     set_msr_interrupt_bits(context, 0);
-    
+
     GetKPCR(context)->generic_software_interrupt = 0;
     if (!GetKPCR(context)->prcb_data.queued_dpcs_list_head.empty(context) ||
         GetKPCR(context)->timer_pending) {
@@ -488,14 +488,40 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &prcb->enqueued_processor_threads_lock, false);
 
-  /*
-    todo: a lot of priority related shit here that im skipping!!!
+  auto thread_priority = thread->priority;
+  auto thread_process = thread->process;
+  if (thread_priority >= 0x12) {
+    thread->unk_B4 = thread_process->unk_0C;
 
+  } else {
+    auto v15 = thread->unk_BA;
+    if (!v15 && !thread->boost_disabled) {
+      auto v16 = thread->unk_B9 + unknown;
+      if (v16 > (int)thread_priority) {
+        if (v16 < thread->unk_CA)
+          thread->priority = v16;
+        else
+          thread->priority = thread->unk_CA;
+      }
+    }
+    auto v17 = thread->unk_B9;
+    if (v17 >= (unsigned int)thread->unk_CA) {
+      thread->unk_B4 = thread_process->unk_0C;
+    } else {
+      auto v18 = thread->unk_B4 - 10;
+      thread->unk_B4 = v18;
+      if (v18 <= 0) {
+        auto v19 = (unsigned char)(thread->priority - v15 - 1);
+        thread->unk_B4 = thread_process->unk_0C;
 
-
-
-  */
-
+        thread->priority = v19;
+        if (v19 < v17) {
+          thread->priority = v17;
+        }
+        thread->unk_BA = 0;
+      }
+    }
+  }
   thread->thread_state = 6;
   thread->ready_prcb_entry.flink_ptr = prcb->enqueued_threads_list.next;
 

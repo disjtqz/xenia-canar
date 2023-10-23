@@ -260,14 +260,17 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
       while (!xe::atomic_cas(reinterpret_cast<uint64_t>(p_pcr),
                              reinterpret_cast<uint64_t>(&request),
                              &p_pcr->emulated_interrupt)) {
+        threading::MaybeYield();
       }
 
       while (p_pcr->emulated_interrupt ==
              reinterpret_cast<uint64_t>(&request)) {
+        threading::MaybeYield();
       }
       // guest has read the interrupt, now wait for it to change our value
 
       while (result_from_call == NO_RESULT_MAGIC) {
+        threading::MaybeYield();
       }
     }
 

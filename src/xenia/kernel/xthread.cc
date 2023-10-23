@@ -748,7 +748,8 @@ void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
   thread_object.current_cpu = cpu_index;
 
   if (!initial) {
-    xe::FatalError("Need to change cpu!");
+    //xe::FatalError("Need to change cpu!");
+    xenia_assert(false);
   }
 }
 
