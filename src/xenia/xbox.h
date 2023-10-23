@@ -60,6 +60,7 @@ typedef uint32_t X_STATUS;
 #define X_STATUS_SUCCESS                                ((X_STATUS)0x00000000L)
 #define X_STATUS_ABANDONED_WAIT_0                       ((X_STATUS)0x00000080L)
 #define X_STATUS_USER_APC                               ((X_STATUS)0x000000C0L)
+#define X_STATUS_KERNEL_APC                             ((X_STATUS)0x00000100L)
 #define X_STATUS_ALERTED                                ((X_STATUS)0x00000101L)
 #define X_STATUS_TIMEOUT                                ((X_STATUS)0x00000102L)
 #define X_STATUS_PENDING                                ((X_STATUS)0x00000103L)

@@ -38,7 +38,8 @@ namespace xe {
 namespace kernel {
 struct DispatchQueueEntry : public threading::AtomicListEntry {
   std::function<void()> function;
-  DispatchQueueEntry(std::function<void()> fn) :threading::AtomicListEntry(), function(std::move(fn)) {}
+  DispatchQueueEntry(std::function<void()> fn)
+      : threading::AtomicListEntry(), function(std::move(fn)) {}
 };
 constexpr uint32_t kDeferredOverlappedDelayMillis = 100;
 
@@ -1395,5 +1396,10 @@ void KernelState::KernelDecrementerInterrupt(void* ud) {
   }
 }
 
+KernelGuestGlobals* KernelState::GetKernelGuestGlobals(
+    cpu::ppc::PPCContext* context) {
+  return context->TranslateVirtual<KernelGuestGlobals*>(
+      GetKernelGuestGlobals());
+}
 }  // namespace kernel
 }  // namespace xe

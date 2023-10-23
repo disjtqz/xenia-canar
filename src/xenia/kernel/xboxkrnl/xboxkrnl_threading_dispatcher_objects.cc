@@ -30,8 +30,8 @@ namespace xe {
 namespace kernel {
 namespace xboxkrnl {
 
-int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int unk,
-                     unsigned char unk2) {
+int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int increment,
+                     unsigned char wait) {
   xenia_assert(event && event->header.type < 2);
   uint32_t old_irql = context->kernel_state->LockDispatcher(context);
 
@@ -45,15 +45,15 @@ int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int unk,
   } else if (event->header.type != 0 && wait_list->wait_type == WAIT_ANY) {
     xeEnqueueThreadPostWait(context,
                             context->TranslateVirtual(wait_list->thread),
-                            wait_list->wait_result_xstatus, unk);
+                            wait_list->wait_result_xstatus, increment);
   } else if (!old_signalstate) {
     event->header.signal_state = 1;
-    xeDispatchSignalStateChange(context, &event->header, unk);
+    xeDispatchSignalStateChange(context, &event->header, increment);
   }
-  if (unk2) {
+  if (wait) {
     auto current_thread =
         context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
-    current_thread->unk_A6 = unk2;
+    current_thread->unk_A6 = wait;
     current_thread->unk_A4 = old_irql;
   } else {
     xeDispatcherSpinlockUnlock(

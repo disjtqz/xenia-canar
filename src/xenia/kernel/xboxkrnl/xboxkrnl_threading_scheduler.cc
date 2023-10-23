@@ -68,7 +68,7 @@ reenter:
         kpcr->generic_software_interrupt = irql;
       }
     } else {
-      xboxkrnl::xeKeKfAcquireSpinLock(context, lock, false);
+      xboxkrnl::xeKeKfAcquireSpinLock(context, &kpcr->prcb_data.enqueued_processor_threads_lock, false);
       auto next_thread = kpcr->prcb_data.next_thread;
       auto v3 = kpcr->prcb_data.current_thread.xlat();
       v3->unk_A4 = irql;
@@ -515,7 +515,7 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
 }
 
 void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
-                             X_STATUS wait_result, int unknown) {
+                             X_STATUS wait_result, int priority_increment) {
   xenia_assert(thread->thread_state == 5);
   thread->wait_result = thread->wait_result | wait_result;
 
@@ -559,7 +559,7 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
   } else {
     auto v15 = thread->unk_BA;
     if (!v15 && !thread->boost_disabled) {
-      auto v16 = thread->unk_B9 + unknown;
+      auto v16 = thread->unk_B9 + priority_increment;
       if (v16 > (int)thread_priority) {
         if (v16 < thread->unk_CA)
           thread->priority = v16;
@@ -811,7 +811,8 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
 }
 
 /*
-    this function is quite confusing and likely wrong, probably was written in asm
+    this function is quite confusing and likely wrong, probably was written in
+   asm
 
 */
 X_STATUS xeSchedulerSwitchThread2(PPCContext* context) {
@@ -823,20 +824,129 @@ reenter:
     goto reenter;
   }
 
-  //this is wrong! its doing something else here,
-  //some kind of "try lock" and then falling back to another function
- // xboxkrnl::xeKeKfAcquireSpinLock(
-    //  context, &prcb->enqueued_processor_threads_lock, false);
+  // this is wrong! its doing something else here,
+  // some kind of "try lock" and then falling back to another function
+  // xboxkrnl::xeKeKfAcquireSpinLock(
+  //  context, &prcb->enqueued_processor_threads_lock, false);
   if (prcb->enqueued_processor_threads_lock.pcr_of_owner.value != 0) {
     while (prcb->enqueued_processor_threads_lock.pcr_of_owner.value) {
-        //db16cyc
-
+      // db16cyc
     }
     goto reenter;
   }
   context->kernel_state->GetDispatcherLock(context)->pcr_of_owner = 0;
   return xeSchedulerSwitchThread(context);
 }
+
+int xeKeSuspendThread(PPCContext* context, X_KTHREAD* thread) {
+  int result;
+  uint32_t old_irql =
+      xboxkrnl::xeKeKfAcquireSpinLock(context, &thread->apc_lock);
+
+  result = thread->suspend_count;
+  if (result == 0x7F) {
+    xenia_assert(false);
+    // raise status here
+  }
+
+  if (thread->may_queue_apcs) {
+    if (!thread->unk_CB) {
+      thread->suspend_count = result + 1;
+      if (!result) {
+        if (thread->on_suspend.enqueued) {
+          context->kernel_state->LockDispatcherAtIrql(context);
+          thread->suspend_sema.header.signal_state--;
+          context->kernel_state->UnlockDispatcherAtIrql(context);
+
+        } else {
+          thread->on_suspend.enqueued = 1;
+          xeKeInsertQueueApcHelper(context, &thread->on_suspend, 0);
+        }
+      }
+    }
+  }
+
+  xeDispatcherSpinlockUnlock(context, &thread->apc_lock, old_irql);
+  return result;
+}
+int xeKeResumeThread(PPCContext* context, X_KTHREAD* thread) {
+  int result;
+  uint32_t old_irql =
+      xboxkrnl::xeKeKfAcquireSpinLock(context, &thread->apc_lock);
+
+  char suspendcount = thread->suspend_count;
+  result = suspendcount;
+  if (suspendcount) {
+    thread->suspend_count = suspendcount - 1;
+    if (suspendcount == 1) {
+      context->kernel_state->LockDispatcherAtIrql(context);
+      thread->suspend_sema.header.signal_state++;
+      xeDispatchSignalStateChange(context, &thread->suspend_sema.header, 0);
+      context->kernel_state->UnlockDispatcherAtIrql(context);
+    }
+  }
+
+  xeDispatcherSpinlockUnlock(context, &thread->apc_lock, old_irql);
+  return result;
+}
+
+void xeSuspendThreadApcRoutine(PPCContext* context) {
+  auto thrd = GetKThread(context);
+  xeKeWaitForSingleObject(&thrd->suspend_sema, 2, 0, 0, 0);
+}
+
+//very, very incorrect impl
+X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
+                                 unsigned reason, unsigned processor_mode, bool alertable,
+                                 int64_t* timeout) {
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+  auto kthread = GetKThread(context);
+
+  auto old_r1 = context->r[1];
+
+  context->r[1] -= sizeof(X_KWAIT_BLOCK) * 4;
+  uint32_t guest_stash = static_cast<uint32_t>(old_r1 - sizeof(X_KWAIT_BLOCK)* 4);
+  X_KWAIT_BLOCK* stash = context->TranslateVirtual<X_KWAIT_BLOCK*>(guest_stash);
+
+  kthread->wait_blocks = guest_stash;
+
+  stash[0].object = object;
+  stash[0].thread = kthread;
+  stash[0].wait_result_xstatus = 0;
+  stash[0].wait_type = WAIT_ANY;
+  stash[0].next_wait_block = 0U;
+  util::XeInitializeListHead(&stash[0].wait_list_entry, context);
+
+  util::XeInsertHeadList(&object->wait_list, &stash[0].wait_list_entry,
+                         context);
+
+  kthread->alertable = alertable;
+  kthread->processor_mode = processor_mode;
+  kthread->wait_reason = reason;
+  kthread->thread_state = 5;
+
+  X_STATUS wait_status = xeSchedulerSwitchThread2(context);
+
+  context->r[1] = old_r1;
+
+  if (wait_status == X_STATUS_USER_APC) {
+    xeProcessUserApcs(context);
+  } else if (wait_status == X_STATUS_KERNEL_APC) {
+    xeProcessKernelApcs(context);
+  } else {
+    auto v24 = object->type;
+
+    if ((v24 & 7) == 1) {
+      object->signal_state = 0;
+    } else if (v24 == 5) {  // sem
+      --object->signal_state;
+    }
+  }
+  context->kernel_state->UnlockDispatcher(context, old_irql);
+  scheduler_80097F90(context, kthread);
+  return wait_status;
+}
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

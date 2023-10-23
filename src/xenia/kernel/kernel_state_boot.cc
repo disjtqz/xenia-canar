@@ -276,6 +276,8 @@ void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {
   SetupProcessorPCR(cpunum);
   SetupProcessorIdleThread(cpunum);
 }
+
+static void KernelNullsub(PPCContext* context) {}
 void KernelState::BootInitializeStatics() {
   kernel_guest_globals_ = memory_->SystemHeapAlloc(sizeof(KernelGuestGlobals));
 
@@ -413,13 +415,21 @@ void KernelState::BootInitializeStatics() {
       {XObject::Type::Device,
        kernel_guest_globals_ +
            offsetof32(KernelGuestGlobals, IoDeviceObjectType)}};
+
+  block->guest_nullsub =
+      kernel_trampoline_group_.NewLongtermTrampoline(KernelNullsub);
+  block->suspendthread_apc_routine =
+      kernel_trampoline_group_.NewLongtermTrampoline(
+          xboxkrnl::xeSuspendThreadApcRoutine);
 }
 
 void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   KernelGuestGlobals* block =
       memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
 
-  xboxkrnl::xeKeSetEvent(&block->UsbdBootEnumerationDoneEvent, 1, 0);
+  util::XeInitializeListHead(
+      &block->UsbdBootEnumerationDoneEvent.header.wait_list, context);
+  xboxkrnl::xeKeSetEvent(context, &block->UsbdBootEnumerationDoneEvent, 1, 0);
 
   for (unsigned i = 1; i < 6; ++i) {
     SetupKPCRPageForCPU(i);
@@ -436,6 +446,7 @@ void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
 void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
                                        void* ud) {
   KernelState* ks = reinterpret_cast<KernelState*>(ud);
+  context->kernel_state = ks;
 
   /*
     todo: the hypervisor or bootloader does some initialization before this
@@ -444,6 +455,7 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   */
 
   auto kpcr = GetKPCR(context);
+  
   kpcr->emulated_interrupt = reinterpret_cast<uint64_t>(kpcr);
   auto cpunum = ks->GetPCRCpuNum(kpcr);
 

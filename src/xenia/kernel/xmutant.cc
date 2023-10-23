@@ -27,7 +27,22 @@ XMutant::XMutant() : XObject(kObjectType) {}
 
 XMutant::~XMutant() {}
 
-void XMutant::Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes) {}
+void XMutant::Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes) {
+  auto context = cpu::ThreadState::Get()->context();
+  uint32_t guest_objptr = 0;
+  auto guest_globals = context->TranslateVirtual<KernelGuestGlobals*>(
+      kernel_state()->GetKernelGuestGlobals());
+  X_STATUS create_status =
+      xboxkrnl::xeObCreateObject(&guest_globals->ExMutantObjectType, nullptr,
+                                 sizeof(X_KMUTANT), &guest_objptr, context);
+  xenia_assert(create_status == X_STATUS_SUCCESS);
+  xenia_assert(guest_objptr != 0);
+
+  auto guest_object = context->TranslateVirtual<X_KMUTANT*>(guest_objptr);
+  xboxkrnl::xeKeInitializeMutant(guest_object, initial_owner, context);
+
+  SetNativePointer(guest_objptr);
+}
 
 void XMutant::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
   xe::FatalError("Unimplemented XMutant::InitializeNative");

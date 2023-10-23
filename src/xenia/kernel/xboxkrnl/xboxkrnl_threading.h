@@ -36,7 +36,10 @@ uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
 uint32_t NtWaitForSingleObjectEx(uint32_t object_handle, uint32_t wait_mode,
                                  uint32_t alertable, uint64_t* timeout_ptr);
 
-uint32_t xeKeSetEvent(X_KEVENT* event_ptr, uint32_t increment, uint32_t wait);
+int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int increment,
+                     unsigned char wait);
+int32_t
+    xeKeResetEvent(PPCContext* context, X_KEVENT* event);
 
 uint32_t KeDelayExecutionThread(uint32_t processor_mode, uint32_t alertable,
                                 uint64_t* interval_ptr,
@@ -46,6 +49,8 @@ uint32_t ExCreateThread(xe::be<uint32_t>* handle_ptr, uint32_t stack_size,
                         xe::be<uint32_t>* thread_id_ptr,
                         uint32_t xapi_thread_startup, uint32_t start_address,
                         uint32_t start_context, uint32_t creation_flags);
+
+void xeKeInitializeSemaphore(X_KSEMAPHORE* semaphore, int count, int limit);
 
 uint32_t ExTerminateThread(uint32_t exit_code);
 
@@ -58,7 +63,11 @@ void xeKeInitializeApc(XAPC* apc, uint32_t thread_ptr, uint32_t kernel_routine,
 uint32_t xeKeInsertQueueApc(XAPC* apc, uint32_t arg1, uint32_t arg2,
                             uint32_t priority_increment,
                             cpu::ppc::PPCContext* context);
-uint32_t xeNtQueueApcThread(uint32_t thread_handle, uint32_t apc_routine,
+
+void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context,XAPC* apc,
+                              int priority_increment);
+uint32_t
+    xeNtQueueApcThread(uint32_t thread_handle, uint32_t apc_routine,
                             uint32_t apc_routine_context, uint32_t arg1,
                             uint32_t arg2, cpu::ppc::PPCContext* context);
 void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql);
@@ -114,6 +123,17 @@ void xeDispatcherSpinlockUnlock(PPCContext* context, X_KSPINLOCK* lock,
 void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread);
 X_STATUS xeSchedulerSwitchThread(PPCContext* context);
 X_STATUS xeSchedulerSwitchThread2(PPCContext* context);
+
+int xeKeSuspendThread(PPCContext* context, X_KTHREAD* thread);
+int xeKeResumeThread(PPCContext* context, X_KTHREAD* thread);
+
+void xeSuspendThreadApcRoutine(PPCContext* context);
+
+X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
+                                 unsigned reason, unsigned unk, bool alertable,
+                                 int64_t* timeout);
+int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
+                          bool abandoned, unsigned char unk2);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

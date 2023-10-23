@@ -191,7 +191,10 @@ uint32_t NtResumeThread(uint32_t handle, uint32_t* suspend_count_ptr) {
 
   if (thread) {
     if (thread->type() == XObject::Type::Thread) {
-      result = thread->Resume(&suspend_count);
+      // result = thread->Resume(&suspend_count);
+      result = X_STATUS_SUCCESS;
+      suspend_count = xeKeResumeThread(cpu::ThreadState::GetContext(),
+                                       thread->guest_object<X_KTHREAD>());
     } else {
       return X_STATUS_OBJECT_TYPE_MISMATCH;
     }
@@ -221,16 +224,9 @@ dword_result_t NtResumeThread_entry(dword_t handle,
 }
 DECLARE_XBOXKRNL_EXPORT1(NtResumeThread, kThreading, kImplemented);
 
-dword_result_t KeResumeThread_entry(pointer_t<X_KTHREAD> thread_ptr) {
-  X_STATUS result = X_STATUS_SUCCESS;
-  auto thread = XObject::GetNativeObject<XThread>(kernel_state(), thread_ptr);
-  if (thread) {
-    result = thread->Resume();
-  } else {
-    result = X_STATUS_INVALID_HANDLE;
-  }
-
-  return result;
+dword_result_t KeResumeThread_entry(pointer_t<X_KTHREAD> thread_ptr,
+                                    const ppc_context_t& context) {
+  return xeKeResumeThread(context, thread_ptr);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeResumeThread, kThreading, kImplemented);
 
@@ -247,7 +243,8 @@ dword_result_t NtSuspendThread_entry(dword_t handle,
 
       if (current_pcr->prcb_data.current_thread == thread->guest_object() ||
           !thread->guest_object<X_KTHREAD>()->terminated) {
-        result = thread->Suspend(&suspend_count);
+        suspend_count =
+            xeKeSuspendThread(context, thread->guest_object<X_KTHREAD>());
       } else {
         return X_STATUS_THREAD_IS_TERMINATING;
       }
@@ -268,18 +265,7 @@ DECLARE_XBOXKRNL_EXPORT1(NtSuspendThread, kThreading, kImplemented);
 
 dword_result_t KeSuspendThread_entry(pointer_t<X_KTHREAD> kthread,
                                      const ppc_context_t& context) {
-  auto thread =
-      XObject::GetNativeObject<XThread>(context->kernel_state, kthread);
-  uint32_t suspend_count_out = 0;
-
-  if (thread) {
-    suspend_count_out = thread->suspend_count();
-
-    uint32_t discarded_new_suspend_count = 0;
-    thread->Suspend(&discarded_new_suspend_count);
-  }
-
-  return suspend_count_out;
+  return xeKeSuspendThread(context, kthread);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeSuspendThread, kThreading, kImplemented);
 
@@ -497,10 +483,12 @@ dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value) {
 DECLARE_XBOXKRNL_EXPORT1(KeTlsSetValue, kThreading, kImplemented);
 
 void KeInitializeEvent_entry(pointer_t<X_KEVENT> event_ptr, dword_t event_type,
-                             dword_t initial_state) {
+                             dword_t initial_state,
+                             const ppc_context_t& context) {
   event_ptr.Zero();
   event_ptr->header.type = event_type;
   event_ptr->header.signal_state = (uint32_t)initial_state;
+  util::XeInitializeListHead(&event_ptr->header.wait_list, context);
   auto ev =
       XObject::GetNativeObject<XEvent>(kernel_state(), event_ptr, event_type);
   if (!ev) {
@@ -510,43 +498,24 @@ void KeInitializeEvent_entry(pointer_t<X_KEVENT> event_ptr, dword_t event_type,
 }
 DECLARE_XBOXKRNL_EXPORT1(KeInitializeEvent, kThreading, kImplemented);
 
-uint32_t xeKeSetEvent(X_KEVENT* event_ptr, uint32_t increment, uint32_t wait) {
-  auto ev = XObject::GetNativeObject<XEvent>(kernel_state(), event_ptr);
-  if (!ev) {
-    assert_always();
-    return 0;
-  }
-
-  return ev->Set(increment, !!wait);
-}
-
 dword_result_t KeSetEvent_entry(pointer_t<X_KEVENT> event_ptr,
-                                dword_t increment, dword_t wait) {
-  return xeKeSetEvent(event_ptr, increment, wait);
+                                dword_t increment, dword_t wait,
+                                const ppc_context_t& context) {
+  return xeKeSetEvent(context, event_ptr, increment, wait);
 }
 DECLARE_XBOXKRNL_EXPORT2(KeSetEvent, kThreading, kImplemented, kHighFrequency);
 
 dword_result_t KePulseEvent_entry(pointer_t<X_KEVENT> event_ptr,
                                   dword_t increment, dword_t wait) {
-  auto ev = XObject::GetNativeObject<XEvent>(kernel_state(), event_ptr);
-  if (!ev) {
-    assert_always();
-    return 0;
-  }
-
-  return ev->Pulse(increment, !!wait);
+  xenia_assert(false);
+  return 0;
 }
 DECLARE_XBOXKRNL_EXPORT2(KePulseEvent, kThreading, kImplemented,
                          kHighFrequency);
 
-dword_result_t KeResetEvent_entry(pointer_t<X_KEVENT> event_ptr) {
-  auto ev = XObject::GetNativeObject<XEvent>(kernel_state(), event_ptr);
-  if (!ev) {
-    assert_always();
-    return 0;
-  }
-
-  return ev->Reset();
+dword_result_t KeResetEvent_entry(pointer_t<X_KEVENT> event_ptr,
+                                  const ppc_context_t& context) {
+  return xeKeResetEvent(context, event_ptr);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeResetEvent, kThreading, kImplemented);
 
@@ -592,7 +561,8 @@ uint32_t xeNtSetEvent(uint32_t handle, xe::be<uint32_t>* previous_state_ptr) {
     if (ev->type() != XObject::Type::Event) {
       return X_STATUS_OBJECT_TYPE_MISMATCH;
     }
-    int32_t was_signalled = ev->Set(0, false);
+    int32_t was_signalled = xeKeSetEvent(cpu::ThreadState::GetContext(),
+                                         ev->guest_object<X_KEVENT>(), 1, 0);
     if (previous_state_ptr) {
       *previous_state_ptr = static_cast<uint32_t>(was_signalled);
     }
@@ -612,15 +582,7 @@ dword_result_t NtPulseEvent_entry(dword_t handle,
                                   lpdword_t previous_state_ptr) {
   X_STATUS result = X_STATUS_SUCCESS;
 
-  auto ev = kernel_state()->object_table()->LookupObject<XEvent>(handle);
-  if (ev) {
-    int32_t was_signalled = ev->Pulse(0, false);
-    if (previous_state_ptr) {
-      *previous_state_ptr = static_cast<uint32_t>(was_signalled);
-    }
-  } else {
-    result = X_STATUS_INVALID_HANDLE;
-  }
+  xenia_assert(false);
 
   return result;
 }
@@ -629,17 +591,7 @@ DECLARE_XBOXKRNL_EXPORT2(NtPulseEvent, kThreading, kImplemented,
 dword_result_t NtQueryEvent_entry(dword_t handle, lpdword_t out_struc) {
   X_STATUS result = X_STATUS_SUCCESS;
 
-  auto ev = kernel_state()->object_table()->LookupObject<XEvent>(handle);
-  if (ev) {
-    uint32_t type_tmp, state_tmp;
-
-    ev->Query(&type_tmp, &state_tmp);
-
-    out_struc[0] = type_tmp;
-    out_struc[1] = state_tmp;
-  } else {
-    result = X_STATUS_INVALID_HANDLE;
-  }
+  xenia_assert(false);
 
   return result;
 }
@@ -664,19 +616,25 @@ dword_result_t NtClearEvent_entry(dword_t handle) {
 DECLARE_XBOXKRNL_EXPORT2(NtClearEvent, kThreading, kImplemented,
                          kHighFrequency);
 
-// https://msdn.microsoft.com/en-us/library/windows/hardware/ff552150(v=vs.85).aspx
-void KeInitializeSemaphore_entry(pointer_t<X_KSEMAPHORE> semaphore_ptr,
-                                 dword_t count, dword_t limit) {
-  semaphore_ptr->header.type = 5;  // SemaphoreObject
-  semaphore_ptr->header.signal_state = (uint32_t)count;
-  semaphore_ptr->limit = (uint32_t)limit;
+void xeKeInitializeSemaphore(X_KSEMAPHORE* semaphore, int count, int limit) {
+  semaphore->header.type = 5;  // SemaphoreObject
+  semaphore->header.signal_state = (uint32_t)count;
+  semaphore->limit = (uint32_t)limit;
+  util::XeInitializeListHead(
 
-  auto sem = XObject::GetNativeObject<XSemaphore>(kernel_state(), semaphore_ptr,
+      &semaphore->header.wait_list, kernel_memory());
+
+  auto sem = XObject::GetNativeObject<XSemaphore>(kernel_state(), semaphore,
                                                   5 /* SemaphoreObject */);
   if (!sem) {
     assert_always();
     return;
   }
+}
+// https://msdn.microsoft.com/en-us/library/windows/hardware/ff552150(v=vs.85).aspx
+void KeInitializeSemaphore_entry(pointer_t<X_KSEMAPHORE> semaphore_ptr,
+                                 dword_t count, dword_t limit) {
+  xeKeInitializeSemaphore(semaphore_ptr, count, limit);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeInitializeSemaphore, kThreading, kImplemented);
 
@@ -798,29 +756,30 @@ dword_result_t NtCreateMutant_entry(
 }
 DECLARE_XBOXKRNL_EXPORT1(NtCreateMutant, kThreading, kImplemented);
 
-dword_result_t NtReleaseMutant_entry(dword_t mutant_handle, dword_t unknown) {
-  // This doesn't seem to be supported.
-  // int32_t previous_count_ptr = SHIM_GET_ARG_32(2);
-
-  // Whatever arg 1 is all games seem to set it to 0, so whether it's
-  // abandon or wait we just say false. Which is good, cause they are
-  // both ignored.
-  assert_zero(unknown);
-  uint32_t priority_increment = 0;
-  bool abandon = false;
-  bool wait = false;
-
-  X_STATUS result = X_STATUS_SUCCESS;
-
-  auto mutant =
-      kernel_state()->object_table()->LookupObject<XMutant>(mutant_handle);
-  if (mutant) {
-    return mutant->ReleaseMutant(priority_increment, abandon, wait);
-  } else {
-    result = X_STATUS_INVALID_HANDLE;
+dword_result_t NtReleaseMutant_entry(dword_t mutant_handle,
+                                     lpdword_t previous_count,
+                                     const ppc_context_t& context) {
+  auto kernel = context->kernel_state;
+  uint32_t object = 0;
+  uint32_t ref_res = kernel->ReferenceObjectByHandle(
+      context, mutant_handle,
+      kernel->GetKernelGuestGlobals() +
+          offsetof(KernelGuestGlobals, ExMutantObjectType),
+      &object);
+  if ((int)ref_res < 0) {
+    return ref_res;
   }
 
-  return result;
+  X_KMUTANT* mutant = context->TranslateVirtual<X_KMUTANT*>(object);
+
+  auto prev_count = xeKeReleaseMutant(context, mutant, 1, 0, 0);
+
+  kernel->DereferenceObject(context, object);
+
+  if (previous_count) {
+    *previous_count = prev_count;
+  }
+  return 0;
 }
 DECLARE_XBOXKRNL_EXPORT1(NtReleaseMutant, kThreading, kImplemented);
 
@@ -845,6 +804,7 @@ void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
     mutant->owner = 0;
     mutant->header.signal_state = 1;
   }
+  util::XeInitializeListHead(&mutant->header.wait_list, context);
   mutant->abandoned = 0;
 }
 void KeInitializeMutant_entry(pointer_t<X_KMUTANT> mutant,
@@ -964,22 +924,9 @@ DECLARE_XBOXKRNL_EXPORT1(NtCancelTimer, kThreading, kImplemented);
 uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
                                  uint32_t processor_mode, uint32_t alertable,
                                  uint64_t* timeout_ptr) {
-  auto object = XObject::GetNativeObject<XObject>(kernel_state(), object_ptr);
-
-  if (!object) {
-    // The only kind-of failure code (though this should never happen)
-    assert_always();
-    return X_STATUS_ABANDONED_WAIT_0;
-  }
-
-  X_STATUS result =
-      object->Wait(wait_reason, processor_mode, alertable, timeout_ptr);
-  if (alertable) {
-    if (result == X_STATUS_USER_APC) {
-      result = xeProcessUserApcs(nullptr);
-    }
-  }
-  return result;
+  return xeKeWaitForSingleObject(
+      cpu::ThreadState::GetContext(), (X_DISPATCH_HEADER*)object_ptr,
+      wait_reason, processor_mode, alertable, (int64_t*)timeout_ptr);
 }
 
 dword_result_t KeWaitForSingleObject_entry(lpvoid_t object_ptr,
@@ -1002,13 +949,10 @@ uint32_t NtWaitForSingleObjectEx(uint32_t object_handle, uint32_t wait_mode,
       kernel_state()->object_table()->LookupObject<XObject>(object_handle);
   if (object) {
     uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-    result =
-        object->Wait(3, wait_mode, alertable, timeout_ptr ? &timeout : nullptr);
-    if (alertable) {
-      if (result == X_STATUS_USER_APC) {
-        result = xeProcessUserApcs(nullptr);
-      }
-    }
+
+    return xeKeWaitForSingleObject(object->guest_object<X_DISPATCH_HEADER>(), 3,
+                                   wait_mode, alertable, &timeout);
+
   } else {
     result = X_STATUS_INVALID_HANDLE;
   }
@@ -1593,9 +1537,6 @@ uint32_t xeNtQueueApcThread(uint32_t thread_handle, uint32_t apc_routine,
     memory->SystemHeapFree(apc_ptr);
     return X_STATUS_UNSUCCESSFUL;
   }
-  // no-op, just meant to awaken a sleeping alertable thread to process real
-  // apcs
-  thread->thread()->QueueUserCallback([]() {});
   return X_STATUS_SUCCESS;
 }
 dword_result_t NtQueueApcThread_entry(dword_t thread_handle,
@@ -1634,6 +1575,12 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 
   while (!user_apc_queue.empty(ctx)) {
     uint32_t apc_ptr = user_apc_queue.flink_ptr;
+    
+    if (!apc_ptr) {
+      XELOGE("Null link in apc queue!!");
+      user_apc_queue.Initialize(ctx);
+      break;
+    }
 
     XAPC* apc = user_apc_queue.ListEntryObject(
         ctx->TranslateVirtual<X_LIST_ENTRY*>(apc_ptr));
@@ -1787,39 +1734,83 @@ uint32_t xeKeInsertQueueApc(XAPC* apc, uint32_t arg1, uint32_t arg2,
   } else {
     apc->arg1 = arg1;
     apc->arg2 = arg2;
-
-    auto& which_list = target_thread->apc_lists[apc->apc_mode];
-
-    if (apc->normal_routine) {
-      which_list.InsertTail(apc, context);
-    } else {
-      XAPC* insertion_pos = nullptr;
-      for (auto&& sub_apc : which_list.IterateForward(context)) {
-        insertion_pos = &sub_apc;
-        if (sub_apc.normal_routine) {
-          break;
-        }
-      }
-      if (!insertion_pos) {
-        which_list.InsertHead(apc, context);
-      } else {
-        util::XeInsertHeadList(insertion_pos->list_entry.blink_ptr,
-                               &apc->list_entry, context);
-      }
-    }
-
     apc->enqueued = 1;
+    xeKeInsertQueueApcHelper(context, apc, priority_increment);
 
-    /*
-        todo: this is incomplete, a ton of other logic happens here, i believe
-       for waking the target thread if its alertable
-    */
     result = 1;
   }
-  xeKeKfReleaseSpinLock(context, &target_thread->apc_lock, old_irql);
+  xeDispatcherSpinlockUnlock(context, &target_thread->apc_lock, old_irql);
   return result;
 }
 
+// i doubt this is correctly implemented
+static void SendRunKernelApcIPI(void* ud) {
+  xeProcessKernelApcs(cpu::ThreadState::GetContext());
+}
+
+void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
+                              int priority_increment) {
+  auto apc_thread = context->TranslateVirtual(apc->thread_ptr);
+  auto apc_mode = apc->apc_mode;
+  auto& which_list = apc_thread->apc_lists[apc->apc_mode];
+
+  if (apc->normal_routine) {
+    which_list.InsertTail(apc, context);
+  } else {
+    XAPC* insertion_pos = nullptr;
+    for (auto&& sub_apc : which_list.IterateForward(context)) {
+      insertion_pos = &sub_apc;
+      if (sub_apc.normal_routine) {
+        break;
+      }
+    }
+    if (!insertion_pos) {
+      which_list.InsertHead(apc, context);
+    } else {
+      util::XeInsertHeadList(insertion_pos->list_entry.blink_ptr,
+                             &apc->list_entry, context);
+    }
+  }
+
+  context->kernel_state->LockDispatcherAtIrql(context);
+  {
+    X_STATUS wait_status;
+    auto target_thread_state = apc_thread->thread_state;
+    if (apc_mode) {
+      if (target_thread_state == 5 && apc_thread->processor_mode == 1 &&
+          apc_thread->alerted) {
+        wait_status = X_STATUS_USER_APC;
+        apc_thread->unk_8A = 1;
+        goto LABEL_25;
+      }
+    } else {
+      apc_thread->running_kernel_apcs = 1;
+      if (target_thread_state == 2) {
+        auto thread_processor = apc_thread->current_cpu;
+        if (thread_processor == GetKPCR(context)->prcb_data.current_cpu) {
+          GetKPCR(context)->apc_software_interrupt_state = 1;
+        } else {
+          // THIS IS DEFINITELY BADLY IMPLEMENTED!
+          context->processor->GetCPUThread(thread_processor)
+              ->SendGuestIPI(SendRunKernelApcIPI, nullptr);
+        }
+        goto LABEL_26;
+      }
+      if (target_thread_state == 5 && !apc_thread->unk_A4 &&
+          (!apc->normal_routine ||
+           !apc_thread->apc_disable_count && !apc_thread->unk_88)) {
+        wait_status = X_STATUS_KERNEL_APC;
+      LABEL_25:
+        xeEnqueueThreadPostWait(context, apc_thread, wait_status,
+                                priority_increment);
+        goto LABEL_26;
+      }
+    }
+  LABEL_26:;
+  }
+
+  context->kernel_state->UnlockDispatcherAtIrql(context);
+}
 dword_result_t KeInsertQueueApc_entry(pointer_t<XAPC> apc, lpvoid_t arg1,
                                       lpvoid_t arg2, dword_t priority_increment,
                                       const ppc_context_t& context) {
@@ -1968,12 +1959,13 @@ struct X_ERWLOCK {
 };
 static_assert_size(X_ERWLOCK, 0x38);
 
-void ExInitializeReadWriteLock_entry(pointer_t<X_ERWLOCK> lock_ptr) {
+void ExInitializeReadWriteLock_entry(pointer_t<X_ERWLOCK> lock_ptr,
+                                     const ppc_context_t& context) {
   lock_ptr->lock_count = -1;
   lock_ptr->writers_waiting_count = 0;
   lock_ptr->readers_waiting_count = 0;
   lock_ptr->readers_entry_count = 0;
-  KeInitializeEvent_entry(&lock_ptr->writer_event, 1, 0);
+  KeInitializeEvent_entry(&lock_ptr->writer_event, 1, 0, context);
   KeInitializeSemaphore_entry(&lock_ptr->reader_semaphore, 0, 0x7FFFFFFF);
   lock_ptr->spin_lock.pcr_of_owner = 0;
 }
@@ -2087,7 +2079,7 @@ void ExReleaseReadWriteLock_entry(pointer_t<X_ERWLOCK> lock_ptr,
 
   lock_ptr->writers_waiting_count--;
   xeKeKfReleaseSpinLock(ppc_context, &lock_ptr->spin_lock, old_irql);
-  xeKeSetEvent(&lock_ptr->writer_event, 1, 0);
+  xeKeSetEvent(ppc_context, &lock_ptr->writer_event, 1, 0);
 }
 DECLARE_XBOXKRNL_EXPORT1(ExReleaseReadWriteLock, kThreading, kImplemented);
 

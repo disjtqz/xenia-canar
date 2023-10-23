@@ -37,11 +37,15 @@ void XEvent::Initialize(bool manual_reset, bool initial_state) {
   xenia_assert(guest_objptr != 0);
 
   auto guest_object = context->TranslateVirtual<X_KEVENT*>(guest_objptr);
+
+  guest_object->header.type = manual_reset;
+  guest_object->header.signal_state = initial_state;
+  util::XeInitializeListHead(&guest_object->header.wait_list, context);
   SetNativePointer(guest_objptr);
 
   assert_false(event_);
 
-  //this->CreateNative<X_KEVENT>();
+  // this->CreateNative<X_KEVENT>();
 
   if (manual_reset) {
     event_ = xe::threading::Event::CreateManualResetEvent(initial_state);

@@ -449,7 +449,7 @@ dword_result_t XamSwapDisc_entry(
   }
 
   auto completion_event = [completion_handle]() -> void {
-    auto kevent = xboxkrnl::xeKeSetEvent(completion_handle, 1, 0);
+    auto kevent = xboxkrnl::xeKeSetEvent(cpu::ThreadState::GetContext(), completion_handle, 1, 0);
 
     // Release the completion handle
     auto object =

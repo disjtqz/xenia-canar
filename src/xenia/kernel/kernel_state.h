@@ -117,6 +117,9 @@ struct KernelGuestGlobals {
       running_timers;
 
   X_TIME_STAMP_BUNDLE KeTimestampBundle;
+
+  uint32_t guest_nullsub;
+  uint32_t suspendthread_apc_routine;
 };
 
 struct X_KPCR_PAGE;
@@ -400,6 +403,7 @@ class KernelState {
   std::unordered_map<XObject::Type, uint32_t>
       host_object_type_enum_to_guest_object_type_ptr_;
   uint32_t GetKernelGuestGlobals() const { return kernel_guest_globals_; }
+  KernelGuestGlobals* GetKernelGuestGlobals(cpu::ppc::PPCContext* context);
 };
 
 }  // namespace kernel

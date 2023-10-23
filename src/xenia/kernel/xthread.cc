@@ -223,6 +223,7 @@ void XThread::InitializeGuestObject() {
   auto guest_thread = guest_object<X_KTHREAD>();
   auto thread_guest_ptr = guest_object();
   guest_thread->header.type = 6;
+  auto guest_globals = kernel_state()->GetKernelGuestGlobals(context_here);
   guest_thread->suspend_count =
       (creation_params_.creation_flags & X_CREATE_SUSPENDED) ? 1 : 0;
   util::XeInitializeListHead(&guest_thread->mutants_list, memory());
@@ -236,6 +237,12 @@ void XThread::InitializeGuestObject() {
 
   xboxkrnl::xeKeInitializeTimerEx(&guest_thread->wait_timeout_timer, 0,
                                   process_type, context_here);
+
+  xboxkrnl::xeKeInitializeApc(&guest_thread->on_suspend, thread_guest_ptr,
+                              guest_globals->guest_nullsub, 0,
+                              guest_globals->suspendthread_apc_routine, 0, 0);
+
+  xboxkrnl::xeKeInitializeSemaphore(&guest_thread->suspend_sema, 0, 2);
 
   guest_thread->wait_timeout_block.object =
       memory()->HostToGuestVirtual(&guest_thread->wait_timeout_timer);
@@ -431,6 +438,9 @@ X_STATUS XThread::Create() {
   xe::threading::Fiber::CreationParameters params;
 
   params.stack_size = 16_MiB;  // Allocate a big host stack.
+  if ((creation_params_.creation_flags & X_CREATE_SUSPENDED) != 0) {
+    this->Suspend();
+  }
   fiber_ = xe::threading::Fiber::Create(params, [this]() {
     // Execute user code.
     threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)this);
@@ -458,13 +468,11 @@ X_STATUS XThread::Create() {
   runnable_entry_.fiber_ = fiber_.get();
   runnable_entry_.thread_state_ = thread_state_;
 
-  if ((creation_params_.creation_flags & X_CREATE_SUSPENDED) == 0) {
-    // Start the thread now that we're all setup.
+  // Start the thread now that we're all setup.
 
-    // thread_->Resume();
+  // thread_->Resume();
 
-    Schedule();
-  }
+  Schedule();
 
   return X_STATUS_SUCCESS;
 }
@@ -553,11 +561,6 @@ void XThread::Execute() {
               thread_id(), handle(), "", 69420);
   // Let the kernel know we are starting.
   kernel_state()->OnThreadExecute(this);
-
-  // All threads get a mandatory sleep. This is to deal with some buggy
-  // games that are assuming the 360 is so slow to create threads that they
-  // have time to initialize shared structures AFTER CreateThread (RR).
-  xe::threading::Sleep(std::chrono::milliseconds(10));
 
   // Dispatch any APCs that were queued before the thread was created first.
   DeliverAPCs();
@@ -778,16 +781,11 @@ uint32_t XThread::suspend_count() {
 X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
   auto guest_thread = guest_object<X_KTHREAD>();
 
-  uint8_t previous_suspend_count =
-      reinterpret_cast<std::atomic_uint8_t*>(&guest_thread->suspend_count)
-          ->fetch_sub(1);
-  if (out_suspend_count) {
-    *out_suspend_count = previous_suspend_count;
-  }
-  uint32_t unused_host_suspend_count = 0;
+  int count =
+      xboxkrnl::xeKeResumeThread(cpu::ThreadState::GetContext(), guest_thread);
 
-  if (previous_suspend_count == 1) {
-    Schedule();
+  if (out_suspend_count) {
+    *out_suspend_count = count;
   }
   return 0;
 }
@@ -798,21 +796,13 @@ X_STATUS XThread::Suspend(uint32_t* out_suspend_count) {
 
   X_KTHREAD* guest_thread = guest_object<X_KTHREAD>();
 
-  uint8_t previous_suspend_count =
-      reinterpret_cast<std::atomic_uint8_t*>(&guest_thread->suspend_count)
-          ->fetch_add(1);
-  if (out_suspend_count) {
-    *out_suspend_count = previous_suspend_count;
-  }
-  // If we are suspending ourselves, we can't hold the lock.
-  uint32_t unused_host_suspend_count = 0;
+  int count =
+      xboxkrnl::xeKeSuspendThread(cpu::ThreadState::GetContext(), guest_thread);
 
-  if (previous_suspend_count >= 0) {
-    if (IsInThread(this)) {
-      this->HWThread()->YieldToScheduler();
-    }
+  if (out_suspend_count) {
+    *out_suspend_count = count;
   }
-  // ops
+
   return 0;
 }
 
@@ -871,9 +861,8 @@ XHostThread::XHostThread(KernelState* kernel_state, uint32_t stack_size,
     : XThread(kernel_state, stack_size, 0, 0, 0, creation_flags, false, false,
               guest_process),
       host_fn_(host_fn) {
-  host_trampoline =
-      kernel_state->processor()->backend()->CreateGuestTrampoline(
-          &XHostThread::XHostThreadForwarder, this, nullptr, false);
+  host_trampoline = kernel_state->processor()->backend()->CreateGuestTrampoline(
+      &XHostThread::XHostThreadForwarder, this, nullptr, false);
   creation_params_.start_address = host_trampoline;
 }
 XHostThread::~XHostThread() {

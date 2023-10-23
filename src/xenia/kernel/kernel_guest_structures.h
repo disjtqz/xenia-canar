@@ -132,17 +132,17 @@ struct XAPC {
   // KAPC is 0x28(40) bytes? (what's passed to ExAllocatePoolWithTag)
   // This is 4b shorter than NT - looks like the reserved dword at +4 is gone.
   // NOTE: stored in guest memory.
-  uint16_t type;                     // +0
-  uint8_t apc_mode;                  // +2
-  uint8_t enqueued;                  // +3
-  xe::be<uint32_t> thread_ptr;       // +4
-  X_LIST_ENTRY list_entry;           // +8
-  xe::be<uint32_t> kernel_routine;   // +16
-  xe::be<uint32_t> rundown_routine;  // +20
-  xe::be<uint32_t> normal_routine;   // +24
-  xe::be<uint32_t> normal_context;   // +28
-  xe::be<uint32_t> arg1;             // +32
-  xe::be<uint32_t> arg2;             // +36
+  uint16_t type;                            // +0
+  uint8_t apc_mode;                         // +2
+  uint8_t enqueued;                         // +3
+  TypedGuestPointer<X_KTHREAD> thread_ptr;  // +4
+  X_LIST_ENTRY list_entry;                  // +8
+  xe::be<uint32_t> kernel_routine;          // +16
+  xe::be<uint32_t> rundown_routine;         // +20
+  xe::be<uint32_t> normal_routine;          // +24
+  xe::be<uint32_t> normal_context;          // +28
+  xe::be<uint32_t> arg1;                    // +32
+  xe::be<uint32_t> arg2;                    // +36
 };
 // https://www.nirsoft.net/kernel_struct/vista/DISPATCHER_HEADER.html
 struct X_DISPATCH_HEADER {
@@ -171,13 +171,15 @@ enum : uint16_t {
   WAIT_ALL = 0,
   WAIT_ANY = 1,
 };
+
+//https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/ntos/ke_x/kwait_block.htm
 // pretty much the vista KWAIT_BLOCK verbatim, except that sparebyte is gone and
 // WaitType is 2 bytes instead of 1
 struct X_KWAIT_BLOCK {
   X_LIST_ENTRY wait_list_entry;
-  TypedGuestPointer<X_KTHREAD> thread;
-  TypedGuestPointer<X_DISPATCH_HEADER> object;
-  TypedGuestPointer<X_KWAIT_BLOCK> next_wait_block;
+  EZPointer<X_KTHREAD> thread;
+  EZPointer<X_DISPATCH_HEADER> object;
+  EZPointer<X_KWAIT_BLOCK> next_wait_block;
   // this isnt the official vista name, but i think its better.
   // this value is what will be returned to the waiter if this particular wait
   // is satisfied
@@ -353,7 +355,9 @@ struct X_KTHREAD {
   // state = is thread running, suspended, etc
   uint8_t thread_state;  // 0x6C
   // 0x70 = priority?
-  uint8_t unk_6D[0x3];        // 0x6D
+
+  uint8_t alerted[2];          // 0x6D
+  uint8_t alertable;             // 0x6F
   uint8_t priority;           // 0x70
   uint8_t fpu_exceptions_on;  // 0x71
   // these two process types both get set to the same thing, process_type is
@@ -374,9 +378,9 @@ struct X_KTHREAD {
   xe::be<uint32_t> msr_mask;                     // 0x9C
   xe::be<X_STATUS> wait_result;                  // 0xA0
   uint8_t unk_A4;                                // 0xA4
-  uint8_t unk_A5;                                // 0xA5
+  uint8_t processor_mode;                                // 0xA5
   uint8_t unk_A6;                                // 0xA6
-  uint8_t unk_A7;                                // 0xA7
+  uint8_t wait_reason;                                // 0xA7
   TypedGuestPointer<X_KWAIT_BLOCK> wait_blocks;  // 0xA8
   uint8_t unk_AC[4];                             // 0xAC
   int32_t apc_disable_count;                     // 0xB0
@@ -398,7 +402,7 @@ struct X_KTHREAD {
   xe::be<uint32_t> unk_CC;                       // 0xCC
   xe::be<uint32_t> stack_alloc_base;             // 0xD0
   XAPC on_suspend;                               // 0xD4
-  X_KSEMAPHORE unk_FC;                           // 0xFC
+  X_KSEMAPHORE suspend_sema;                     // 0xFC
   X_LIST_ENTRY process_threads;                  // 0x110
   xe::be<uint32_t> unkptr_118;                   // 0x118
   xe::be<uint32_t> unk_11C;                      // 0x11C
