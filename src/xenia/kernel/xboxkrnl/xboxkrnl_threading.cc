@@ -436,10 +436,8 @@ dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
 DECLARE_XBOXKRNL_EXPORT3(KeDelayExecutionThread, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
 
-dword_result_t NtYieldExecution_entry() {
-  auto thread = XThread::GetCurrentThread();
-  thread->Delay(0, 0, 0);
-  return 0;
+dword_result_t NtYieldExecution_entry(const ppc_context_t& context) {
+  return xeNtYieldExecution(context);
 }
 DECLARE_XBOXKRNL_EXPORT2(NtYieldExecution, kThreading, kImplemented,
                          kHighFrequency);
@@ -1279,7 +1277,7 @@ dword_result_t KeRaiseIrqlToDpcLevel_entry(const ppc_context_t& ctx) {
     XELOGE("KeRaiseIrqlToDpcLevel - old_irql > 2");
   }
 
-  //oddly, this does not set the current interrupt priority
+  // oddly, this does not set the current interrupt priority
   pcr->current_irql = 2;
 
   return old_irql;

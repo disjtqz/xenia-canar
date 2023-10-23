@@ -45,6 +45,66 @@ using ready_thread_pointer_t =
     ShiftedPointer<X_LIST_ENTRY, X_KTHREAD,
                    offsetof(X_KTHREAD, ready_prcb_entry)>;
 
+/*
+    a special spinlock-releasing function thats used in a lot of scheduler
+   related functions im not very confident in the correctness of this one. the
+   original jumps around a lot, directly into the bodies of other functions and
+   appears to have been written in asm
+*/
+void xeDispatcherSpinlockUnlock(PPCContext* context, X_KSPINLOCK* lock,
+                                uint32_t irql) {
+  xenia_assert(lock->pcr_of_owner == static_cast<uint32_t>(context->r[13]));
+  lock->pcr_of_owner = 0;
+reenter:
+  auto kpcr = GetKPCR(context);
+  if (kpcr->prcb_data.enqueued_threads_list.next) {
+    xeProcessQueuedThreads(context, false);
+    // todo: theres a jump here!!
+    // this doesnt feel right
+    goto reenter;
+  } else if (kpcr->prcb_data.next_thread.m_ptr != 0) {
+    if (irql > IRQL_APC) {
+      if (!kpcr->prcb_data.dpc_active) {
+        kpcr->generic_software_interrupt = irql;
+      }
+    } else {
+      xboxkrnl::xeKeKfAcquireSpinLock(context, lock, false);
+      auto next_thread = kpcr->prcb_data.next_thread;
+      auto v3 = kpcr->prcb_data.current_thread.xlat();
+      v3->unk_A4 = irql;
+      kpcr->prcb_data.next_thread = 0U;
+      kpcr->prcb_data.current_thread = next_thread;
+      insert_8009D048(context, v3);
+      // jump here!
+      // r31 = next_thread
+      // r30 = current thread
+      // definitely switching threads
+
+      context->kernel_state->ContextSwitch(context, next_thread.xlat());
+
+      // at this point we're supposed to load a bunch of fields from r31 and do
+      // shit
+
+      // im just assuming r31 is supposed to be this
+      X_KTHREAD* r31 = next_thread.xlat();
+
+      auto r3 = r31->unk_A4;
+      auto r29 = r31->wait_result;
+      GetKPCR(context)->current_irql = r3;
+      auto r4 = GetKPCR(context)->software_interrupt_state;
+      if (r3 < r4) {
+        xeDispatchProcedureCallInterrupt(r3, r4, context);
+      }
+    }
+  } else if (irql <= IRQL_APC) {
+    kpcr->current_irql = irql;
+    auto v4 = kpcr->software_interrupt_state;
+    if (irql < v4) {
+      xeDispatchProcedureCallInterrupt(irql, v4, context);
+    }
+  }
+}
+
 void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
                                              X_KTHREAD* kthread) {
   auto kpcr = GetKPCR(context);
@@ -618,6 +678,44 @@ void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
     xeEnqueueThreadPostWait(context, v7, v6->wait_result_xstatus, unk);
   LABEL_23:;
   }
+}
+
+X_STATUS xeNtYieldExecution(PPCContext* context) {
+  X_STATUS result;
+  auto kpcr = GetKPCR(context);
+  auto v1 = context->TranslateVirtual(kpcr->prcb_data.current_thread);
+  auto old_irql = kpcr->current_irql;
+  kpcr->current_irql = IRQL_DISPATCH;
+
+  v1->unk_A4 = old_irql;
+  auto v2 = &kpcr->prcb_data;
+  xboxkrnl::xeKeKfAcquireSpinLock(context, &v2->enqueued_processor_threads_lock,
+                                  false);
+
+  if (!v2->next_thread) {
+    v2->next_thread = xeScanForReadyThread(context, v2, 1);
+  }
+  if (v2->next_thread) {
+    v1->unk_B4 = v1->process->unk_0C;
+    auto v4 = v1->priority;
+    if (v4 < 0x12) {
+      v4 = v4 - v1->unk_BA - 1;
+      if (v4 < v1->unk_B9) {
+        v4 = v1->unk_B9;
+      }
+      v1->unk_BA = 0;
+    }
+    v1->priority = v4;
+    insert_8009D048(context, v1);
+    context->kernel_state->ContextSwitch(context, v1);
+    result = X_STATUS_SUCCESS;
+  } else {
+    xboxkrnl::xeKeKfReleaseSpinLock(
+        context, &v2->enqueued_processor_threads_lock, 0, false);
+    xboxkrnl::xeKfLowerIrql(context, v1->unk_A4);
+    result = X_STATUS_NO_YIELD_PERFORMED;
+  }
+  return result;
 }
 }  // namespace xboxkrnl
 }  // namespace kernel

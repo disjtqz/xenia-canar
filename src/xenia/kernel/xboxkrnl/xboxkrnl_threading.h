@@ -101,6 +101,7 @@ uint32_t xeKeRemoveQueueDpc(XDPC* dpc, PPCContext* ctx);
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread);
 void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
                                              X_KTHREAD* kthread);
+X_STATUS xeNtYieldExecution(PPCContext* context);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe
