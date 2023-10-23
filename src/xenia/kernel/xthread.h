@@ -172,11 +172,12 @@ class XHostThread : public XThread {
   XHostThread(KernelState* kernel_state, uint32_t stack_size,
               uint32_t creation_flags, std::function<int()> host_fn,
               uint32_t guest_process = 0);
-
-  virtual void Execute();
+  ~XHostThread();
 
  private:
+  static void XHostThreadForwarder(cpu::ppc::PPCContext* context, void* ud1, void* ud2);
   std::function<int()> host_fn_;
+  uint32_t host_trampoline;
 };
 
 }  // namespace kernel

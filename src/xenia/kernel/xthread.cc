@@ -282,10 +282,9 @@ void XThread::InitializeGuestObject() {
   guest_thread->creation_flags = this->creation_params_.creation_flags;
   guest_thread->unk_17C = 1;
 
-
   guest_thread->thread_state = 0;
 
-  //priority related values
+  // priority related values
   guest_thread->unk_C8 = process->unk_18;
   auto v19 = process->unk_19;
   guest_thread->unk_C9 = v19;
@@ -293,9 +292,8 @@ void XThread::InitializeGuestObject() {
   guest_thread->unk_B9 = v19;
   guest_thread->priority = v19;
   guest_thread->unk_CA = v20;
-  //timeslice related
+  // timeslice related
   guest_thread->unk_B4 = process->unk_0C;
-
 
   auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       context_here, &process->thread_list_spinlock);
@@ -748,7 +746,7 @@ void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
   thread_object.current_cpu = cpu_index;
 
   if (!initial) {
-    //xe::FatalError("Need to change cpu!");
+    // xe::FatalError("Need to change cpu!");
     xenia_assert(false);
   }
 }
@@ -861,24 +859,29 @@ object_ref<XThread> XThread::Restore(KernelState* kernel_state,
 
   return object_ref<XThread>(nullptr);
 }
+void XHostThread::XHostThreadForwarder(cpu::ppc::PPCContext* context, void* ud1,
+                                       void* ud2) {
+  auto host_thrd = reinterpret_cast<XHostThread*>(ud1);
+  context->r[3] = host_thrd->host_fn_();
+}
 
 XHostThread::XHostThread(KernelState* kernel_state, uint32_t stack_size,
                          uint32_t creation_flags, std::function<int()> host_fn,
                          uint32_t guest_process)
     : XThread(kernel_state, stack_size, 0, 0, 0, creation_flags, false, false,
               guest_process),
-      host_fn_(host_fn) {}
-
-void XHostThread::Execute() {
-  XELOGKERNEL(
-      "XThread::Execute thid {} (handle={:08X}, '{}', native={:08X}, <host>)",
-      thread_id(), handle(), "", 69420);
-  // Let the kernel know we are starting.
-  kernel_state()->OnThreadExecute(this);
-  int ret = host_fn_();
-
-  // Exit.
-  Exit(ret);
+      host_fn_(host_fn) {
+  host_trampoline =
+      kernel_state->processor()->backend()->CreateGuestTrampoline(
+          &XHostThread::XHostThreadForwarder, this, nullptr, false);
+  creation_params_.start_address = host_trampoline;
+}
+XHostThread::~XHostThread() {
+  if (host_trampoline) {
+    kernel_state()->processor()->backend()->FreeGuestTrampoline(
+        host_trampoline);
+    host_trampoline = 0U;
+  }
 }
 
 }  // namespace kernel

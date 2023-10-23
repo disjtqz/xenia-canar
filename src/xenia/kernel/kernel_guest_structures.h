@@ -190,7 +190,7 @@ static_assert_size(X_KWAIT_BLOCK, 0x18);
 
 struct X_KSEMAPHORE {
   X_DISPATCH_HEADER header;
-  xe::be<uint32_t> limit;
+  xe::be<int32_t> limit;
 };
 static_assert_size(X_KSEMAPHORE, 0x14);
 
@@ -374,7 +374,9 @@ struct X_KTHREAD {
   xe::be<uint32_t> msr_mask;                     // 0x9C
   xe::be<X_STATUS> wait_result;                  // 0xA0
   uint8_t unk_A4;                                // 0xA4
-  uint8_t unk_A5[3];                             // 0xA5
+  uint8_t unk_A5;                                // 0xA5
+  uint8_t unk_A6;                                // 0xA6
+  uint8_t unk_A7;                                // 0xA7
   TypedGuestPointer<X_KWAIT_BLOCK> wait_blocks;  // 0xA8
   uint8_t unk_AC[4];                             // 0xAC
   int32_t apc_disable_count;                     // 0xB0

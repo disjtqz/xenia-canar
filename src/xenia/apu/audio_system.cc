@@ -134,7 +134,7 @@ void AudioSystem::WorkerThreadMain() {
     bool pumped = false;
     if (result.first == xe::threading::WaitResult::kSuccess) {
       auto index = result.second;
-
+      #if 0
       auto global_lock = global_critical_region_.Acquire();
       uint32_t client_callback = clients_[index].callback;
       uint32_t client_callback_arg = clients_[index].wrapped_callback_arg;
@@ -143,7 +143,7 @@ void AudioSystem::WorkerThreadMain() {
       client_callback_in_ = client_callback;
       guest_thread_->Resume();
       threading::Wait(guest_received_event_.get(), false);
-
+      #endif
       /* if (client_callback) {
         SCOPE_profile_cpu_i("apu", "xe::apu::AudioSystem->client_callback");
         uint64_t args[] = {client_callback_arg};

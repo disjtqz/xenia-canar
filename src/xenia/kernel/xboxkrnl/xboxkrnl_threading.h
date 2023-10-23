@@ -102,6 +102,18 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread);
 void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
                                              X_KTHREAD* kthread);
 X_STATUS xeNtYieldExecution(PPCContext* context);
+/*
+    a special spinlock-releasing function thats used in a lot of scheduler
+   related functions im not very confident in the correctness of this one. the
+   original jumps around a lot, directly into the bodies of other functions and
+   appears to have been written in asm
+*/
+void xeDispatcherSpinlockUnlock(PPCContext* context, X_KSPINLOCK* lock,
+                                uint32_t irql);
+
+void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread);
+X_STATUS xeSchedulerSwitchThread(PPCContext* context);
+X_STATUS xeSchedulerSwitchThread2(PPCContext* context);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

@@ -36,7 +36,10 @@ DEFINE_bool(apply_title_update, true, "Apply title updates.", "Kernel");
 
 namespace xe {
 namespace kernel {
-
+struct DispatchQueueEntry : public threading::AtomicListEntry {
+  std::function<void()> function;
+  DispatchQueueEntry(std::function<void()> fn) :threading::AtomicListEntry(), function(std::move(fn)) {}
+};
 constexpr uint32_t kDeferredOverlappedDelayMillis = 100;
 
 // This is a global object initialized with the XboxkrnlModule.
@@ -87,7 +90,6 @@ KernelState::~KernelState() {
 
   if (dispatch_thread_running_) {
     dispatch_thread_running_ = false;
-    dispatch_cond_.notify_all();
     dispatch_thread_->Wait(0, 0, 0, nullptr);
   }
 
@@ -418,34 +420,29 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
   // here).
   if (!dispatch_thread_running_) {
     dispatch_thread_running_ = true;
-#if 1
     dispatch_thread_ = object_ref<XHostThread>(new XHostThread(
         this, 128 * 1024, (0b100000) << 24,
         [this]() {
           // As we run guest callbacks the debugger must be able to suspend us.
-
-          auto global_lock = global_critical_region_.AcquireDeferred();
+          auto context = cpu::ThreadState::GetContext();
           while (dispatch_thread_running_) {
-            global_lock.lock();
-            if (dispatch_queue_.empty()) {
-              dispatch_cond_.wait(global_lock);
-              if (!dispatch_thread_running_) {
-                global_lock.unlock();
-                break;
-              }
-            }
-            auto fn = std::move(dispatch_queue_.front());
-            dispatch_queue_.pop_front();
-            global_lock.unlock();
+            context->CheckInterrupt();
+            DispatchQueueEntry* entry =
+                reinterpret_cast<DispatchQueueEntry*>(dispatch_queue_.Pop());
 
-            fn();
+            if (!entry) {
+              xboxkrnl::xeNtYieldExecution(context);
+              continue;
+            } else {
+              entry->function();
+              delete entry;
+            }
           }
           return 0;
         },
         GetSystemProcess()));  // don't think an equivalent exists on real hw
     dispatch_thread_->set_name("Kernel Dispatch");
     dispatch_thread_->Create();
-#endif
   }
 }
 
@@ -889,22 +886,26 @@ void KernelState::CompleteOverlappedDeferredEx(
       ev.get<XEvent>()->Reset();
     }
   }
-  auto global_lock = global_critical_region_.Acquire();
-  dispatch_queue_.push_back([this, completion_callback, overlapped_ptr,
-                             pre_callback, post_callback]() {
-    if (pre_callback) {
-      pre_callback();
-    }
-    xe::threading::Sleep(
-        std::chrono::milliseconds(kDeferredOverlappedDelayMillis));
-    uint32_t extended_error, length;
-    auto result = completion_callback(extended_error, length);
-    CompleteOverlappedEx(overlapped_ptr, result, extended_error, length);
-    if (post_callback) {
-      post_callback();
-    }
-  });
-  dispatch_cond_.notify_all();
+
+  DispatchQueueEntry* new_entry =
+      new DispatchQueueEntry([this, completion_callback, overlapped_ptr,
+                              pre_callback, post_callback]() {
+        auto context = cpu::ThreadState::GetContext();
+        context->CheckInterrupt();
+        if (pre_callback) {
+          pre_callback();
+        }
+        context->CheckInterrupt();
+        uint32_t extended_error, length;
+        auto result = completion_callback(extended_error, length);
+        context->CheckInterrupt();
+        CompleteOverlappedEx(overlapped_ptr, result, extended_error, length);
+        context->CheckInterrupt();
+        if (post_callback) {
+          post_callback();
+        }
+      });
+  dispatch_queue_.Push(new_entry);
 }
 
 bool KernelState::Save(ByteStream* stream) {
@@ -1187,37 +1188,30 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
 #endif
 }
 
+X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {
+  return &context
+              ->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
+              ->dispatcher_lock;
+}
+
 uint32_t KernelState::LockDispatcher(cpu::ppc::PPCContext* context) {
-  return xboxkrnl::xeKeKfAcquireSpinLock(
-      context,
-      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
-           ->dispatcher_lock,
-      true);
+  return xboxkrnl::xeKeKfAcquireSpinLock(context, GetDispatcherLock(context),
+                                         true);
 }
 
 void KernelState::UnlockDispatcher(cpu::ppc::PPCContext* context,
                                    uint32_t irql) {
-  xboxkrnl::xeKeKfReleaseSpinLock(
-      context,
-      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
-           ->dispatcher_lock,
-      irql, true);
+  xboxkrnl::xeKeKfReleaseSpinLock(context, GetDispatcherLock(context), irql,
+                                  true);
 }
 
 void KernelState::LockDispatcherAtIrql(cpu::ppc::PPCContext* context) {
-  xboxkrnl::xeKeKfAcquireSpinLock(
-      context,
-      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
-           ->dispatcher_lock,
-      false);
+  xboxkrnl::xeKeKfAcquireSpinLock(context, GetDispatcherLock(context), false);
 }
 
 void KernelState::UnlockDispatcherAtIrql(cpu::ppc::PPCContext* context) {
-  xboxkrnl::xeKeKfReleaseSpinLock(
-      context,
-      &context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals())
-           ->dispatcher_lock,
-      0, false);
+  xboxkrnl::xeKeKfReleaseSpinLock(context, GetDispatcherLock(context), 0,
+                                  false);
 }
 
 uint32_t KernelState::ReferenceObjectByHandle(cpu::ppc::PPCContext* context,

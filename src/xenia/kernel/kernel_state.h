@@ -291,6 +291,7 @@ class KernelState {
                              uint32_t cpu);
   uint32_t LockDispatcher(cpu::ppc::PPCContext* context);
   void UnlockDispatcher(cpu::ppc::PPCContext* context, uint32_t irql);
+  X_KSPINLOCK* GetDispatcherLock(cpu::ppc::PPCContext* context);
 
   void LockDispatcherAtIrql(cpu::ppc::PPCContext* context);
   void UnlockDispatcherAtIrql(cpu::ppc::PPCContext* context);
@@ -375,8 +376,7 @@ class KernelState {
 
   std::atomic<bool> dispatch_thread_running_;
   object_ref<XHostThread> dispatch_thread_;
-  std::condition_variable_any dispatch_cond_;
-  std::list<std::function<void()>> dispatch_queue_;
+  threading::AtomicListHeader dispatch_queue_;
 
   BitMap tls_bitmap_;
   std::unique_ptr<xe::threading::HighResolutionTimer> timestamp_timer_;

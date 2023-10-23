@@ -2,8 +2,8 @@
  ******************************************************************************
  * Xenia : Xbox 360 Emulator Research Project                                 *
  ******************************************************************************
- * Copyright 2022 Ben Vanik. All rights reserved.                             *
- * Released under the BSD license - see LICENSE in the root for more details. *
+ * Copyright 2023 Xenia Canary. All rights reserved. * Released under the BSD
+ *license - see LICENSE in the root for more details. *
  ******************************************************************************
  */
 
@@ -483,6 +483,9 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
     if (GetKPCR(context)->timeslice_ended) {
       GetKPCR(context)->timeslice_ended = 0;
       next_thread = xeSelectThreadDueToTimesliceExpiration(context);
+      if (!next_thread) {
+        return;
+      }
       break;
     }
     // failed to select a thread to switch to
@@ -707,7 +710,8 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
     }
     v1->priority = v4;
     insert_8009D048(context, v1);
-    context->kernel_state->ContextSwitch(context, v1);
+    xeSchedulerSwitchThread(context);
+
     result = X_STATUS_SUCCESS;
   } else {
     xboxkrnl::xeKeKfReleaseSpinLock(
@@ -716,6 +720,122 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
     result = X_STATUS_NO_YIELD_PERFORMED;
   }
   return result;
+}
+void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
+  auto pcrb = &GetKPCR(context)->prcb_data;
+
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &pcrb->enqueued_processor_threads_lock, false);
+
+  auto priority = thread->priority;
+  if (priority < 0x12) {
+    auto v6 = thread->unk_B9;
+    if (v6 < thread->unk_CA) {
+      auto v7 = thread->unk_B4 - 10;
+      thread->unk_B4 = v7;
+      if (v7 <= 0) {
+        thread->unk_B4 = thread->process->unk_0C;
+        auto v8 = priority - thread->unk_BA - 1;
+        if (v8 < (int)v6) {
+          v8 = v6;
+        }
+        thread->priority = v8;
+        thread->unk_BA = 0;
+        if (pcrb->next_thread) {
+          thread->unk_BD = 0;
+        } else {
+          auto v9 = xeScanForReadyThread(context, pcrb, v8);
+          if (v9) {
+            v9->thread_state = 3;
+            pcrb->next_thread = v9;
+          }
+        }
+      }
+    }
+  }
+  xeDispatcherSpinlockUnlock(context, &pcrb->enqueued_processor_threads_lock,
+                             thread->unk_A4);
+}
+
+X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
+  auto pcr = GetKPCR(context);
+  auto prcb = &pcr->prcb_data;
+
+  auto current_thread = prcb->current_thread;
+  auto next_thread = prcb->next_thread.xlat();
+
+  if (next_thread) {
+  } else {
+    auto ready_by_prio = prcb->has_ready_thread_by_priority;
+    auto has_ready = ready_by_prio & prcb->unk_mask_64;
+    if (has_ready) {
+      auto v5 = 31 - xe::lzcnt(has_ready);
+      auto v6 = &prcb->ready_threads_by_priority[v5];
+
+      // if the list has a bit set in the mask, it definitely should have an
+      // entry
+      xenia_assert(!v6->empty(context));
+
+      auto v8 = ready_by_prio ^ (1 << v5);
+      next_thread = v6->UnlinkHeadObject(context);
+
+      if (v6->empty(context)) {
+        // list is empty now, update mask
+        prcb->has_ready_thread_by_priority = v8;
+      }
+    }
+  }
+
+  if (next_thread) {
+    prcb->next_thread = 0U;
+  } else {
+    // idle thread
+    auto idle_thread =
+        &reinterpret_cast<X_KPCR_PAGE*>(pcr)->idle_process_thread;
+    next_thread = idle_thread;
+    prcb->running_idle_thread = idle_thread;
+  }
+
+  prcb->current_thread = next_thread;
+  context->kernel_state->ContextSwitch(context, next_thread);
+  pcr = GetKPCR(context);
+  auto v9 = next_thread->unk_A4;
+  auto result = next_thread->wait_result;
+  pcr->current_irql = v9;
+  auto v11 = pcr->software_interrupt_state;
+
+  if (v9 < v11) {
+    xeDispatchProcedureCallInterrupt(v9, v11, context);
+  }
+  return result;
+}
+
+/*
+    this function is quite confusing and likely wrong, probably was written in asm
+
+*/
+X_STATUS xeSchedulerSwitchThread2(PPCContext* context) {
+reenter:
+  auto pcr = GetKPCR(context);
+  auto prcb = &pcr->prcb_data;
+  if (prcb->enqueued_threads_list.next) {
+    xeProcessQueuedThreads(context, true);
+    goto reenter;
+  }
+
+  //this is wrong! its doing something else here,
+  //some kind of "try lock" and then falling back to another function
+ // xboxkrnl::xeKeKfAcquireSpinLock(
+    //  context, &prcb->enqueued_processor_threads_lock, false);
+  if (prcb->enqueued_processor_threads_lock.pcr_of_owner.value != 0) {
+    while (prcb->enqueued_processor_threads_lock.pcr_of_owner.value) {
+        //db16cyc
+
+    }
+    goto reenter;
+  }
+  context->kernel_state->GetDispatcherLock(context)->pcr_of_owner = 0;
+  return xeSchedulerSwitchThread(context);
 }
 }  // namespace xboxkrnl
 }  // namespace kernel
