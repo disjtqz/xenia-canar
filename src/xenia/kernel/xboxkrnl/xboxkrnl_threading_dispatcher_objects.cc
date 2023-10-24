@@ -123,7 +123,7 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
                              int unk, int unk2, unsigned char unk3) {
   auto old_irql = context->kernel_state->LockDispatcher(context);
   int32_t old_signal_state = semaphore->header.signal_state;
-  
+
   auto current_thread =
       context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
 
@@ -133,14 +133,15 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
       new_signal_state < old_signal_state) {
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context), old_irql);
-    //should RtlRaiseStatus
+    // should RtlRaiseStatus
     xenia_assert(false);
     return -1;
   }
 
   semaphore->header.signal_state = new_signal_state;
 
-  if (!old_signal_state && !util::XeIsListEmpty(&semaphore->header.wait_list, context)) {
+  if (!old_signal_state &&
+      !util::XeIsListEmpty(&semaphore->header.wait_list, context)) {
     xeDispatchSignalStateChange(context, &semaphore->header, unk);
   }
 
@@ -153,6 +154,58 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
         context, context->kernel_state->GetDispatcherLock(context), old_irql);
   }
   return old_signal_state;
+}
+
+int xeKeSetTimerEx(PPCContext* context, X_KTIMER* timer, int64_t duetime,
+                   int period, XDPC* dpc) {
+  auto old_irql = context->kernel_state->LockDispatcher(context);
+  auto was_inserted = timer->header.inserted;
+
+  if (was_inserted) {
+    timer->header.inserted = 0;
+    util::XeRemoveEntryList(&timer->table_bucket_entry, context);
+  }
+
+  timer->header.signal_state = 0;
+  timer->dpc = context->HostToGuestVirtual(dpc);
+  timer->period = period;
+  if (!XeInsertGlobalTimer(context, timer, duetime)) {
+    if (!util::XeIsListEmpty(&timer->header.wait_list, context)) {
+      xeDispatchSignalStateChange(context, &timer->header, 0);
+    }
+    if (dpc) {
+      auto systime = context->kernel_state->GetKernelSystemTime();
+      xeKeInsertQueueDpc(dpc, static_cast<uint32_t>(systime),
+                         static_cast<uint32_t>(systime >> 32), context);
+    }
+    if (period) {
+      while (!XeInsertGlobalTimer(context, timer, -10000LL * period)) {
+        //??
+        xenia_assert(false);
+      }
+    }
+  }
+
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return was_inserted;
+}
+
+int xeKeSetTimer(PPCContext* context, X_KTIMER* timer, int64_t duetime,
+                 XDPC* dpc) {
+  return xeKeSetTimerEx(context, timer, duetime, 0, dpc);
+}
+
+int xeKeCancelTimerEx(PPCContext* context, X_KTIMER* timer) {
+  auto old_irql = context->kernel_state->LockDispatcher(context);
+  auto was_inserted = timer->header.inserted;
+  if (was_inserted) {
+    timer->header.inserted = 0;
+    util::XeRemoveEntryList(&timer->table_bucket_entry, context);
+  }
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return was_inserted;
 }
 
 }  // namespace xboxkrnl
