@@ -278,8 +278,7 @@ void XThread::InitializeGuestObject() {
   guest_thread->process = process_info_block_address;
   guest_thread->stack_alloc_base = this->stack_base_;
   guest_thread->create_time = Clock::QueryGuestSystemTime();
-  guest_thread->unk_144 = thread_guest_ptr + 324;
-  guest_thread->unk_148 = thread_guest_ptr + 324;
+  util::XeInitializeListHead(&guest_thread->timer_list, memory());
   guest_thread->thread_id = this->handle();
   guest_thread->start_address = this->creation_params_.start_address;
   guest_thread->unk_154 = thread_guest_ptr + 340;
@@ -498,9 +497,7 @@ X_STATUS XThread::Exit(int exit_code) {
   uint32_t old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       cpu_context, &kprocess->thread_list_spinlock);
 
-  util::XeRemoveEntryList(&kthread->process_threads, cpu_context);
 
-  kprocess->thread_count = kprocess->thread_count - 1;
 
   xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kprocess->thread_list_spinlock,
                                   old_irql);
@@ -515,10 +512,23 @@ X_STATUS XThread::Exit(int exit_code) {
   running_ = false;
   ReleaseHandle();
 
-  xe::FatalError("Brokey!");
+  //xe::FatalError("Brokey!");
   // NOTE: this does not return!
   //xe::threading::Thread::Exit(exit_code);
-  return X_STATUS_SUCCESS;
+ // return X_STATUS_SUCCESS;
+  kernel_state()->LockDispatcherAtIrql(cpu_context);
+
+  kthread->header.signal_state = 1;
+
+  if (!util::XeIsListEmpty(&kthread->header.wait_list, cpu_context)) {
+    xboxkrnl::xeDispatchSignalStateChange(cpu_context, &kthread->header, 0);
+  }
+  util::XeRemoveEntryList(&kthread->process_threads, cpu_context);
+
+  kprocess->thread_count = kprocess->thread_count - 1;
+  kthread->thread_state = 4;
+  return xboxkrnl::xeSchedulerSwitchThread2(cpu_context);
+  
 }
 
 X_STATUS XThread::Terminate(int exit_code) {

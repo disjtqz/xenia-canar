@@ -196,7 +196,7 @@ int xeKeSetTimer(PPCContext* context, X_KTIMER* timer, int64_t duetime,
   return xeKeSetTimerEx(context, timer, duetime, 0, dpc);
 }
 
-int xeKeCancelTimerEx(PPCContext* context, X_KTIMER* timer) {
+int xeKeCancelTimer(PPCContext* context, X_KTIMER* timer) {
   auto old_irql = context->kernel_state->LockDispatcher(context);
   auto was_inserted = timer->header.inserted;
   if (was_inserted) {
@@ -208,6 +208,119 @@ int xeKeCancelTimerEx(PPCContext* context, X_KTIMER* timer) {
   return was_inserted;
 }
 
+void xeEXTimerDPCRoutine(PPCContext* context) {
+  X_EXTIMER* timer = context->TranslateVirtualGPR<X_EXTIMER*>(context->r[4]);
+  uint32_t apcarg1 = static_cast<uint32_t>(context->r[5]);
+  uint32_t apcarg2 = static_cast<uint32_t>(context->r[6]);
+
+  auto old_irql = xeKeKfAcquireSpinLock(context, &timer->timer_lock);
+
+  if (timer->has_apc) {
+    xeKeInsertQueueApc(&timer->apc, apcarg1, apcarg2, 0, context);
+  }
+
+  xeKeKfReleaseSpinLock(context, &timer->timer_lock, old_irql);
+}
+
+void xeKeInitializeExTimer(PPCContext* context, X_EXTIMER* timer,
+                           uint32_t type) {
+  memset(timer, 0, sizeof(X_EXTIMER));
+  timer->dpc.Initialize(context->kernel_state->GetKernelGuestGlobals(context)
+                            ->extimer_dpc_routine,
+                        context->HostToGuestVirtual(timer));
+  xeKeInitializeTimerEx(&timer->ktimer, type,
+                        xeKeGetCurrentProcessType(context), context);
+}
+void xeEXTimerAPCKernelRoutine(PPCContext* context) {
+  X_EXTIMER* timer = context->TranslateVirtualGPR<X_EXTIMER*>(
+      context->r[3] - offsetof(X_EXTIMER, apc));
+
+  uint32_t old_irql =
+      xboxkrnl::xeKeKfAcquireSpinLock(context, &timer->timer_lock);
+
+  auto current_thread = GetKThread(context);
+  xboxkrnl::xeKeKfAcquireSpinLock(context, &current_thread->timer_list_lock,
+                                  false);
+  bool v10 = false;
+  if (timer->has_apc && current_thread == timer->apc.thread_ptr.xlat()) {
+    if (!timer->period) {
+      v10 = true;
+      util::XeRemoveEntryList(&timer->thread_timer_list_entry, context);
+      timer->has_apc = false;
+    }
+
+  } else {
+    *context->TranslateVirtualGPR<uint32_t*>(context->r[4]) = 0;
+  }
+
+  xboxkrnl::xeKeKfReleaseSpinLock(context, &current_thread->timer_list_lock, 0,
+                                  false);
+
+  xboxkrnl::xeKeKfReleaseSpinLock(context, &timer->timer_lock, old_irql);
+
+  // if v10 is set, supposed to dereference here, but that must wait until we
+  // implement objects correctly
+}
+static bool HelperCancelTimer(PPCContext* context, X_EXTIMER* timer) {
+  if (timer->has_apc) {
+    xeKeKfAcquireSpinLock(context, &timer->apc.thread_ptr->timer_list_lock,
+                          false);
+
+    util::XeRemoveEntryList(&timer->thread_timer_list_entry, context);
+    timer->has_apc = false;
+    xeKeKfReleaseSpinLock(context, &timer->apc.thread_ptr->timer_list_lock, 0,
+                          false);
+    xeKeCancelTimer(context, &timer->ktimer);
+    xeKeRemoveQueueDpc(&timer->dpc, context);
+    xeKeRemoveQueueApc(&timer->apc, context);
+    return true;
+  } else {
+    xeKeCancelTimer(context, &timer->ktimer);
+    return false;
+  }
+}
+
+// todo: this is incomplete, theres a bunch of dereferenceobject calls missing
+int xeKeSetExTimer(PPCContext* context, X_EXTIMER* timer, int64_t due_timer,
+                   uint32_t apc_routine, uint32_t apc_arg, int period,
+                   int apc_mode) {
+  uint32_t old_irql = xeKeKfAcquireSpinLock(context, &timer->timer_lock);
+
+  bool v21 = HelperCancelTimer(context, timer);
+
+  auto old_signalstate = timer->ktimer.header.signal_state;
+
+  timer->period = period;
+
+  if (apc_routine) {
+    auto current_thread = GetKThread(context);
+    xeKeInitializeApc(&timer->apc,
+                      GetKPCR(context)->prcb_data.current_thread.m_ptr,
+                      context->kernel_state->GetKernelGuestGlobals(context)
+                          ->extimer_apc_kernel_routine,
+                      0, apc_routine, apc_mode, apc_arg);
+    xeKeKfAcquireSpinLock(context, &current_thread->timer_list_lock, false);
+    util::XeInsertTailList(&current_thread->timer_list,
+                           &timer->thread_timer_list_entry, context);
+    timer->has_apc = true;
+    xeKeKfReleaseSpinLock(context, &current_thread->timer_list_lock, 0, false);
+    xeKeSetTimerEx(context, &timer->ktimer, due_timer, period, &timer->dpc);
+  } else {
+    xeKeSetTimerEx(context, &timer->ktimer, due_timer, period, 0);
+  }
+  xeKeKfReleaseSpinLock(context, &timer->timer_lock, old_irql);
+  return old_signalstate;
+}
+
+int xeKeCancelExTimer(PPCContext* context, X_EXTIMER* timer) {
+  uint32_t old_irql = xeKeKfAcquireSpinLock(context, &timer->timer_lock);
+  
+  bool v8 = HelperCancelTimer(context, timer);
+  xeKeKfReleaseSpinLock(context, &timer->timer_lock, old_irql);
+  int old_signalstate = timer->ktimer.header.signal_state;
+  
+  return old_signalstate;
+}
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

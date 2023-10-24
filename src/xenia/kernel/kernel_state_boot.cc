@@ -421,6 +421,12 @@ void KernelState::BootInitializeStatics() {
   block->suspendthread_apc_routine =
       kernel_trampoline_group_.NewLongtermTrampoline(
           xboxkrnl::xeSuspendThreadApcRoutine);
+  block->extimer_dpc_routine = kernel_trampoline_group_.NewLongtermTrampoline(
+      xboxkrnl::xeEXTimerDPCRoutine);
+
+  block->extimer_apc_kernel_routine =
+      kernel_trampoline_group_.NewLongtermTrampoline(
+          xboxkrnl::xeEXTimerAPCKernelRoutine);
 }
 
 void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {

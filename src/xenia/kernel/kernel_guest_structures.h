@@ -135,7 +135,7 @@ struct XAPC {
   uint16_t type;                            // +0
   uint8_t apc_mode;                         // +2
   uint8_t enqueued;                         // +3
-  TypedGuestPointer<X_KTHREAD> thread_ptr;  // +4
+  EZPointer<X_KTHREAD> thread_ptr;  // +4
   X_LIST_ENTRY list_entry;                  // +8
   xe::be<uint32_t> kernel_routine;          // +16
   xe::be<uint32_t> rundown_routine;         // +20
@@ -172,9 +172,9 @@ enum : uint16_t {
   WAIT_ANY = 1,
 };
 
-//https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/ntos/ke_x/kwait_block.htm
-// pretty much the vista KWAIT_BLOCK verbatim, except that sparebyte is gone and
-// WaitType is 2 bytes instead of 1
+// https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/ntos/ke_x/kwait_block.htm
+//  pretty much the vista KWAIT_BLOCK verbatim, except that sparebyte is gone
+//  and WaitType is 2 bytes instead of 1
 struct X_KWAIT_BLOCK {
   X_LIST_ENTRY wait_list_entry;
   EZPointer<X_KTHREAD> thread;
@@ -336,8 +336,15 @@ struct X_KTIMER {
 static_assert_size(X_KTIMER, 0x28);
 
 struct X_EXTIMER {
-  X_KTIMER ktimer;               // 0x0
-  uint8_t unk_28[0x80u - 0x28];  // 0x28
+  X_KTIMER ktimer;         // 0x0
+  XDPC dpc;             // 0x28
+  XAPC apc;             // 0x44
+  X_LIST_ENTRY thread_timer_list_entry;     // 0x6C
+  X_KSPINLOCK timer_lock;  // 0x74
+  // not confident in this name
+  xe::be<uint32_t> period;  // 0x78
+  bool has_apc;             // 0x7C
+  uint8_t unk_7D[3];        // 0x7D
 };
 
 static_assert_size(X_EXTIMER, 0x80);
@@ -356,8 +363,8 @@ struct X_KTHREAD {
   uint8_t thread_state;  // 0x6C
   // 0x70 = priority?
 
-  uint8_t alerted[2];          // 0x6D
-  uint8_t alertable;             // 0x6F
+  uint8_t alerted[2];         // 0x6D
+  uint8_t alertable;          // 0x6F
   uint8_t priority;           // 0x70
   uint8_t fpu_exceptions_on;  // 0x71
   // these two process types both get set to the same thing, process_type is
@@ -378,9 +385,9 @@ struct X_KTHREAD {
   xe::be<uint32_t> msr_mask;                     // 0x9C
   xe::be<X_STATUS> wait_result;                  // 0xA0
   uint8_t unk_A4;                                // 0xA4
-  uint8_t processor_mode;                                // 0xA5
+  uint8_t processor_mode;                        // 0xA5
   uint8_t unk_A6;                                // 0xA6
-  uint8_t wait_reason;                                // 0xA7
+  uint8_t wait_reason;                           // 0xA7
   TypedGuestPointer<X_KWAIT_BLOCK> wait_blocks;  // 0xA8
   uint8_t unk_AC[4];                             // 0xAC
   int32_t apc_disable_count;                     // 0xB0
@@ -399,7 +406,7 @@ struct X_KTHREAD {
   uint8_t unk_C9;                                // 0xC9
   uint8_t unk_CA;                                // 0xCA
   uint8_t unk_CB;                                // 0xCB
-  xe::be<uint32_t> unk_CC;                       // 0xCC
+  X_KSPINLOCK timer_list_lock;                       // 0xCC
   xe::be<uint32_t> stack_alloc_base;             // 0xD0
   XAPC on_suspend;                               // 0xD4
   X_KSEMAPHORE suspend_sema;                     // 0xFC
@@ -413,8 +420,8 @@ struct X_KTHREAD {
   xe::be<uint64_t> create_time;                  // 0x130
   xe::be<uint64_t> exit_time;                    // 0x138
   xe::be<uint32_t> exit_status;                  // 0x140
-  xe::be<uint32_t> unk_144;                      // 0x144
-  xe::be<uint32_t> unk_148;                      // 0x148
+  //tracks all pending timers that have apcs which target this thread
+  X_LIST_ENTRY timer_list;                      // 0x144
   xe::be<uint32_t> thread_id;                    // 0x14C
   xe::be<uint32_t> start_address;                // 0x150
   xe::be<uint32_t> unk_154;                      // 0x154

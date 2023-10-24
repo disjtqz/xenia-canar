@@ -836,7 +836,11 @@ reenter:
       // db16cyc
     }
     goto reenter;
+  } else {
+    xeKeKfAcquireSpinLock(context, &prcb->enqueued_processor_threads_lock,
+                          false);
   }
+
   context->kernel_state->GetDispatcherLock(context)->pcr_of_owner = 0;
   return xeSchedulerSwitchThread(context);
 }
@@ -912,6 +916,10 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
   X_KWAIT_BLOCK* stash = context->TranslateVirtual<X_KWAIT_BLOCK*>(guest_stash);
 
   kthread->wait_blocks = guest_stash;
+  if (object->signal_state > 0) {
+    context->kernel_state->UnlockDispatcher(context, old_irql);
+    return X_STATUS_SUCCESS;
+  }
 
   stash[0].object = object;
   stash[0].thread = kthread;

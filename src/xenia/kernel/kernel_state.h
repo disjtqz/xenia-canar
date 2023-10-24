@@ -120,6 +120,8 @@ struct KernelGuestGlobals {
 
   uint32_t guest_nullsub;
   uint32_t suspendthread_apc_routine;
+  uint32_t extimer_dpc_routine;
+  uint32_t extimer_apc_kernel_routine;
 };
 
 struct X_KPCR_PAGE;

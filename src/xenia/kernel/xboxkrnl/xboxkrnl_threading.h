@@ -135,6 +135,24 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
 int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
                           bool abandoned, unsigned char unk2);
 int XeInsertGlobalTimer(PPCContext* context, X_KTIMER* timer, int64_t time);
+int xeKeSetTimerEx(PPCContext* context, X_KTIMER* timer, int64_t duetime,
+                   int period, XDPC* dpc);
+int xeKeSetTimer(PPCContext* context, X_KTIMER* timer, int64_t duetime,
+                 XDPC* dpc);
+int xeKeCancelTimer(PPCContext* context, X_KTIMER* timer);
+void xeEXTimerDPCRoutine(PPCContext* context);
+//NtCreateTimer
+void xeKeInitializeExTimer(PPCContext* context, X_EXTIMER* timer,
+                           uint32_t type);
+//NtSetTimer
+int xeKeSetExTimer(PPCContext* context, X_EXTIMER* timer, int64_t due_timer,
+                   uint32_t apc_routine, uint32_t apc_arg, int period, int apc_mode);
+//NtCancelTimer
+int xeKeCancelExTimer(PPCContext* context, X_EXTIMER* timer);
+
+uint32_t xeKeRemoveQueueApc(XAPC* apc, PPCContext* context);
+
+void xeEXTimerAPCKernelRoutine(PPCContext* context);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

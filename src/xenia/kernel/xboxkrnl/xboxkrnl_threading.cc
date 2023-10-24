@@ -826,8 +826,6 @@ void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
   timer->header.inserted = 0;
   timer->header.type = type + 8;
   timer->header.signal_state = 0;
-  timer->table_bucket_entry.blink_ptr = 0U;
-  timer->table_bucket_entry.flink_ptr = 0U;
   // todo: should initialize wait list in header
   util::XeInitializeListHead(&timer->header.wait_list, context);
   timer->due_time = 0;
@@ -878,12 +876,10 @@ DECLARE_XBOXKRNL_EXPORT1(NtCreateTimer, kThreading, kImplemented);
 
 dword_result_t NtSetTimerEx_entry(dword_t timer_handle, lpqword_t due_time_ptr,
                                   lpvoid_t routine_ptr /*PTIMERAPCROUTINE*/,
-                                  dword_t unk_one, lpvoid_t routine_arg,
+                                  dword_t mode, lpvoid_t routine_arg,
                                   dword_t resume, dword_t period_ms,
-                                  dword_t unk_zero) {
-  assert_true(unk_one == 1);
-  assert_true(unk_zero == 0);
-
+                                  lpdword_t unk_zero,
+                                  const ppc_context_t& context) {
   uint64_t due_time = *due_time_ptr;
 
   X_STATUS result = X_STATUS_SUCCESS;
@@ -891,9 +887,12 @@ dword_result_t NtSetTimerEx_entry(dword_t timer_handle, lpqword_t due_time_ptr,
   auto timer =
       kernel_state()->object_table()->LookupObject<XTimer>(timer_handle);
   if (timer) {
-    result =
-        timer->SetTimer(due_time, period_ms, routine_ptr.guest_address(),
-                        routine_arg.guest_address(), resume ? true : false);
+    int prev_state =
+        xeKeSetExTimer(context, timer->guest_object<X_EXTIMER>(), due_time,
+                       routine_ptr, routine_arg, period_ms, mode);
+    if (unk_zero) {
+      *unk_zero = prev_state;
+    }
   } else {
     result = X_STATUS_INVALID_HANDLE;
   }
@@ -903,18 +902,21 @@ dword_result_t NtSetTimerEx_entry(dword_t timer_handle, lpqword_t due_time_ptr,
 DECLARE_XBOXKRNL_EXPORT1(NtSetTimerEx, kThreading, kImplemented);
 
 dword_result_t NtCancelTimer_entry(dword_t timer_handle,
-                                   lpdword_t current_state_ptr) {
+                                   lpdword_t current_state_ptr,
+                                   const ppc_context_t& context) {
   X_STATUS result = X_STATUS_SUCCESS;
 
   auto timer =
       kernel_state()->object_table()->LookupObject<XTimer>(timer_handle);
   if (timer) {
-    result = timer->Cancel();
+    result = X_STATUS_SUCCESS;
+    auto current_state =
+        xeKeCancelExTimer(context, timer->guest_object<X_EXTIMER>());
+    if (current_state_ptr) {
+      *current_state_ptr = current_state;
+    }
   } else {
     result = X_STATUS_INVALID_HANDLE;
-  }
-  if (current_state_ptr) {
-    *current_state_ptr = 0;
   }
 
   return result;
@@ -976,7 +978,7 @@ dword_result_t KeWaitForMultipleObjects_entry(
     dword_t wait_reason, dword_t processor_mode, dword_t alertable,
     lpqword_t timeout_ptr, lpvoid_t wait_block_array_ptr,
     const ppc_context_t& context) {
-#if 0
+#if 1
   assert_true(wait_type <= 1);
 
   assert_true(count <= 64);
@@ -1374,8 +1376,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
     }
 
     if (timer->period) {
-      XeInsertGlobalTimer(context, timer,
-                          -10000LL * timer->period);
+      XeInsertGlobalTimer(context, timer, -10000LL * timer->period);
     }
 
     auto dpc = context->TranslateVirtual(timer->dpc);
@@ -1822,8 +1823,7 @@ dword_result_t KeInsertQueueApc_entry(pointer_t<XAPC> apc, lpvoid_t arg1,
 }
 DECLARE_XBOXKRNL_EXPORT1(KeInsertQueueApc, kThreading, kImplemented);
 
-dword_result_t KeRemoveQueueApc_entry(pointer_t<XAPC> apc,
-                                      const ppc_context_t& context) {
+uint32_t xeKeRemoveQueueApc(XAPC* apc, PPCContext* context) {
   bool result = false;
 
   uint32_t thread_guest_pointer = apc->thread_ptr;
@@ -1842,6 +1842,11 @@ dword_result_t KeRemoveQueueApc_entry(pointer_t<XAPC> apc,
   xeKeKfReleaseSpinLock(context, &target_thread->apc_lock, old_irql);
 
   return result ? 1 : 0;
+}
+
+dword_result_t KeRemoveQueueApc_entry(pointer_t<XAPC> apc,
+                                      const ppc_context_t& context) {
+  return xeKeRemoveQueueApc(apc, context);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeRemoveQueueApc, kThreading, kImplemented);
 
