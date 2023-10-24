@@ -41,7 +41,6 @@ static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {
   // todo: implement!
   uint64_t old_msr = context->msr;
   context->msr = (old_msr & ~0x8000ULL) | (value & 0x8000);
-
 }
 
 using ready_thread_pointer_t =
@@ -71,7 +70,8 @@ reenter:
         kpcr->generic_software_interrupt = irql;
       }
     } else {
-      xboxkrnl::xeKeKfAcquireSpinLock(context, &kpcr->prcb_data.enqueued_processor_threads_lock, false);
+      xboxkrnl::xeKeKfAcquireSpinLock(
+          context, &kpcr->prcb_data.enqueued_processor_threads_lock, false);
       auto next_thread = kpcr->prcb_data.next_thread;
       auto v3 = kpcr->prcb_data.current_thread.xlat();
       v3->unk_A4 = irql;
@@ -902,17 +902,18 @@ void xeSuspendThreadApcRoutine(PPCContext* context) {
   xeKeWaitForSingleObject(&thrd->suspend_sema, 2, 0, 0, 0);
 }
 
-//very, very incorrect impl
+// very, very incorrect impl
 X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
-                                 unsigned reason, unsigned processor_mode, bool alertable,
-                                 int64_t* timeout) {
+                                 unsigned reason, unsigned processor_mode,
+                                 bool alertable, int64_t* timeout) {
   uint32_t old_irql = context->kernel_state->LockDispatcher(context);
   auto kthread = GetKThread(context);
 
   auto old_r1 = context->r[1];
 
   context->r[1] -= sizeof(X_KWAIT_BLOCK) * 4;
-  uint32_t guest_stash = static_cast<uint32_t>(old_r1 - sizeof(X_KWAIT_BLOCK)* 4);
+  uint32_t guest_stash =
+      static_cast<uint32_t>(old_r1 - sizeof(X_KWAIT_BLOCK) * 4);
   X_KWAIT_BLOCK* stash = context->TranslateVirtual<X_KWAIT_BLOCK*>(guest_stash);
 
   kthread->wait_blocks = guest_stash;
@@ -956,6 +957,31 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
   context->kernel_state->UnlockDispatcher(context, old_irql);
   scheduler_80097F90(context, kthread);
   return wait_status;
+}
+
+void xeKeSetAffinityThread(PPCContext* context, X_KTHREAD* thread,
+                           uint32_t affinity, uint32_t* prev_affinity) {
+  uint32_t irql = context->kernel_state->LockDispatcher(context);
+  auto old_cpu = thread->current_cpu;
+  uint32_t affinity_to_cpu = 31 - xe::lzcnt(affinity);
+  if (old_cpu != affinity_to_cpu) {
+    thread->another_prcb_ptr =
+        &context->kernel_state->KPCRPageForCpuNumber(affinity_to_cpu)
+             ->pcr.prcb_data;
+
+    if (old_cpu == GetKPCR(context)->prcb_data.current_cpu) {
+      if (thread->thread_state != 6) {
+        xeHandleReadyThreadOnDifferentProcessor(context, thread);
+      }
+    } else {
+      // todo: args are undefined in ida! find out why
+      xeKeInsertQueueDpc(&thread->a_prcb_ptr->switch_thread_processor_dpc, 0, 0, context);
+    }
+  }
+
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), irql);
+  *prev_affinity = 1U << old_cpu;
 }
 
 }  // namespace xboxkrnl

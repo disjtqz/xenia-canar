@@ -214,11 +214,11 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
   util::XeInitializeListHead(&pcr->prcb_data.terminating_threads_list,
                              memory());
 
-  pcr->prcb_data.unk_18C.Initialize(
+  pcr->prcb_data.switch_thread_processor_dpc.Initialize(
       kernel_trampoline_group_.NewLongtermTrampoline(ThreadSwitchRelatedDpc),
       0);
 
-  pcr->prcb_data.unk_18C.desired_cpu_number = which_processor_index + 1;
+  pcr->prcb_data.switch_thread_processor_dpc.desired_cpu_number = which_processor_index + 1;
 
   // this cpu needs special handling, its initializing the kernel
   // InitProcessorStack gets called for it later, after all kernel init

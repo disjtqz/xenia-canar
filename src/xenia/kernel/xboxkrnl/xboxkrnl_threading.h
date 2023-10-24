@@ -153,6 +153,10 @@ int xeKeCancelExTimer(PPCContext* context, X_EXTIMER* timer);
 uint32_t xeKeRemoveQueueApc(XAPC* apc, PPCContext* context);
 
 void xeEXTimerAPCKernelRoutine(PPCContext* context);
+
+void xeKeSetAffinityThread(PPCContext* context, X_KTHREAD* thread,
+                           uint32_t affinity, uint32_t* prev_affinity);
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

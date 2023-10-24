@@ -263,7 +263,7 @@ struct X_KPRCB {
   // thread_exit_dpc's routine drains this list and frees each threads threadid,
   // kernel stack and dereferences the thread
   X_LIST_ENTRY terminating_threads_list;  // 0x184
-  XDPC unk_18C;                           // 0x18C
+  XDPC switch_thread_processor_dpc;                           // 0x18C
 };
 // Processor Control Region
 struct X_KPCR {

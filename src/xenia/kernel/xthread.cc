@@ -192,40 +192,17 @@ void XThread::set_last_error(uint32_t error_code) {
 
 void XThread::set_name(const std::string_view name) {}
 
-static uint8_t next_cpu = 0;
-static uint8_t GetFakeCpuNumber(uint8_t proc_mask) {
-  // NOTE: proc_mask is logical processors, not physical processors or cores.
-  if (!proc_mask) {
-    auto current_thread = cpu::ThreadState::Get();
-    if (!current_thread) {
-      return 0;
-    } else {
-      auto context = current_thread->context();
-      X_KPCR* kpcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
-      return kpcr->prcb_data.current_cpu;
-    }
-  }
-  assert_false(proc_mask & 0xC0);
-
-  uint8_t cpu_number = 7 - xe::lzcnt(proc_mask);
-  assert_true(1 << cpu_number == proc_mask);
-  assert_true(cpu_number < 6);
-  return cpu_number;
-}
-
 void XThread::InitializeGuestObject() {
   /*
    * not doing this right at all! we're not using our threads context, because
    * we may be on the host and have no underlying context. in reality we should
    * have a context and acquire any locks using that context!
    */
-  auto context_here = thread_state_->context();
+  auto context_here = cpu::ThreadState::GetContext();
   auto guest_thread = guest_object<X_KTHREAD>();
   auto thread_guest_ptr = guest_object();
   guest_thread->header.type = 6;
   auto guest_globals = kernel_state()->GetKernelGuestGlobals(context_here);
-  guest_thread->suspend_count =
-      (creation_params_.creation_flags & X_CREATE_SUSPENDED) ? 1 : 0;
   util::XeInitializeListHead(&guest_thread->mutants_list, memory());
   uint32_t process_info_block_address =
       creation_params_.guest_process ? creation_params_.guest_process
@@ -263,15 +240,15 @@ void XThread::InitializeGuestObject() {
   guest_thread->tls_address = (this->tls_static_address_);
   guest_thread->thread_state = 0;
 
-  uint32_t kpcrb = pcr_address_ + offsetof(X_KPCR, prcb_data);
-
   guest_thread->process_type_dup = process_type;
   guest_thread->process_type = process_type;
   guest_thread->apc_lists[0].Initialize(memory());
   guest_thread->apc_lists[1].Initialize(memory());
 
-  guest_thread->a_prcb_ptr = kpcrb;
-  guest_thread->another_prcb_ptr = kpcrb;
+  auto current_pcr = GetKPCR(context_here);
+  guest_thread->a_prcb_ptr = &current_pcr->prcb_data;
+  guest_thread->another_prcb_ptr = &current_pcr->prcb_data;
+  guest_thread->current_cpu = current_pcr->prcb_data.current_cpu;
 
   guest_thread->may_queue_apcs = 1;
   guest_thread->msr_mask = 0xFDFFD7FF;
@@ -312,6 +289,10 @@ void XThread::InitializeGuestObject() {
   // todo: release dispatcher lock here?
   xboxkrnl::xeKeKfReleaseSpinLock(context_here, &process->thread_list_spinlock,
                                   old_irql);
+  guest_thread->tls_address = tls_static_address_;
+
+  guest_thread->stack_base = stack_base_;
+  guest_thread->stack_limit = stack_limit_;
 }
 
 bool XThread::AllocateStack(uint32_t size) {
@@ -410,26 +391,19 @@ X_STATUS XThread::Create() {
                    tls_header->raw_data_size);
   }
 
-  uint8_t cpu_index = GetFakeCpuNumber(
-      static_cast<uint8_t>(creation_params_.creation_flags >> 24));
-
   // Assign the newly created thread to the logical processor, and also set up
-  // the current CPU in KPCR and KTHREAD.
-  SetActiveCpu(cpu_index, true);
+  // the current CPU in KPCR and KTHREAD
+
+  // SetActiveCpu(cpu_index, true);
   // Initialize the KTHREAD object.
   InitializeGuestObject();
 
-  X_KPCR* pcr = memory()->TranslateVirtual<X_KPCR*>(pcr_address_);
-
-  pcr->tls_ptr = tls_static_address_;
-  pcr->pcr_ptr = pcr_address_;
-  pcr->prcb_data.current_thread = guest_object();
-  pcr->prcb = pcr_address_ + offsetof(X_KPCR, prcb_data);
-  pcr->emulated_interrupt = reinterpret_cast<uint64_t>(pcr);
-  pcr->stack_base_ptr = stack_base_;
-  pcr->stack_end_ptr = stack_limit_;
-
-  pcr->prcb_data.dpc_active = 0;  // DPC active bool?
+  uint32_t affinity_by =
+      static_cast<uint8_t>(creation_params_.creation_flags >> 24);
+  if (affinity_by) {
+    SetAffinity(affinity_by);
+  }
+  
 
   // Always retain when starting - the thread owns itself until exited.
   RetainHandle();
@@ -497,8 +471,6 @@ X_STATUS XThread::Exit(int exit_code) {
   uint32_t old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       cpu_context, &kprocess->thread_list_spinlock);
 
-
-
   xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kprocess->thread_list_spinlock,
                                   old_irql);
 
@@ -512,10 +484,10 @@ X_STATUS XThread::Exit(int exit_code) {
   running_ = false;
   ReleaseHandle();
 
-  //xe::FatalError("Brokey!");
-  // NOTE: this does not return!
-  //xe::threading::Thread::Exit(exit_code);
- // return X_STATUS_SUCCESS;
+  // xe::FatalError("Brokey!");
+  //  NOTE: this does not return!
+  // xe::threading::Thread::Exit(exit_code);
+  // return X_STATUS_SUCCESS;
   kernel_state()->LockDispatcherAtIrql(cpu_context);
 
   kthread->header.signal_state = 1;
@@ -528,7 +500,6 @@ X_STATUS XThread::Exit(int exit_code) {
   kprocess->thread_count = kprocess->thread_count - 1;
   kthread->thread_state = 4;
   return xboxkrnl::xeSchedulerSwitchThread2(cpu_context);
-  
 }
 
 X_STATUS XThread::Terminate(int exit_code) {
@@ -679,7 +650,11 @@ void XThread::SetPriority(int32_t increment) {
 }
 
 void XThread::SetAffinity(uint32_t affinity) {
-  SetActiveCpu(GetFakeCpuNumber(affinity));
+  auto context = cpu::ThreadState::GetContext();
+
+  uint32_t prev_affinity = 0;
+  xboxkrnl::xeKeSetAffinityThread(context, guest_object<X_KTHREAD>(), affinity,
+                                  &prev_affinity);
 }
 
 uint8_t XThread::active_cpu() const {
@@ -697,9 +672,6 @@ void XThread::Schedule() {
       cpu::ThreadState::Get()->context();  // thread_state()->context();
   uint32_t old_irql = kernel_state()->LockDispatcher(context);
   xboxkrnl::xeReallyQueueThread(context, guest_object<X_KTHREAD>());
-
-  auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
-  // kpcr_for->unknown_8 = 2;
   xboxkrnl::xeDispatcherSpinlockUnlock(
       context, kernel_state()->GetDispatcherLock(context), old_irql);
 }
@@ -710,25 +682,6 @@ void XThread::SwitchToDirect() {
   this->SetCurrentThread();
   cpu::ThreadState::Bind(thread_state());
   fiber()->SwitchTo();
-}
-void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
-  // May be called during thread creation - don't skip if current == new.
-
-  assert_true(cpu_index < 6);
-  auto context = thread_state()->context();
-  pcr_address_ = context->processor->GetPCRForCPU(cpu_index);
-  context->r[13] = pcr_address_;
-  X_KPCR& pcr = *memory()->TranslateVirtual<X_KPCR*>(pcr_address_);
-
-  X_KTHREAD& thread_object =
-      *memory()->TranslateVirtual<X_KTHREAD*>(guest_object());
-
-  if (!initial) {
-    // xe::FatalError("Need to change cpu!");
-    xenia_assert(false);
-  } else {
-    thread_object.current_cpu = cpu_index;
-  }
 }
 
 bool XThread::GetTLSValue(uint32_t slot, uint32_t* value_out) {

@@ -1322,6 +1322,9 @@ void KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   } else {
     auto xthrd = object_table()->LookupObject<XThread>(host_handle).release();
     pre_swap();
+
+    xthrd->thread_state()->context()->r[13] = context->r[13];
+
     xthrd->SwitchToDirect();
   }
 }
@@ -1357,10 +1360,11 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
   context->kernel_state = kernel_state();
 
   while (true) {
-    GetKPCR(context)->prcb_data.running_idle_thread =
-        GetKPCR(context)->prcb_data.idle_thread;
+    auto kpcr = GetKPCR(context);
+    kpcr->prcb_data.running_idle_thread =
+        kpcr->prcb_data.idle_thread;
 
-    while (!GetKPCR(context)->generic_software_interrupt) {
+    while (!kpcr->generic_software_interrupt) {
       context->CheckInterrupt();
       // okay here, since we really have nothing going on
       threading::MaybeYield();
