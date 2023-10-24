@@ -230,8 +230,7 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
   if ((prcb->unk_mask_64 & ~((1 << priority) - 1) & v3) == 0) {
     return nullptr;
   }
-  auto v4 = xe::lzcnt(prcb->unk_mask_64 &
-                      ~((1 << priority) - 1) & v3);
+  auto v4 = xe::lzcnt(prcb->unk_mask_64 & ~((1 << priority) - 1) & v3);
   auto v5 = 31 - v4;
 
   auto result = prcb->ready_threads_by_priority[31 - v4].HeadObject(context);
@@ -247,7 +246,9 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
   return result;
 }
 
-void HandleCpuThreadDisownedIPI(void* ud) { xenia_assert(false); }
+void HandleCpuThreadDisownedIPI(void* ud) { 
+   // xenia_assert(false); 
+}
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   auto prcb_for_thread = context->TranslateVirtual(kthread->a_prcb_ptr);
@@ -257,8 +258,7 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   auto thread_priority = kthread->priority;
   auto unk_BD = kthread->unk_BD;
   kthread->unk_BD = 0;
-  if ((prcb_for_thread->unk_mask_64 &
-       (1 << thread_priority)) == 0) {
+  if ((prcb_for_thread->unk_mask_64 & (1 << thread_priority)) == 0) {
     insert_8009CFE0(context, kthread, unk_BD);
     xboxkrnl::xeKeKfReleaseSpinLock(
         context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
@@ -495,7 +495,9 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
     if (!GetKPCR(context)->prcb_data.next_thread) {
       return;
     }
-
+    xboxkrnl::xeKeKfAcquireSpinLock(
+        context, &GetKPCR(context)->prcb_data.enqueued_processor_threads_lock,
+        false);
     // some kind of lock acquire function here??
 
     uint32_t thrd_u = GetKPCR(context)->prcb_data.next_thread.m_ptr;

@@ -266,10 +266,11 @@ void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
   thread->a_prcb_ptr = prcb_guest;
   thread->another_prcb_ptr = prcb_guest;
   thread->current_cpu = page_for->pcr.prcb_data.current_cpu;
-
+  thread->process = GetIdleProcess();
   auto guest_thread = memory()->HostToGuestVirtual(thread);
   page_for->pcr.prcb_data.current_thread = guest_thread;
   page_for->pcr.prcb_data.idle_thread = guest_thread;
+  
 }
 
 void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {
