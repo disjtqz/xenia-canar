@@ -134,6 +134,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
                                  int64_t* timeout);
 int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
                           bool abandoned, unsigned char unk2);
+int XeInsertGlobalTimer(PPCContext* context, X_KTIMER* timer, int64_t time);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

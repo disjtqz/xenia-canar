@@ -976,6 +976,7 @@ dword_result_t KeWaitForMultipleObjects_entry(
     dword_t wait_reason, dword_t processor_mode, dword_t alertable,
     lpqword_t timeout_ptr, lpvoid_t wait_block_array_ptr,
     const ppc_context_t& context) {
+#if 0
   assert_true(wait_type <= 1);
 
   assert_true(count <= 64);
@@ -1007,6 +1008,9 @@ dword_result_t KeWaitForMultipleObjects_entry(
     }
   }
   return result;
+#else
+  return 0;
+#endif
 }
 DECLARE_XBOXKRNL_EXPORT3(KeWaitForMultipleObjects, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
@@ -1285,9 +1289,9 @@ void AddTimer(PPCContext* context, X_KTIMER* timer) {
   timers.InsertHead(timer, context);
 }
 
-int XeInsertTimerToList(PPCContext* context,
-                        X_TIME_STAMP_BUNDLE* KeTimeStampBundle, X_KTIMER* timer,
-                        int64_t time) {
+int XeInsertGlobalTimer(PPCContext* context, X_KTIMER* timer, int64_t time) {
+  X_TIME_STAMP_BUNDLE* KeTimeStampBundle =
+      &context->kernel_state->GetKernelGuestGlobals(context)->KeTimestampBundle;
   int v3 = timer->period;
 
   timer->header.inserted = 1;
@@ -1370,7 +1374,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
     }
 
     if (timer->period) {
-      XeInsertTimerToList(context, &globals->KeTimestampBundle, timer,
+      XeInsertGlobalTimer(context, timer,
                           -10000LL * timer->period);
     }
 
@@ -1575,7 +1579,7 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 
   while (!user_apc_queue.empty(ctx)) {
     uint32_t apc_ptr = user_apc_queue.flink_ptr;
-    
+
     if (!apc_ptr) {
       XELOGE("Null link in apc queue!!");
       user_apc_queue.Initialize(ctx);

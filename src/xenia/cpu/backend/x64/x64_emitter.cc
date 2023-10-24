@@ -295,7 +295,6 @@ bool X64Emitter::Emit(HIRBuilder* builder, EmitFunctionInfo& func_info) {
   synchronize_stack_on_next_instruction_ = false;
   while (block) {
     ForgetMxcsrMode();  // at start of block, mxcsr mode is undefined
-    EmitEmulatedInterruptCheck();
     // Mark block labels.
     auto label = block->label_head;
     while (label) {
@@ -313,6 +312,7 @@ bool X64Emitter::Emit(HIRBuilder* builder, EmitFunctionInfo& func_info) {
         if (instr->GetOpcodeNum() != hir::OPCODE_SOURCE_OFFSET) {
           synchronize_stack_on_next_instruction_ = false;
           EnsureSynchronizedGuestAndHostStack();
+          EmitEmulatedInterruptCheck();
         }
       }
       const Instr* new_tail = instr;

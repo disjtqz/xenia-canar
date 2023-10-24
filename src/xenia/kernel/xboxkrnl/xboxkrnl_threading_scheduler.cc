@@ -39,6 +39,9 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context);
 
 static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {
   // todo: implement!
+  uint64_t old_msr = context->msr;
+  context->msr = (old_msr & ~0x8000ULL) | (value & 0x8000);
+
 }
 
 using ready_thread_pointer_t =
@@ -914,7 +917,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
   stash[0].thread = kthread;
   stash[0].wait_result_xstatus = 0;
   stash[0].wait_type = WAIT_ANY;
-  stash[0].next_wait_block = 0U;
+  stash[0].next_wait_block = guest_stash;
   util::XeInitializeListHead(&stash[0].wait_list_entry, context);
 
   util::XeInsertHeadList(&object->wait_list, &stash[0].wait_list_entry,

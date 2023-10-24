@@ -517,7 +517,7 @@ X_STATUS XThread::Exit(int exit_code) {
 
   xe::FatalError("Brokey!");
   // NOTE: this does not return!
-  xe::threading::Thread::Exit(exit_code);
+  //xe::threading::Thread::Exit(exit_code);
   return X_STATUS_SUCCESS;
 }
 
@@ -683,39 +683,6 @@ cpu::HWThread* XThread::HWThread() {
   return kernel_state()->processor()->GetCPUThread(cpunum);
 }
 void XThread::Schedule() {
-#if 0
-  auto context = thread_state()->context();
-  context->r[13] = pcr_address_;
-
-  runnable_entry_.thread_state_ = thread_state();
-  runnable_entry_.fiber_ = fiber();
-  runnable_entry_.list_entry_.next_ = nullptr;
-  runnable_entry_.kthread_ = guest_object_ptr_;
-  HWThread()->EnqueueRunnableThread(&runnable_entry_);
-
-#else
-  // incorrect, but w/e
-#if 0
-  auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
-
-  xboxkrnl::xeKeKfAcquireSpinLock(
-      thread_state()->context(),
-      &kpcr_for->prcb_data.enqueued_processor_threads_lock, false);
-
-  auto old_next = kpcr_for->prcb_data.enqueued_threads_list.next;
-  auto native_thread = guest_object<X_KTHREAD>();
-
-  kpcr_for->prcb_data.enqueued_threads_list.next =
-      memory()->HostToGuestVirtual(&native_thread->ready_prcb_entry);
-
-  native_thread->ready_prcb_entry.flink_ptr = old_next;
-  native_thread->thread_state = 6;
-  kpcr_for->unknown_8 = 2;
-  xboxkrnl::xeKeKfReleaseSpinLock(
-      thread_state()->context(),
-      &kpcr_for->prcb_data.enqueued_processor_threads_lock, 0, false);
-
-#else
   auto context =
       cpu::ThreadState::Get()->context();  // thread_state()->context();
   uint32_t old_irql = kernel_state()->LockDispatcher(context);
@@ -723,9 +690,8 @@ void XThread::Schedule() {
 
   auto kpcr_for = memory()->TranslateVirtual<X_KPCR*>(this->pcr_address_);
   // kpcr_for->unknown_8 = 2;
-  kernel_state()->UnlockDispatcher(context, old_irql);
-#endif
-#endif
+  xboxkrnl::xeDispatcherSpinlockUnlock(
+      context, kernel_state()->GetDispatcherLock(context), old_irql);
 }
 
 void XThread::YieldCPU() { HWThread()->YieldToScheduler(); }
@@ -746,11 +712,12 @@ void XThread::SetActiveCpu(uint8_t cpu_index, bool initial) {
 
   X_KTHREAD& thread_object =
       *memory()->TranslateVirtual<X_KTHREAD*>(guest_object());
-  thread_object.current_cpu = cpu_index;
 
   if (!initial) {
     // xe::FatalError("Need to change cpu!");
     xenia_assert(false);
+  } else {
+    thread_object.current_cpu = cpu_index;
   }
 }
 

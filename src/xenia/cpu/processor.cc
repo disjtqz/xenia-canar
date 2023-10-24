@@ -532,49 +532,28 @@ void Processor::OnThreadCreated(uint32_t thread_handle,
 }
 
 void Processor::OnThreadExit(uint32_t thread_id) {
-  auto global_lock = global_critical_region_.Acquire();
-  auto it = thread_debug_infos_.find(thread_id);
-  assert_true(it != thread_debug_infos_.end());
-  auto thread_info = it->second.get();
-  thread_info->state = ThreadDebugInfo::State::kExited;
+
 }
 
 void Processor::OnThreadDestroyed(uint32_t thread_id) {
-  auto global_lock = global_critical_region_.Acquire();
-  auto it = thread_debug_infos_.find(thread_id);
-  assert_true(it != thread_debug_infos_.end());
-  thread_debug_infos_.erase(it);
+
 }
 
 void Processor::OnThreadEnteringWait(uint32_t thread_id) {
-  auto global_lock = global_critical_region_.Acquire();
-  auto it = thread_debug_infos_.find(thread_id);
-  assert_true(it != thread_debug_infos_.end());
-  auto thread_info = it->second.get();
-  thread_info->state = ThreadDebugInfo::State::kWaiting;
+
 }
 
 void Processor::OnThreadLeavingWait(uint32_t thread_id) {
-  auto global_lock = global_critical_region_.Acquire();
-  auto it = thread_debug_infos_.find(thread_id);
-  assert_true(it != thread_debug_infos_.end());
-  auto thread_info = it->second.get();
-  if (thread_info->state == ThreadDebugInfo::State::kWaiting) {
-    thread_info->state = ThreadDebugInfo::State::kAlive;
-  }
+
 }
 
 std::vector<ThreadDebugInfo*> Processor::QueryThreadDebugInfos() {
-  auto global_lock = global_critical_region_.Acquire();
   std::vector<ThreadDebugInfo*> result;
-  for (auto& it : thread_debug_infos_) {
-    result.push_back(it.second.get());
-  }
+
   return result;
 }
 
 ThreadDebugInfo* Processor::QueryThreadDebugInfo(uint32_t thread_id) {
-  auto global_lock = global_critical_region_.Acquire();
   const auto& it = thread_debug_infos_.find(thread_id);
   if (it == thread_debug_infos_.end()) {
     return nullptr;
@@ -583,7 +562,7 @@ ThreadDebugInfo* Processor::QueryThreadDebugInfo(uint32_t thread_id) {
 }
 
 void Processor::AddBreakpoint(Breakpoint* breakpoint) {
-  auto global_lock = global_critical_region_.Acquire();
+  //auto global_lock = global_critical_region_.Acquire();
 
   // Add to breakpoints map.
   breakpoints_.push_back(breakpoint);
@@ -594,7 +573,7 @@ void Processor::AddBreakpoint(Breakpoint* breakpoint) {
 }
 
 void Processor::RemoveBreakpoint(Breakpoint* breakpoint) {
-  auto global_lock = global_critical_region_.Acquire();
+  //auto global_lock = global_critical_region_.Acquire();
 
   // Uninstall (if needed).
   if (execution_state_ == ExecutionState::kRunning) {
@@ -607,7 +586,7 @@ void Processor::RemoveBreakpoint(Breakpoint* breakpoint) {
 }
 
 Breakpoint* Processor::FindBreakpoint(uint32_t address) {
-  auto global_lock = global_critical_region_.Acquire();
+//  auto global_lock = global_critical_region_.Acquire();
   for (auto breakpoint : breakpoints_) {
     if (breakpoint->address() == address) {
       return breakpoint;
