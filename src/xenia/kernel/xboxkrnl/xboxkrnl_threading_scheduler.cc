@@ -227,10 +227,10 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority) {
   auto v3 = prcb->has_ready_thread_by_priority;
-  if ((prcb->has_ready_thread_by_priority & ~((1 << priority) - 1) & v3) == 0) {
+  if ((prcb->unk_mask_64 & ~((1 << priority) - 1) & v3) == 0) {
     return nullptr;
   }
-  auto v4 = xe::lzcnt(prcb->has_ready_thread_by_priority &
+  auto v4 = xe::lzcnt(prcb->unk_mask_64 &
                       ~((1 << priority) - 1) & v3);
   auto v5 = 31 - v4;
 
@@ -257,7 +257,7 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   auto thread_priority = kthread->priority;
   auto unk_BD = kthread->unk_BD;
   kthread->unk_BD = 0;
-  if ((prcb_for_thread->has_ready_thread_by_priority &
+  if ((prcb_for_thread->unk_mask_64 &
        (1 << thread_priority)) == 0) {
     insert_8009CFE0(context, kthread, unk_BD);
     xboxkrnl::xeKeKfReleaseSpinLock(
@@ -975,13 +975,143 @@ void xeKeSetAffinityThread(PPCContext* context, X_KTHREAD* thread,
       }
     } else {
       // todo: args are undefined in ida! find out why
-      xeKeInsertQueueDpc(&thread->a_prcb_ptr->switch_thread_processor_dpc, 0, 0, context);
+      xeKeInsertQueueDpc(&thread->a_prcb_ptr->switch_thread_processor_dpc, 0, 0,
+                         context);
     }
   }
 
   xeDispatcherSpinlockUnlock(
       context, context->kernel_state->GetDispatcherLock(context), irql);
   *prev_affinity = 1U << old_cpu;
+}
+void xeKeSetPriorityClassThread(PPCContext* context, X_KTHREAD* thread,
+                                bool a2) {
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, false);
+
+  auto v8 = thread->unk_C9;
+  auto v9 = thread->unk_C9;
+  auto v10 = a2 == 0 ? 5 : 13;
+  char v11 = v10 - v9;
+  if (v10 != v9) {
+    auto v12 = thread->priority;
+    thread->unk_C9 = v10;
+    auto v13 = thread->unk_C8 + v11;
+    auto v14 = thread->unk_B9 + v11;
+    auto v15 = thread->unk_CA + v11;
+    thread->unk_C8 = v13;
+    thread->unk_B9 = v14;
+    thread->unk_CA = v15;
+    if (v12 < 0x12) {
+      auto v16 = thread->process;
+      thread->unk_BA = 0;
+      thread->unk_B4 = v16->unk_0C;
+      xeKeChangeThreadPriority(context, thread, v14);
+    }
+  }
+
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, 0, false);
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+}
+
+void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
+                              int priority) {
+  auto prio = thread->priority;
+  auto thread_prcb = thread->a_prcb_ptr;
+
+  if (prio == priority) {
+    return;
+  }
+  auto thread_state = thread->thread_state;
+  thread->priority = priority;
+
+  // todo: lzcnt & 0x20 is just a zero test
+  auto v7 = (xe::lzcnt(thread_prcb->unk_mask_64 & (1 << priority)) & 0x20) == 0;
+  X_KTHREAD* new_next_thread;
+  switch (thread_state) {
+    case 1: {
+      auto v17 = &thread->ready_prcb_entry;
+      auto v18 = thread->ready_prcb_entry.flink_ptr;
+      auto v19 = thread->ready_prcb_entry.blink_ptr;
+      v19->flink_ptr = v18;
+      v18->blink_ptr = v19;
+      if (v19 == v18) {
+        thread_prcb->has_ready_thread_by_priority =
+            thread_prcb->has_ready_thread_by_priority & (~(1 << prio));
+      }
+      thread->thread_state = 6;
+      auto kpcr = GetKPCR(context);
+      v17->flink_ptr = kpcr->prcb_data.enqueued_threads_list.next;
+      kpcr->prcb_data.enqueued_threads_list.next =
+          context->HostToGuestVirtual(v17);
+      break;
+    }
+    case 2: {
+      if (thread_prcb->next_thread) {
+        return;
+      }
+      if (!v7) {
+        goto LABEL_9;
+      }
+      if (priority < prio) {
+        new_next_thread =
+            xeScanForReadyThread(context, thread_prcb.xlat(), priority);
+        if (new_next_thread) {
+          new_next_thread->thread_state = 3;
+          thread_prcb->next_thread = new_next_thread;
+          return;
+        }
+      }
+      break;
+    }
+    case 3: {
+      if (!v7) {
+        thread->thread_state = 1;
+        auto v8 = &thread_prcb->ready_threads_by_priority[priority];
+        auto v9 = v8->flink_ptr;
+        thread->ready_prcb_entry.blink_ptr = v8;
+        thread->ready_prcb_entry.flink_ptr = v9;
+        v9->blink_ptr = &thread->ready_prcb_entry;
+        v8->flink_ptr = &thread->ready_prcb_entry;
+        thread_prcb->has_ready_thread_by_priority =
+            (1 << priority) | thread_prcb->has_ready_thread_by_priority;
+      LABEL_9:
+        new_next_thread = xeScanForReadyThread(context, thread_prcb.xlat(), 0);
+        if (!new_next_thread) {
+          new_next_thread = thread_prcb->idle_thread.xlat();
+          thread_prcb->running_idle_thread = new_next_thread;
+        }
+        new_next_thread->thread_state = 3;
+        thread_prcb->next_thread = new_next_thread;
+        return;
+      }
+      if (priority < prio) {
+        auto v11 = xeScanForReadyThread(context, thread_prcb.xlat(), priority);
+        if (v11) {
+          v11->thread_state = 3;
+          thread_prcb->next_thread = v11;
+          auto v12 = thread->priority;
+          auto v13 = thread->a_prcb_ptr;
+          thread->thread_state = 1;
+          auto v14 = 1 << v12;
+          auto v15 = &v13->ready_threads_by_priority[v12];
+          auto v16 = v15->flink_ptr;
+          thread->ready_prcb_entry.blink_ptr = v15;
+          thread->ready_prcb_entry.flink_ptr = v16;
+          v16->blink_ptr = &thread->ready_prcb_entry;
+          v15->flink_ptr = &thread->ready_prcb_entry;
+          v13->has_ready_thread_by_priority =
+              v13->has_ready_thread_by_priority | v14;
+        }
+      }
+      break;
+    }
+    default:
+      return;
+  }
 }
 
 }  // namespace xboxkrnl

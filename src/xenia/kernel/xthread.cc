@@ -398,12 +398,21 @@ X_STATUS XThread::Create() {
   // Initialize the KTHREAD object.
   InitializeGuestObject();
 
+  //todo: not sure about this!
+  if (creation_params()->creation_flags & 0x40) {
+    xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
+                                         guest_object<X_KTHREAD>(), false);
+
+  } else if ((creation_params()->creation_flags & 0x20) != 0) {
+    xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
+                                         guest_object<X_KTHREAD>(), true);
+  }
   uint32_t affinity_by =
       static_cast<uint8_t>(creation_params_.creation_flags >> 24);
   if (affinity_by) {
     SetAffinity(affinity_by);
   }
-  
+
 
   // Always retain when starting - the thread owns itself until exited.
   RetainHandle();
@@ -658,8 +667,7 @@ void XThread::SetAffinity(uint32_t affinity) {
 }
 
 uint8_t XThread::active_cpu() const {
-  const X_KPCR& pcr = *memory()->TranslateVirtual<const X_KPCR*>(pcr_address_);
-  return pcr.prcb_data.current_cpu;
+  return guest_object<X_KTHREAD>()->current_cpu;
 }
 
 cpu::HWThread* XThread::HWThread() {

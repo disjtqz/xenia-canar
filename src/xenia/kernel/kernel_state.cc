@@ -279,7 +279,7 @@ static void LaunchModuleInterrupt(void* ud) {
   kernel->SetExecutableModule(*launch->module);
   launch->thread = new XThread(kernel_state(), (*launch->module)->stack_size(),
                                0, (*launch->module)->entry_point(), 0,
-                               0x1000100 | X_CREATE_SUSPENDED, true, true);
+                               0x1000100, true, true);
 
   launch->thread->set_name("Main XThread");
 
@@ -293,12 +293,12 @@ static void LaunchModuleInterrupt(void* ud) {
   }
 
   // Waits for a debugger client, if desired.
-  kernel->emulator()->processor()->PreLaunch();
+  //kernel->emulator()->processor()->PreLaunch();
 
   // Resume the thread now.
   // If the debugger has requested a suspend this will just decrement the
   // suspend count without resuming it until the debugger wants.
-  launch->thread->Resume();
+ // launch->thread->Resume();
 }
 
 object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {

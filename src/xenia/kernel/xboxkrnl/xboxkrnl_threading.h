@@ -157,6 +157,13 @@ void xeEXTimerAPCKernelRoutine(PPCContext* context);
 void xeKeSetAffinityThread(PPCContext* context, X_KTHREAD* thread,
                            uint32_t affinity, uint32_t* prev_affinity);
 
+void xeKeSetPriorityClassThread(PPCContext* context, X_KTHREAD* thread,
+                                bool a2);
+
+void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
+                              int priority);
+
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe
