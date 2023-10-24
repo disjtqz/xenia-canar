@@ -551,6 +551,8 @@ void XThread::Execute() {
               thread_id(), handle(), "", 69420);
   // Let the kernel know we are starting.
   kernel_state()->OnThreadExecute(this);
+  //TODO: not confident that this is correct, but it makes sense
+  xboxkrnl::xeProcessKernelApcs(thread_state_->context());
 
   // Dispatch any APCs that were queued before the thread was created first.
   DeliverAPCs();
