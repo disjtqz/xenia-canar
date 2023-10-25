@@ -798,10 +798,12 @@ void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
     util::XeInsertHeadList(v4->mutants_list.blink_ptr, &mutant->unk_list,
                            context);
 
-    kernel_state()->UnlockDispatcher(context, old_irql);
+    //kernel_state()->UnlockDispatcher(context, old_irql);
 
+    xboxkrnl::xeDispatcherSpinlockUnlock(
+        context, context->kernel_state->GetDispatcherLock(context), old_irql);
   } else {
-    mutant->owner = 0;
+    mutant->owner = 0U;
     mutant->header.signal_state = 1;
   }
   util::XeInitializeListHead(&mutant->header.wait_list, context);

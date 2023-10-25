@@ -246,8 +246,8 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
   return result;
 }
 
-void HandleCpuThreadDisownedIPI(void* ud) { 
-   // xenia_assert(false); 
+void HandleCpuThreadDisownedIPI(void* ud) {
+  // xenia_assert(false);
 }
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
@@ -904,13 +904,11 @@ void xeSuspendThreadApcRoutine(PPCContext* context) {
   xeKeWaitForSingleObject(&thrd->suspend_sema, 2, 0, 0, 0);
 }
 
-// very, very incorrect impl
 X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
                                  unsigned reason, unsigned processor_mode,
                                  bool alertable, int64_t* timeout) {
-  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
-  auto kthread = GetKThread(context);
-
+  int64_t tmp_timeout;
+  auto this_thread = GetKThread(context);
   auto old_r1 = context->r[1];
 
   context->r[1] -= sizeof(X_KWAIT_BLOCK) * 4;
@@ -918,47 +916,160 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       static_cast<uint32_t>(old_r1 - sizeof(X_KWAIT_BLOCK) * 4);
   X_KWAIT_BLOCK* stash = context->TranslateVirtual<X_KWAIT_BLOCK*>(guest_stash);
 
-  kthread->wait_blocks = guest_stash;
-  if (object->signal_state > 0) {
-    context->kernel_state->UnlockDispatcher(context, old_irql);
-    return X_STATUS_SUCCESS;
+  auto WaitReason2 = reason;
+  if (this_thread->unk_A6)
+    this_thread->unk_A6 = 0;
+  else {
+    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
   }
 
-  stash[0].object = object;
-  stash[0].thread = kthread;
-  stash[0].wait_result_xstatus = 0;
-  stash[0].wait_type = WAIT_ANY;
-  stash[0].next_wait_block = guest_stash;
-  util::XeInitializeListHead(&stash[0].wait_list_entry, context);
-
-  util::XeInsertHeadList(&object->wait_list, &stash[0].wait_list_entry,
-                         context);
-
-  kthread->alertable = alertable;
-  kthread->processor_mode = processor_mode;
-  kthread->wait_reason = reason;
-  kthread->thread_state = 5;
-
-  X_STATUS wait_status = xeSchedulerSwitchThread2(context);
-
-  context->r[1] = old_r1;
-
-  if (wait_status == X_STATUS_USER_APC) {
-    xeProcessUserApcs(context);
-  } else if (wait_status == X_STATUS_KERNEL_APC) {
-    xeProcessKernelApcs(context);
-  } else {
-    auto v24 = object->type;
-
-    if ((v24 & 7) == 1) {
-      object->signal_state = 0;
-    } else if (v24 == 5) {  // sem
-      --object->signal_state;
+  X_STATUS v14;
+  uint64_t v11 = 0;
+  auto v12 = timeout;
+  while (1) {
+    if (this_thread->running_kernel_apcs && !this_thread->unk_A4) {
+      xeDispatcherSpinlockUnlock(
+          context, context->kernel_state->GetDispatcherLock(context), 0);
+      goto LABEL_41;
     }
+    this_thread->wait_result = 0;
+
+    auto obj_signalstate = object->signal_state;
+    if (object->type == 2) {
+      X_KMUTANT* mutant = reinterpret_cast<X_KMUTANT*>(object);
+      if (obj_signalstate > 0 || this_thread == mutant->owner.xlat()) {
+        if (obj_signalstate != 0x80000000) {
+          auto v20 = mutant->header.signal_state - 1;
+          mutant->header.signal_state = v20;
+          if (!v20) {
+            auto v21 = mutant->abandoned;
+            mutant->owner = this_thread;
+            if (v21 == 1) {
+              mutant->abandoned = 0;
+              this_thread->wait_result = 128;
+            }
+            auto v22 = this_thread->mutants_list.blink_ptr;
+            auto v23 = v22->flink_ptr;
+            mutant->unk_list.blink_ptr = v22;
+            mutant->unk_list.flink_ptr = v23;
+            v23->blink_ptr = &mutant->unk_list;
+            v22->flink_ptr = &mutant->unk_list;
+          }
+          v14 = this_thread->wait_result;
+          goto LABEL_57;
+        }
+        xeDispatcherSpinlockUnlock(
+            context, context->kernel_state->GetDispatcherLock(context),
+            this_thread->unk_A4);
+
+        // X_STATUS_MUTANT_LIMIT_EXCEEDED
+        // should raise status
+        xenia_assert(false);
+      }
+      goto LABEL_16;
+    }
+    if (obj_signalstate > 0) {
+      break;
+    }
+
+  LABEL_16:
+    this_thread->wait_blocks = guest_stash;
+    stash->object = object;
+    stash->wait_result_xstatus = 0;
+    stash->wait_type = WAIT_ANY;
+    stash->thread = this_thread;
+    if (alertable) {
+      if (this_thread->alerted[processor_mode]) {
+        v14 = X_STATUS_ALERTED;
+        this_thread->alerted[processor_mode] = 0;
+        goto LABEL_55;
+      }
+      if (processor_mode &&
+          !util::XeIsListEmpty(&this_thread->apc_lists[1], context)) {
+        this_thread->unk_8A = 1;
+      LABEL_54:
+        v14 = X_STATUS_USER_APC;
+      LABEL_55:
+        xeDispatcherSpinlockUnlock(
+            context, context->kernel_state->GetDispatcherLock(context),
+            this_thread->unk_A4);
+        goto LABEL_58;
+      }
+      if (this_thread->alerted[0]) {
+        v14 = X_STATUS_ALERTED;
+        this_thread->alerted[0] = 0;
+        goto LABEL_55;
+      }
+    } else if (processor_mode && this_thread->unk_8A) {
+      goto LABEL_54;
+    }
+    if (timeout) {
+      if (!*timeout ||
+          (stash->next_wait_block = &this_thread->wait_timeout_block,
+           this_thread->wait_timeout_timer.header.wait_list.flink_ptr =
+               &this_thread->wait_timeout_block.wait_list_entry,
+           this_thread->wait_timeout_timer.header.wait_list.blink_ptr =
+               &this_thread->wait_timeout_block.wait_list_entry,
+           this_thread->wait_timeout_block.next_wait_block = guest_stash,
+           !xboxkrnl::XeInsertGlobalTimer(
+               context, &this_thread->wait_timeout_timer, *timeout))) {
+        v14 = X_STATUS_TIMEOUT;
+        goto LABEL_57;
+      }
+      v11 = this_thread->wait_timeout_timer.due_time;
+    } else {
+      stash->next_wait_block = guest_stash;
+    }
+    auto v15 = object->wait_list.blink_ptr;
+    stash->wait_list_entry.flink_ptr = &object->wait_list;
+    stash->wait_list_entry.blink_ptr = v15;
+    v15->flink_ptr = guest_stash;
+    object->wait_list.blink_ptr = guest_stash;
+    auto v16 = this_thread->unkptr_118;
+    if (v16) {
+      xenia_assert(false);
+    }
+    auto v17 = (unsigned __int8)this_thread->unk_A4;
+    this_thread->alertable = alertable;
+    this_thread->processor_mode = processor_mode;
+    this_thread->wait_reason = WaitReason2;
+    this_thread->thread_state = 5;
+    v14 = xeSchedulerSwitchThread2(context);
+
+    if (v14 == X_STATUS_USER_APC) {
+      xeProcessUserApcs(context);
+    }
+    if (v14 != X_STATUS_KERNEL_APC) {
+      return v14;
+    }
+    if (timeout) {
+      if (*timeout < 0) {
+        tmp_timeout =
+            context->kernel_state->GetKernelInterruptTime() - *timeout;
+        timeout = &tmp_timeout;
+      } else {
+        timeout = v12;
+      }
+    }
+  LABEL_41:
+    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
   }
-  context->kernel_state->UnlockDispatcher(context, old_irql);
-  scheduler_80097F90(context, kthread);
-  return wait_status;
+  auto obj_type = object->type;
+  if ((obj_type & 7) == 1) {
+    object->signal_state = 0;
+  } else if (obj_type == 5) {
+    --object->signal_state;
+  }
+  v14 = X_STATUS_SUCCESS;
+LABEL_57:
+  context->kernel_state->UnlockDispatcherAtIrql(context);
+  scheduler_80097F90(context, this_thread);
+LABEL_58:
+  if (v14 == X_STATUS_USER_APC) {
+    xeProcessUserApcs(context);
+  }
+  context->r[1] = old_r1;
+  return v14;
 }
 
 void xeKeSetAffinityThread(PPCContext* context, X_KTHREAD* thread,

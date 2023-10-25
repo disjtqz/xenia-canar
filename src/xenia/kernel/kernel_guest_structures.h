@@ -199,7 +199,7 @@ static_assert_size(X_KSEMAPHORE, 0x14);
 struct X_KMUTANT {
   X_DISPATCH_HEADER header;            // 0x0
   X_LIST_ENTRY unk_list;               // 0x10
-  TypedGuestPointer<X_KTHREAD> owner;  // 0x18
+  EZPointer<X_KTHREAD> owner;  // 0x18
   bool abandoned;                      // 0x1C
   // these might just be padding
   uint8_t unk_1D;  // 0x1D

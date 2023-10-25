@@ -218,7 +218,8 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
       kernel_trampoline_group_.NewLongtermTrampoline(ThreadSwitchRelatedDpc),
       0);
 
-  pcr->prcb_data.switch_thread_processor_dpc.desired_cpu_number = which_processor_index + 1;
+  pcr->prcb_data.switch_thread_processor_dpc.desired_cpu_number =
+      which_processor_index + 1;
 
   // this cpu needs special handling, its initializing the kernel
   // InitProcessorStack gets called for it later, after all kernel init
@@ -249,7 +250,7 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
   pcr->interrupt_handlers[0x1E] =
       kernel_trampoline_group_.NewLongtermTrampoline(IPIInterruptProc);
 
-  pcr->current_irql = 124;
+  pcr->current_irql = 0;
   pcr->thread_fpu_related = -1;
   pcr->msr_mask = -1;
   pcr->thread_vmx_related = -1;
@@ -260,17 +261,31 @@ void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
   X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
   X_KTHREAD* thread = &page_for->idle_process_thread;
   thread->thread_state = 2;
+
   thread->priority = 31;
   thread->unk_A4 = 2;
+  thread->may_queue_apcs = 1;
+
   auto prcb_guest = memory()->HostToGuestVirtual(&page_for->pcr.prcb_data);
   thread->a_prcb_ptr = prcb_guest;
   thread->another_prcb_ptr = prcb_guest;
   thread->current_cpu = page_for->pcr.prcb_data.current_cpu;
-  thread->process = GetIdleProcess();
+  auto idle_process_ptr = GetIdleProcess();
+  thread->process = idle_process_ptr;
   auto guest_thread = memory()->HostToGuestVirtual(thread);
   page_for->pcr.prcb_data.current_thread = guest_thread;
   page_for->pcr.prcb_data.idle_thread = guest_thread;
-  
+
+  auto process = memory()->TranslateVirtual<X_KPROCESS*>(idle_process_ptr);
+  // priority related values
+  thread->unk_C8 = process->unk_18;
+  auto v19 = process->unk_19;
+  thread->unk_C9 = v19;
+  auto v20 = process->unk_1A;
+  thread->unk_B9 = v19;
+  thread->unk_CA = v20;
+  // timeslice related
+  thread->unk_B4 = process->unk_0C;
 }
 
 void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {
@@ -434,21 +449,28 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   KernelGuestGlobals* block =
       memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
 
-  util::XeInitializeListHead(
+  util::XeInitializeListHead( 
       &block->UsbdBootEnumerationDoneEvent.header.wait_list, context);
   xboxkrnl::xeKeSetEvent(context, &block->UsbdBootEnumerationDoneEvent, 1, 0);
 
   for (unsigned i = 1; i < 6; ++i) {
     SetupKPCRPageForCPU(i);
   }
+  xboxkrnl::xeKfLowerIrql(context, 1);
   for (unsigned i = 1; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->Boot();
   }
+  //this is deliberate, does not change the interrupt priority!
+  kpcr->current_irql = 2;
 }
 
 void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
-                                   X_KPCR* kpcr) {}
+                                   X_KPCR* kpcr) {
+    //todo: sets priority here! need to fill that in
+
+    xboxkrnl::xeKfLowerIrql(context, 2);
+}
 
 void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
                                        void* ud) {
@@ -462,7 +484,7 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   */
 
   auto kpcr = GetKPCR(context);
-  
+
   kpcr->emulated_interrupt = reinterpret_cast<uint64_t>(kpcr);
   auto cpunum = ks->GetPCRCpuNum(kpcr);
 
@@ -478,12 +500,23 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
 void KernelState::BootKernel() {
   BootInitializeStatics();
 
+  // initialize the idle process' thread list prior to startup for convenience
+
+  auto idle_process_ptr = GetIdleProcess();
+  auto idle_process = memory()->TranslateVirtual<X_KPROCESS*>(idle_process_ptr);
+  idle_process->thread_count = 6;
+
   for (unsigned i = 0; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->SetIdleProcessFunction(&KernelState::KernelIdleProcessFunction);
     cpu_thread->SetBootFunction(&KernelState::HWThreadBootFunction, this);
     cpu_thread->SetDecrementerInterruptCallback(
         &KernelState::KernelDecrementerInterrupt, nullptr);
+    //dont need the thread list lock, because no guest code is running atm
+    util::XeInsertTailList(
+        &idle_process->thread_list,
+        &this->KPCRPageForCpuNumber(i)->idle_process_thread.process_threads,
+        memory());
   }
   SetupKPCRPageForCPU(0);
   // cpu 0 boots all other cpus

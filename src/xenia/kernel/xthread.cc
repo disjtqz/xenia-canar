@@ -420,9 +420,7 @@ X_STATUS XThread::Create() {
   xe::threading::Fiber::CreationParameters params;
 
   params.stack_size = 16_MiB;  // Allocate a big host stack.
-  if ((creation_params_.creation_flags & X_CREATE_SUSPENDED) != 0) {
-    this->Suspend();
-  }
+
   fiber_ = xe::threading::Fiber::Create(params, [this]() {
     // Execute user code.
     threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)this);
@@ -453,7 +451,9 @@ X_STATUS XThread::Create() {
   // Start the thread now that we're all setup.
 
   // thread_->Resume();
-
+  if ((creation_params_.creation_flags & X_CREATE_SUSPENDED) != 0) {
+    this->Suspend();
+  }
   Schedule();
 
   return X_STATUS_SUCCESS;

@@ -1006,7 +1006,7 @@ void KernelState::SystemClockInterrupt() {
         context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals());
 
     for (auto& timer : globals->running_timers.IterateForward(context)) {
-      if (timer.due_time >= time_imprecise) {
+      if (timer.due_time <= time_imprecise) {
         kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
         kpcr->generic_software_interrupt = 2;
         break;
@@ -1023,6 +1023,11 @@ void KernelState::SystemClockInterrupt() {
       kpcr->timeslice_ended = 2;
       kpcr->generic_software_interrupt = 2;
     }
+  }
+  uint32_t r3 = kpcr->current_irql;
+  uint32_t r4 = kpcr->software_interrupt_state;
+  if (r3 < 2 && r3 < r4) {
+   // xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
   }
 }
 
@@ -1366,8 +1371,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
 
     while (!kpcr->generic_software_interrupt) {
       context->CheckInterrupt();
-      // okay here, since we really have nothing going on
-      threading::MaybeYield();
+      _mm_pause();
     }
 
     /*
