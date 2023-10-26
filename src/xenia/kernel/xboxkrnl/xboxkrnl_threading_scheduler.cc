@@ -33,8 +33,7 @@ namespace xboxkrnl {
 template <size_t fmt_len, typename... Ts>
 static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
                      Ts... args) {
-#define prefixfmt \
-  "(Context {}, Fiber {}, HW Thread {}, Guest Thread {}) "
+#define prefixfmt "(Context {}, Fiber {}, HW Thread {}, Guest Thread {}) "
 
   char tmpbuf[fmt_len + sizeof(prefixfmt)];
 
@@ -73,7 +72,7 @@ using ready_thread_pointer_t =
 */
 void xeDispatcherSpinlockUnlock(PPCContext* context, X_KSPINLOCK* lock,
                                 uint32_t irql) {
-  //SCHEDLOG(context, "xeDispatcherSpinlockUnlock irql = {}", irql);
+  // SCHEDLOG(context, "xeDispatcherSpinlockUnlock irql = {}", irql);
   xenia_assert(lock->pcr_of_owner == static_cast<uint32_t>(context->r[13]));
   lock->pcr_of_owner = 0;
 reenter:
@@ -203,7 +202,8 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
 }
 
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {
-  SCHEDLOG(context, "insert_8009D048 - thread = {}, unk = {}", (void*)thread, unk);
+  SCHEDLOG(context, "insert_8009D048 - thread = {}, unk = {}", (void*)thread,
+           unk);
   auto priority = thread->priority;
   auto thread_prcb = context->TranslateVirtual(thread->a_prcb_ptr);
   auto thread_ready_list_entry = &thread->ready_prcb_entry;
@@ -272,7 +272,11 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
   return result;
 }
 
-void HandleCpuThreadDisownedIPI(void* ud) { xenia_assert(false); }
+void HandleCpuThreadDisownedIPI(void* ud) { 
+    //xenia_assert(false);
+    //this is incorrect
+  xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
+}
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   SCHEDLOG(context, "xeReallyQueueThread - kthread = {}", (void*)kthread);
@@ -308,9 +312,9 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
           do a non-blocking host IPI here. we need to be sure the original cpu
          this thread belonged to has given it up before we continue
       */
-      // context->processor->GetCPUThread(old_cpu_for_thread)
-      //    ->TrySendInterruptFromHost(HandleCpuThreadDisownedIPI,
-      //                                (void*)kthread);
+       context->processor->GetCPUThread(old_cpu_for_thread)
+         ->SendGuestIPI(HandleCpuThreadDisownedIPI,
+                                     (void*)kthread);
     }
     return;
   }
@@ -387,8 +391,7 @@ static void xeProcessQueuedThreads(PPCContext* context,
 }
 
 X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
-
-    SCHEDLOG(context, "xeSelectThreadDueToTimesliceExpiration");
+  SCHEDLOG(context, "xeSelectThreadDueToTimesliceExpiration");
   auto pcr = GetKPCR(context);
   auto prcb = &pcr->prcb_data;
 
@@ -498,8 +501,7 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
 
 // handles DPCS, also switches threads?
 // timer related?
-void xeHandleDPCsAndThreadSwapping(PPCContext* context,
-                                   bool from_idle_loop) {
+void xeHandleDPCsAndThreadSwapping(PPCContext* context, bool from_idle_loop) {
   SCHEDLOG(context, "xeHandleDPCsAndThreadSwapping");
 
   X_KTHREAD* next_thread = nullptr;
@@ -559,7 +561,7 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context,
   auto ble = context->TranslateVirtual(prcb.current_thread);
   prcb.next_thread = 0U;
   prcb.current_thread = context->HostToGuestVirtual(next_thread);
-  //idle loop does not reinsert itself!
+  // idle loop does not reinsert itself!
   if (!from_idle_loop) {
     insert_8009D048(context, ble);
   }
@@ -701,8 +703,8 @@ void xeHandleWaitTypeAll(PPCContext* context, X_KWAIT_BLOCK* block) {
 }
 void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
                                  int unk) {
-  SCHEDLOG(context, "xeDispatchSignalStateChange - header {}, unk = {}", (void*)header,
-           unk);
+  SCHEDLOG(context, "xeDispatchSignalStateChange - header {}, unk = {}",
+           (void*)header, unk);
   auto waitlist_head = &header->wait_list;
 
   for (X_KWAIT_BLOCK* i = context->TranslateVirtual<X_KWAIT_BLOCK*>(
@@ -974,7 +976,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       static_cast<uint32_t>(old_r1 - sizeof(X_KWAIT_BLOCK) * 4);
   X_KWAIT_BLOCK* stash = context->TranslateVirtual<X_KWAIT_BLOCK*>(guest_stash);
 
-  auto WaitReason2 = reason;
+  auto reason2 = reason;
   if (this_thread->unk_A6)
     this_thread->unk_A6 = 0;
   else {
@@ -1090,7 +1092,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
     auto v17 = (unsigned __int8)this_thread->unk_A4;
     this_thread->alertable = alertable;
     this_thread->processor_mode = processor_mode;
-    this_thread->wait_reason = WaitReason2;
+    this_thread->wait_reason = reason2;
     this_thread->thread_state = 5;
     v14 = xeSchedulerSwitchThread2(context);
 
@@ -1192,7 +1194,6 @@ void xeKeSetPriorityClassThread(PPCContext* context, X_KTHREAD* thread,
 
 void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
                               int priority) {
-
   SCHEDLOG(context, "xeKeChangeThreadPriority - thread {}, a2 {}",
            (void*)thread, priority);
   auto prio = thread->priority;
@@ -1289,6 +1290,111 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
     default:
       return;
   }
+}
+
+X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
+                                  bool alertable, int64_t* interval) {
+  auto thread = GetKThread(context);
+
+  int64_t v6 = *interval;
+  if (thread->unk_A6)
+    thread->unk_A6 = 0;
+  else
+    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+  auto v7 = v6;
+  X_STATUS result;
+  while (1) {
+    if (thread->running_kernel_apcs && !thread->unk_A4) {
+      xeDispatcherSpinlockUnlock(
+          context, context->kernel_state->GetDispatcherLock(context), 0);
+      goto LABEL_28;
+    }
+    if (alertable) {
+      if (thread->alerted[mode]) {
+        result = X_STATUS_ALERTED;
+        thread->alerted[mode] = 0;
+        goto LABEL_32;
+      }
+      if (mode && !thread->apc_lists[1].empty(context)) {
+        thread->unk_8A = 1;
+      LABEL_31:
+        result = X_STATUS_USER_APC;
+      LABEL_32:
+        xeDispatcherSpinlockUnlock(
+            context, context->kernel_state->GetDispatcherLock(context),
+            thread->unk_A4);
+        if (result == X_STATUS_USER_APC) {
+          xboxkrnl::xeProcessUserApcs(context);
+        }
+        return result;
+      }
+      if (thread->alerted[0]) {
+        result = X_STATUS_ALERTED;
+        thread->alerted[0] = 0;
+        goto LABEL_32;
+      }
+    } else if (mode && thread->unk_8A) {
+      goto LABEL_31;
+    }
+    thread->wait_result = 0;
+    thread->wait_blocks = &thread->wait_timeout_block;
+    thread->wait_timeout_block.next_wait_block = &thread->wait_timeout_block;
+
+    thread->wait_timeout_timer.header.wait_list.flink_ptr =
+        &thread->wait_timeout_block.wait_list_entry;
+
+    thread->wait_timeout_timer.header.wait_list.blink_ptr =
+        &thread->wait_timeout_block.wait_list_entry;
+
+    //  if (!KiInsertTreeTimer(*(_KTIMER**)v6, *(_DWORD*)(v6 + 4))) {
+    if (!XeInsertGlobalTimer(context, &thread->wait_timeout_timer, v6)) {
+      break;
+    }
+    auto v9 = thread->unkptr_118;
+    v6 = thread->wait_timeout_timer.due_time;
+    if (v9) {
+      xenia_assert(false);
+      xe::FatalError("unkptr_118 set!");
+    }
+    thread->alertable = alertable;
+    thread->processor_mode = mode;
+    thread->wait_reason = 1;
+    thread->thread_state = 5;
+
+    result = xeSchedulerSwitchThread2(context);
+    if (result == X_STATUS_USER_APC) {
+      xeProcessUserApcs(context);
+    }
+    if (result != X_STATUS_KERNEL_APC) {
+      if (result == X_STATUS_TIMEOUT) {
+        result = X_STATUS_SUCCESS;
+      }
+      return result;
+    }
+    // this part is a bit fucked up, not sure this is right
+    if (v7 < 0) {
+      v6 = static_cast<int64_t>(
+               context->kernel_state->GetKernelInterruptTime()) -
+           v6;
+
+    } else {
+      v6 = v7;
+    }
+
+  LABEL_28:
+    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+  }
+  if (v6) {
+    context->kernel_state->UnlockDispatcherAtIrql(context);
+    scheduler_80097F90(context, thread);
+    result = X_STATUS_SUCCESS;
+  } else {
+    xeDispatcherSpinlockUnlock(
+        context, context->kernel_state->GetDispatcherLock(context),
+        thread->unk_A4);
+    result = xeNtYieldExecution(context);
+  }
+  return result;
 }
 
 }  // namespace xboxkrnl

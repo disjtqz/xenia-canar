@@ -1121,21 +1121,21 @@ void CPInterruptIPI(void* ud) {
       current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
   auto kthread =
       current_context->TranslateVirtual(pcr->prcb_data.current_thread);
-  DPCImpersonationScope dpc_scope{};
-  kernel_state->BeginDPCImpersonation(current_context, dpc_scope);
+  //DPCImpersonationScope dpc_scope{};
+ // kernel_state->BeginDPCImpersonation(current_context, dpc_scope);
 
   // todo: check VdGlobalXamDevice here. if VdGlobalXamDevice is nonzero, should
   // set X_PROCTYPE_SYSTEM
-  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, current_context);
+  //xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, current_context);
 
   uint64_t args[] = {params->source_, params->interrupt_callback_data_};
 
   params->processor_->Execute(current_ts, params->interrupt_callback_, args,
                               xe::countof(args));
-  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, current_context);
+//  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, current_context);
 
-  kernel_state->EndDPCImpersonation(current_context, dpc_scope);
-  delete params;
+  //kernel_state->EndDPCImpersonation(current_context, dpc_scope);
+  //delete params;
 }
 
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,

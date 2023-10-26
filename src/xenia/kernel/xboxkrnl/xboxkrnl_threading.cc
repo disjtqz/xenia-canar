@@ -388,31 +388,8 @@ DECLARE_XBOXKRNL_EXPORT2(KeQueryPerformanceFrequency, kThreading, kImplemented,
 uint32_t KeDelayExecutionThread(uint32_t processor_mode, uint32_t alertable,
                                 uint64_t* interval_ptr,
                                 cpu::ppc::PPCContext* ctx) {
-    #if 0
-  XThread* thread = XThread::GetCurrentThread();
-
-  if (alertable) {
-    X_STATUS stat = xeProcessUserApcs(ctx);
-    if (stat == X_STATUS_USER_APC) {
-      return stat;
-    }
-  }
-  X_STATUS result = thread->Delay(processor_mode, alertable, *interval_ptr);
-
-  if (result == X_STATUS_USER_APC) {
-    result = xeProcessUserApcs(ctx);
-    if (result == X_STATUS_USER_APC) {
-      return result;
-    }
-  }
-  return result;
-  #else
-
-    
-  
-    return xeNtYieldExecution(ctx);
-#endif
-
+  return xeKeDelayExecutionThread(ctx, processor_mode, alertable,
+                                  (int64_t*)interval_ptr);
 }
 
 dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
@@ -461,28 +438,40 @@ dword_result_t KeTlsFree_entry(dword_t tls_index) {
 DECLARE_XBOXKRNL_EXPORT1(KeTlsFree, kThreading, kImplemented);
 
 // https://msdn.microsoft.com/en-us/library/ms686812
-dword_result_t KeTlsGetValue_entry(dword_t tls_index) {
+dword_result_t KeTlsGetValue_entry(dword_t tls_index,
+                                   const ppc_context_t& context) {
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
+#if 0
   uint32_t value = 0;
   if (XThread::GetCurrentThread()->GetTLSValue(tls_index, &value)) {
     return value;
   }
 
   return 0;
+#else
+  return static_cast<uint32_t>(*(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -
+           static_cast<uint32_t>(tls_index) - 1));
+#endif
 }
 DECLARE_XBOXKRNL_EXPORT2(KeTlsGetValue, kThreading, kImplemented,
                          kHighFrequency);
 
 // https://msdn.microsoft.com/en-us/library/ms686818
-dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value) {
+dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value, const ppc_context_t& context) {
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
+#if 0
   if (XThread::GetCurrentThread()->SetTLSValue(tls_index, tls_value)) {
     return 1;
   }
 
   return 0;
+#else
+  *(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -
+    tls_index - 1) = (uint32_t)tls_value;
+  return 1;
+#endif
 }
 DECLARE_XBOXKRNL_EXPORT1(KeTlsSetValue, kThreading, kImplemented);
 
@@ -1127,6 +1116,7 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
   // Lock.
   while (!xe::atomic_cas(0, xe::byte_swap(static_cast<uint32_t>(ctx->r[13])),
                          &lock->pcr_of_owner.value)) {
+    ctx->CheckInterrupt();
   }
 
   return old_irql;
