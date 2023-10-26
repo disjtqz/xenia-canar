@@ -450,15 +450,17 @@ dword_result_t KeTlsGetValue_entry(dword_t tls_index,
 
   return 0;
 #else
-  return static_cast<uint32_t>(*(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -
-           static_cast<uint32_t>(tls_index) - 1));
+  return static_cast<uint32_t>(
+      *(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -
+        static_cast<uint32_t>(tls_index) - 1));
 #endif
 }
 DECLARE_XBOXKRNL_EXPORT2(KeTlsGetValue, kThreading, kImplemented,
                          kHighFrequency);
 
 // https://msdn.microsoft.com/en-us/library/ms686818
-dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value, const ppc_context_t& context) {
+dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value,
+                                   const ppc_context_t& context) {
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
 #if 0
@@ -976,7 +978,7 @@ dword_result_t KeWaitForMultipleObjects_entry(
     dword_t wait_reason, dword_t processor_mode, dword_t alertable,
     lpqword_t timeout_ptr, lpvoid_t wait_block_array_ptr,
     const ppc_context_t& context) {
-#if 1
+#if 0
   assert_true(wait_type <= 1);
 
   assert_true(count <= 64);
@@ -1019,6 +1021,7 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
                                       uint32_t wait_type, uint32_t wait_mode,
                                       uint32_t alertable, uint64_t* timeout_ptr,
                                       cpu::ppc::PPCContext* context) {
+#if 0
   assert_true(wait_type <= 1);
 
   assert_true(count <= 64);
@@ -1059,6 +1062,9 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
     }
   }
   return result;
+#else
+  return 0;
+#endif
 }
 
 dword_result_t NtWaitForMultipleObjectsEx_entry(
