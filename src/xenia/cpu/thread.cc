@@ -227,16 +227,17 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
     return 0;
   }
   // todo: need to set current thread to idle thread!!
-  auto old_ts = cpu::ThreadState::Get();
-  auto new_ts = interrupt_wrapper->thiz->idle_process_threadstate_;
-  cpu::ThreadState::Bind(new_ts);
-  auto new_ctx = new_ts->context();
+  //auto old_ts = cpu::ThreadState::Get();
+ // auto new_ts = interrupt_wrapper->thiz->idle_process_threadstate_;
+  //cpu::ThreadState::Bind(new_ts);
+ // auto new_ctx = new_ts->context();
 
-  uint64_t msr = new_ctx->msr;
+ // uint64_t msr = new_ctx->msr;
   // new_ctx->DisableEI();
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
-  new_ctx->msr = msr;
-  cpu::ThreadState::Bind(old_ts);
+
+  //new_ctx->msr = msr;
+  //cpu::ThreadState::Bind(old_ts);
 
   return 1;
 }
