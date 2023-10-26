@@ -29,6 +29,24 @@
 namespace xe {
 namespace kernel {
 namespace xboxkrnl {
+
+template <size_t fmt_len, typename... Ts>
+static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
+                     Ts... args) {
+#define prefixfmt \
+  "(Context {}, Fiber {}, HW Thread {}, Guest Thread {}) "
+
+  char tmpbuf[fmt_len + sizeof(prefixfmt)];
+
+  memcpy(tmpbuf, prefixfmt, sizeof(prefixfmt) - 1);
+
+  memcpy(&tmpbuf[sizeof(prefixfmt) - 1], &fmt[0], fmt_len);
+
+  XELOGE(&tmpbuf[0], (void*)context, (void*)threading::Fiber::GetCurrentFiber(),
+         context->kernel_state->GetPCRCpuNum(GetKPCR(context)),
+         (void*)GetKThread(context), args...);
+}
+
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk);
 static void insert_8009D048(PPCContext* context, X_KTHREAD* thread);
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
@@ -55,6 +73,7 @@ using ready_thread_pointer_t =
 */
 void xeDispatcherSpinlockUnlock(PPCContext* context, X_KSPINLOCK* lock,
                                 uint32_t irql) {
+  SCHEDLOG(context, "xeDispatcherSpinlockUnlock irql = {}", irql);
   xenia_assert(lock->pcr_of_owner == static_cast<uint32_t>(context->r[13]));
   lock->pcr_of_owner = 0;
 reenter:
@@ -114,7 +133,10 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
   auto v3 = &kpcr->prcb_data;
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &kpcr->prcb_data.enqueued_processor_threads_lock, false);
-
+  SCHEDLOG(context,
+           "xeHandleReadyThreadOnDifferentProcessor kthread = {}, "
+           "thread_state = {}",
+           (void*)kthread, kthread->thread_state);
   if (kthread->thread_state != 2) {
     // xe::FatalError("Doing some fpu/vmx shit here?");
     // it looks like its saving the fpu and vmx state
@@ -246,9 +268,7 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
   return result;
 }
 
-void HandleCpuThreadDisownedIPI(void* ud) {
-  xenia_assert(false);
-}
+void HandleCpuThreadDisownedIPI(void* ud) { xenia_assert(false); }
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   auto prcb_for_thread = context->TranslateVirtual(kthread->a_prcb_ptr);
@@ -283,9 +303,9 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
           do a non-blocking host IPI here. we need to be sure the original cpu
          this thread belonged to has given it up before we continue
       */
-      //context->processor->GetCPUThread(old_cpu_for_thread)
-       //   ->TrySendInterruptFromHost(HandleCpuThreadDisownedIPI,
-     //                                (void*)kthread);
+      // context->processor->GetCPUThread(old_cpu_for_thread)
+      //    ->TrySendInterruptFromHost(HandleCpuThreadDisownedIPI,
+      //                                (void*)kthread);
     }
     return;
   }
