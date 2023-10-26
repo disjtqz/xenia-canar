@@ -1346,7 +1346,6 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
     thread->wait_timeout_timer.header.wait_list.blink_ptr =
         &thread->wait_timeout_block.wait_list_entry;
 
-    //  if (!KiInsertTreeTimer(*(_KTIMER**)v6, *(_DWORD*)(v6 + 4))) {
     if (!XeInsertGlobalTimer(context, &thread->wait_timeout_timer, v6)) {
       break;
     }
