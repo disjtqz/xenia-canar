@@ -159,7 +159,7 @@ bool XThread::IsInThread(XThread* other) { return GetFlsXThread() == other; }
 XThread* XThread::GetCurrentThread() {
   XThread* thread = GetFlsXThread();
   if (!thread) {
-    assert_always("Attempting to use guest stuff from a non-guest thread.");
+   // assert_always("Attempting to use guest stuff from a non-guest thread.");
   } else {
     thread->assert_valid();
   }
@@ -400,7 +400,7 @@ X_STATUS XThread::Create() {
   // Initialize the KTHREAD object.
   InitializeGuestObject();
 
-  //todo: not sure about this!
+  // todo: not sure about this!
   if (creation_params()->creation_flags & 0x40) {
     xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
                                          guest_object<X_KTHREAD>(), false);
@@ -414,7 +414,6 @@ X_STATUS XThread::Create() {
   if (affinity_by) {
     SetAffinity(affinity_by);
   }
-
 
   // Always retain when starting - the thread owns itself until exited.
   RetainHandle();
@@ -554,7 +553,7 @@ void XThread::Execute() {
   assert_valid();
   // Let the kernel know we are starting.
   kernel_state()->OnThreadExecute(this);
-  //TODO: not confident that this is correct, but it makes sense
+  // TODO: not confident that this is correct, but it makes sense
   xboxkrnl::xeProcessKernelApcs(thread_state_->context());
 
   // Dispatch any APCs that were queued before the thread was created first.
@@ -625,10 +624,11 @@ void XThread::EnqueueApc(uint32_t normal_routine, uint32_t normal_context,
 
   xenia_assert(success == X_STATUS_SUCCESS);
 }
-
-void XThread::SetCurrentThread() {
-  threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)this);
+void XThread::SetCurrentThread(XThread* thrd) {
+  threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)thrd);
 }
+
+void XThread::SetCurrentThread() { SetCurrentThread(this); }
 
 void XThread::DeliverAPCs() {
   // https://www.drdobbs.com/inside-nts-asynchronous-procedure-call/184416590?pgno=1
@@ -693,30 +693,31 @@ void XThread::Schedule() {
 void XThread::YieldCPU() { HWThread()->YieldToScheduler(); }
 
 void XThread::SwitchToDirect() {
+
   this->SetCurrentThread();
   cpu::ThreadState::Bind(thread_state());
+  GetKPCR()->prcb_data.current_thread = guest_object();
   fiber()->SwitchTo();
 }
-void XThread::assert_valid() { 
-    auto ts = cpu::ThreadState::Get();
+void XThread::assert_valid() {
+  auto ts = cpu::ThreadState::Get();
 
-    xenia_assert(ts == thread_state());
+  xenia_assert(ts == thread_state());
 
-    auto context = ts->context();
+  auto context = ts->context();
 
-    xenia_assert(GetKThread(context) == guest_object<X_KTHREAD>());
-    X_HANDLE handle_res = 0;
-    bool got_handle = kernel_state()->object_table()->HostHandleForGuestObject(
-        guest_object(), handle_res);
-    xenia_assert(got_handle);
+  xenia_assert(GetKThread(context) == guest_object<X_KTHREAD>());
+  X_HANDLE handle_res = 0;
+  bool got_handle = kernel_state()->object_table()->HostHandleForGuestObject(
+      guest_object(), handle_res);
+  xenia_assert(got_handle);
 
-    xenia_assert(handle_res == handle());
+  xenia_assert(handle_res == handle());
 
-    xenia_assert(GetFlsXThread() == this);
-
+  xenia_assert(GetFlsXThread() == this);
 }
 bool XThread::GetTLSValue(uint32_t slot, uint32_t* value_out) {
-    assert_valid();
+  assert_valid();
   if (slot * 4 > tls_total_size_) {
     return false;
   }

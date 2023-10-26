@@ -589,13 +589,13 @@ static void CriticalSectionPrefetchW(const void* vp) {
 #endif
 }
 
-void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs) {
+void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const ppc_context_t& context) {
   if (!cs.guest_address()) {
     XELOGE("Null critical section in RtlEnterCriticalSection!");
     return;
   }
   CriticalSectionPrefetchW(&cs->lock_count);
-  uint32_t cur_thread = XThread::GetCurrentThread()->guest_object();
+  uint32_t cur_thread = GetKPCR(context)->prcb_data.current_thread;
   uint32_t spin_count = cs->header.absolute * 256;
 
   if (cs->owning_thread == cur_thread) {
@@ -629,13 +629,13 @@ DECLARE_XBOXKRNL_EXPORT2(RtlEnterCriticalSection, kNone, kImplemented,
                          kHighFrequency);
 
 dword_result_t RtlTryEnterCriticalSection_entry(
-    pointer_t<X_RTL_CRITICAL_SECTION> cs) {
+    pointer_t<X_RTL_CRITICAL_SECTION> cs, const ppc_context_t& context) {
   if (!cs.guest_address()) {
     XELOGE("Null critical section in RtlTryEnterCriticalSection!");
     return 1;  // pretend we got the critical section.
   }
   CriticalSectionPrefetchW(&cs->lock_count);
-  uint32_t thread = XThread::GetCurrentThread()->guest_object();
+  uint32_t thread = GetKPCR(context)->prcb_data.current_thread;
 
   if (xe::atomic_cas(-1, 0, &cs->lock_count)) {
     // Able to steal the lock right away.
@@ -660,7 +660,7 @@ void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const p
     XELOGE("Null critical section in RtlLeaveCriticalSection!");
     return;
   }
-  assert_true(cs->owning_thread == XThread::GetCurrentThread()->guest_object());
+  assert_true(cs->owning_thread == GetKPCR(context)->prcb_data.current_thread);
 
   // Drop recursion count - if it isn't zero we still have the lock.
   assert_true(cs->recursion_count > 0);

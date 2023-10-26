@@ -23,75 +23,43 @@ XSemaphore::XSemaphore(KernelState* kernel_state)
 XSemaphore::~XSemaphore() = default;
 
 bool XSemaphore::Initialize(int32_t initial_count, int32_t maximum_count) {
-  assert_false(semaphore_);
+  auto context = cpu::ThreadState::Get()->context();
+  uint32_t guest_objptr = 0;
+  auto guest_globals = context->TranslateVirtual<KernelGuestGlobals*>(
+      kernel_state()->GetKernelGuestGlobals());
+  X_STATUS create_status =
+      xboxkrnl::xeObCreateObject(&guest_globals->ExSemaphoreObjectType, nullptr,
+                                 sizeof(X_KSEMAPHORE), &guest_objptr, context);
 
-  CreateNative(sizeof(X_KSEMAPHORE));
+  xenia_assert(create_status == X_STATUS_SUCCESS);
+  xenia_assert(guest_objptr != 0);
 
-  maximum_count_ = maximum_count;
-  semaphore_ = xe::threading::Semaphore::Create(initial_count, maximum_count);
-  return !!semaphore_;
+  auto ksem = context->TranslateVirtual<X_KSEMAPHORE*>(guest_objptr);
+  xboxkrnl::xeKeInitializeSemaphore(ksem, initial_count, maximum_count);
+  SetNativePointer(guest_objptr);
+  return true;
 }
 
 bool XSemaphore::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
-  assert_false(semaphore_);
-
-  auto semaphore = reinterpret_cast<X_KSEMAPHORE*>(native_ptr);
-  maximum_count_ = semaphore->limit;
-  semaphore_ = xe::threading::Semaphore::Create(semaphore->header.signal_state,
-                                                semaphore->limit);
-  return !!semaphore_;
+  return true;
 }
 
 int32_t XSemaphore::ReleaseSemaphore(int32_t release_count) {
-  int32_t previous_count = 0;
-  semaphore_->Release(release_count, &previous_count);
-  return previous_count;
+  
+    return xboxkrnl::xeKeReleaseSemaphore(cpu::ThreadState::GetContext(),
+                                 guest_object<X_KSEMAPHORE>(), 1, release_count,
+                                 0);
 }
 
 bool XSemaphore::Save(ByteStream* stream) {
-  if (!SaveObject(stream)) {
-    return false;
-  }
-
-  // Get the free number of slots from the semaphore.
-  uint32_t free_count = 0;
-  while (
-      threading::Wait(semaphore_.get(), false, std::chrono::milliseconds(0)) ==
-      threading::WaitResult::kSuccess) {
-    free_count++;
-  }
-
-  XELOGD("XSemaphore {:08X} (count {}/{})", handle(), free_count,
-         maximum_count_);
-
-  // Restore the semaphore back to its previous count.
-  semaphore_->Release(free_count, nullptr);
-
-  stream->Write(maximum_count_);
-  stream->Write(free_count);
 
   return true;
 }
 
 object_ref<XSemaphore> XSemaphore::Restore(KernelState* kernel_state,
                                            ByteStream* stream) {
-  auto sem = new XSemaphore(nullptr);
-  sem->kernel_state_ = kernel_state;
 
-  if (!sem->RestoreObject(stream)) {
-    return nullptr;
-  }
-
-  sem->maximum_count_ = stream->Read<uint32_t>();
-  auto free_count = stream->Read<uint32_t>();
-  XELOGD("XSemaphore {:08X} (count {}/{})", sem->handle(), free_count,
-         sem->maximum_count_);
-
-  sem->semaphore_ =
-      threading::Semaphore::Create(free_count, sem->maximum_count_);
-  assert_not_null(sem->semaphore_);
-
-  return object_ref<XSemaphore>(sem);
+  return object_ref<XSemaphore>(nullptr);
 }
 
 }  // namespace kernel

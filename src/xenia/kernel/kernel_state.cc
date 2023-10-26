@@ -1310,6 +1310,10 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   };
   X_HANDLE host_handle;
 
+  //auto saved_currthread = XThread::GetCurrentThread();
+  auto saved_ts = cpu::ThreadState::Get();
+  
+
   if (!object_table()->HostHandleForGuestObject(
           context->HostToGuestVirtual(guest), host_handle)) {
     // if theres no host object for this guest thread, its definitely the idle
@@ -1323,6 +1327,8 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
 
     auto hw_thread = processor()->GetCPUThread(prcb->current_cpu);
     pre_swap();
+    XThread::SetCurrentThread(nullptr);
+    GetKPCR(context)->prcb_data.current_thread = guest;
     hw_thread->YieldToScheduler();
   } else {
     auto xthrd = object_table()->LookupObject<XThread>(host_handle).release();
@@ -1332,6 +1338,9 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
 
     xthrd->SwitchToDirect();
   }
+  cpu::ThreadState::Bind(saved_ts);
+ // XThread::SetCurrentThread(saved_currthread);
+
   //this is r31 after the swap, but im not sure
   //if it equals our thread or the thread we switched back from.
   //im assuming our thread
@@ -1343,7 +1352,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   GetKPCR(context)->current_irql = r3;
   auto intstate = GetKPCR(context)->software_interrupt_state;
   if (r3 < intstate) {
- //   xboxkrnl::xeDispatchProcedureCallInterrupt(r3, intstate, context);
+    xboxkrnl::xeDispatchProcedureCallInterrupt(r3, intstate, context);
   }
   return wait_result;
 }
@@ -1397,8 +1406,9 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
     /*
       it doesnt call this function in normal kernel, but the code just looks to
       be it inlined
+      pass true so that the function does not reinstert the idle thread into the ready list
     */
-    xboxkrnl::xeHandleDPCsAndThreadSwapping(context);
+    xboxkrnl::xeHandleDPCsAndThreadSwapping(context, true);
   }
 }
 

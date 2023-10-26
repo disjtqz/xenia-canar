@@ -15,8 +15,10 @@ namespace xe {
 namespace cpu {
 class HWThread;
 class Processor;
+class XenonInterruptController;
 
 struct ExternalInterruptArgs {
+  XenonInterruptController* controller_;
   uint32_t source_;
 };
 /*
@@ -53,6 +55,7 @@ class XenonInterruptController {
   void Initialize();
 
   void SetInterruptSource(uint64_t src);
+  static void InterruptFunction(void* ud);
  public:
   XenonInterruptController(HWThread* thread, Processor* processor);
   ~XenonInterruptController();

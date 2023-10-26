@@ -84,7 +84,7 @@ void xeExecuteDPCList2(
     PPCContext* context, uint32_t timer_unk,
     util::X_TYPED_LIST<XDPC, offsetof(XDPC, list_entry)>& dpc_list,
     uint32_t zero_register);
-void xeHandleDPCsAndThreadSwapping(PPCContext* context);
+void xeHandleDPCsAndThreadSwapping(PPCContext* context, bool from_idle_loop=false);
 void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
                                       unsigned int software_interrupt_mask,
                                       cpu::ppc::PPCContext* context);

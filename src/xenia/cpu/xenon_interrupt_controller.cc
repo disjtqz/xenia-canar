@@ -7,12 +7,11 @@
  ******************************************************************************
  */
 
-#include "xenia/cpu/thread.h"
-
 #include "xenia/base/logging.h"
 #include "xenia/cpu/mmio_handler.h"
 #include "xenia/cpu/processor.h"
 #include "xenia/cpu/xenon_interrupt_controller.h"
+#include "xenia/cpu/thread.h"
 namespace xe {
 namespace cpu {
 XenonInterruptController::XenonInterruptController(HWThread* thread,
@@ -52,10 +51,27 @@ void XenonInterruptController::Initialize() {
 void XenonInterruptController::SetInterruptSource(uint64_t src) {
   WriteRegisterOffset(0x50, src);
 }
+
+void XenonInterruptController::InterruptFunction(void* ud) {
+  auto extargs = reinterpret_cast<ExternalInterruptArgs*>(ud);
+  auto controller = extargs->controller_;
+
+  controller->SetInterruptSource(extargs->source_);
+
+  controller->owner_->_CallExternalInterruptHandler(
+      cpu::ThreadState::GetContext(), controller);
+
+
+}
+
 void XenonInterruptController::SendExternalInterrupt(
     ExternalInterruptArgs& args) {
-  SetInterruptSource(args.source_);
-  xenia_assert(false);
+  //SetInterruptSource(args.source_);
+  while (!owner_->TrySendInterruptFromHost(
+      &XenonInterruptController::InterruptFunction, &args)) {
+  
+  }
+  
 }
 
 void XenonInterruptController::WriteRegisterOffset(uint32_t offset,

@@ -36,12 +36,10 @@ class XSemaphore : public XObject {
 
  protected:
   xe::threading::WaitHandle* GetWaitHandle() override {
-    return semaphore_.get();
+    return nullptr;
   }
 
  private:
-  std::unique_ptr<xe::threading::Semaphore> semaphore_;
-  uint32_t maximum_count_ = 0;
 };
 
 }  // namespace kernel

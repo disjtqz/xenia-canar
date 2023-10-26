@@ -388,7 +388,7 @@ DECLARE_XBOXKRNL_EXPORT2(KeQueryPerformanceFrequency, kThreading, kImplemented,
 uint32_t KeDelayExecutionThread(uint32_t processor_mode, uint32_t alertable,
                                 uint64_t* interval_ptr,
                                 cpu::ppc::PPCContext* ctx) {
-    #if 1
+    #if 0
   XThread* thread = XThread::GetCurrentThread();
 
   if (alertable) {

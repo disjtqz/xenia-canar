@@ -123,7 +123,7 @@ class XThread : public XObject {
   virtual bool Save(ByteStream* stream) override;
   static object_ref<XThread> Restore(KernelState* kernel_state,
                                      ByteStream* stream);
-
+  static void SetCurrentThread(XThread* thrd);
   void SetCurrentThread();
   void Schedule();
   void YieldCPU();

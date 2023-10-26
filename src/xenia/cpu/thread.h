@@ -145,6 +145,8 @@ class HWThread {
   std::unique_ptr<HWDecrementer> decrementer_;
   std::unique_ptr<XenonInterruptController> interrupt_controller_;
 
+
+  void (*external_interrupt_handler_)(cpu::ppc::PPCContext* context, XenonInterruptController* controller);
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
   ~HWThread();
@@ -161,6 +163,18 @@ class HWThread {
   void SetDecrementerTicks(int32_t ticks) { decrementer_->Set(ticks); }
   void SetDecrementerInterruptCallback(void (*decr)(void* ud), void* ud) {
     decrementer_->SetInterruptCallback(decr, ud);
+  }
+
+  void SetExternalInterruptHandler(void (*handler)(
+      cpu::ppc::PPCContext* context, XenonInterruptController* controller)) {
+      external_interrupt_handler_ = handler;
+  }
+
+  void _CallExternalInterruptHandler(cpu::ppc::PPCContext* context,
+      XenonInterruptController* controller) {
+      if (external_interrupt_handler_)  {
+        external_interrupt_handler_(context, controller);
+     }
   }
 
   void SetIdleProcessFunction(

@@ -73,7 +73,7 @@ using ready_thread_pointer_t =
 */
 void xeDispatcherSpinlockUnlock(PPCContext* context, X_KSPINLOCK* lock,
                                 uint32_t irql) {
-  SCHEDLOG(context, "xeDispatcherSpinlockUnlock irql = {}", irql);
+  //SCHEDLOG(context, "xeDispatcherSpinlockUnlock irql = {}", irql);
   xenia_assert(lock->pcr_of_owner == static_cast<uint32_t>(context->r[13]));
   lock->pcr_of_owner = 0;
 reenter:
@@ -203,6 +203,7 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
 }
 
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {
+  SCHEDLOG(context, "insert_8009D048 - thread = {}, unk = {}", (void*)thread, unk);
   auto priority = thread->priority;
   auto thread_prcb = context->TranslateVirtual(thread->a_prcb_ptr);
   auto thread_ready_list_entry = &thread->ready_prcb_entry;
@@ -227,6 +228,7 @@ static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {
 }
 
 static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
+  SCHEDLOG(context, "insert_8009D048 - thread = {}", (void*)thread);
   if (context->TranslateVirtual(thread->another_prcb_ptr) ==
       &GetKPCR(context)->prcb_data) {
     unsigned char unk = thread->unk_BD;
@@ -248,6 +250,8 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
 */
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority) {
+  SCHEDLOG(context, "xeScanForReadyThread - prcb = {}, priority = {}",
+           (void*)prcb, priority);
   auto v3 = prcb->has_ready_thread_by_priority;
   if ((prcb->unk_mask_64 & ~((1 << priority) - 1) & v3) == 0) {
     return nullptr;
@@ -271,6 +275,7 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
 void HandleCpuThreadDisownedIPI(void* ud) { xenia_assert(false); }
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
+  SCHEDLOG(context, "xeReallyQueueThread - kthread = {}", (void*)kthread);
   auto prcb_for_thread = context->TranslateVirtual(kthread->a_prcb_ptr);
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &prcb_for_thread->enqueued_processor_threads_lock, false);
@@ -343,6 +348,8 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
 
 static void xeProcessQueuedThreads(PPCContext* context,
                                    bool under_dispatcher_lock) {
+  SCHEDLOG(context, "xeProcessQueuedThreads - under_dispatcher_lock {}",
+           under_dispatcher_lock);
   auto kernel = context->kernel_state;
 
   if (under_dispatcher_lock) {
@@ -380,6 +387,8 @@ static void xeProcessQueuedThreads(PPCContext* context,
 }
 
 X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
+
+    SCHEDLOG(context, "xeSelectThreadDueToTimesliceExpiration");
   auto pcr = GetKPCR(context);
   auto prcb = &pcr->prcb_data;
 
@@ -489,7 +498,10 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
 
 // handles DPCS, also switches threads?
 // timer related?
-void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
+void xeHandleDPCsAndThreadSwapping(PPCContext* context,
+                                   bool from_idle_loop) {
+  SCHEDLOG(context, "xeHandleDPCsAndThreadSwapping");
+
   X_KTHREAD* next_thread = nullptr;
   while (true) {
     set_msr_interrupt_bits(context, 0);
@@ -498,13 +510,17 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
     if (!GetKPCR(context)->prcb_data.queued_dpcs_list_head.empty(context) ||
         GetKPCR(context)->timer_pending) {
       // todo: incomplete!
-
+      SCHEDLOG(context,
+               "xeHandleDPCsAndThreadSwapping - entering xeExecuteDPCList2");
       xeExecuteDPCList2(context, GetKPCR(context)->timer_pending,
                         GetKPCR(context)->prcb_data.queued_dpcs_list_head, 0);
     }
     set_msr_interrupt_bits(context, 0xFFFF8000);
 
     if (GetKPCR(context)->prcb_data.enqueued_threads_list.next) {
+      SCHEDLOG(context,
+               "xeHandleDPCsAndThreadSwapping - entering "
+               "xeProcessQueuedThreads");
       xeProcessQueuedThreads(context, false);
     }
 
@@ -536,18 +552,26 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
       break;
     }
   }
+  SCHEDLOG(context, "xeHandleDPCsAndThreadSwapping - Got a new next thread");
   // requeue ourselves
   // GetKPCR(context)->prcb_data.current_thread
   auto& prcb = GetKPCR(context)->prcb_data;
   auto ble = context->TranslateVirtual(prcb.current_thread);
   prcb.next_thread = 0U;
   prcb.current_thread = context->HostToGuestVirtual(next_thread);
-  insert_8009D048(context, ble);
+  //idle loop does not reinsert itself!
+  if (!from_idle_loop) {
+    insert_8009D048(context, ble);
+  }
   context->kernel_state->ContextSwitch(context, next_thread);
 }
 
 void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
                              X_STATUS wait_result, int priority_increment) {
+  SCHEDLOG(context,
+           "xeEnqueueThreadPostWait - thread {}, wait_result {:04X}, "
+           "priority_increment {}",
+           (void*)thread, wait_result, priority_increment);
   xenia_assert(thread->thread_state == 5);
   thread->wait_result = thread->wait_result | wait_result;
 
@@ -677,6 +701,8 @@ void xeHandleWaitTypeAll(PPCContext* context, X_KWAIT_BLOCK* block) {
 }
 void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
                                  int unk) {
+  SCHEDLOG(context, "xeDispatchSignalStateChange - header {}, unk = {}", (void*)header,
+           unk);
   auto waitlist_head = &header->wait_list;
 
   for (X_KWAIT_BLOCK* i = context->TranslateVirtual<X_KWAIT_BLOCK*>(
@@ -716,6 +742,7 @@ void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
 }
 
 X_STATUS xeNtYieldExecution(PPCContext* context) {
+  SCHEDLOG(context, "xeNtYieldExecution");
   X_STATUS result;
   auto kpcr = GetKPCR(context);
   auto v1 = context->TranslateVirtual(kpcr->prcb_data.current_thread);
@@ -754,6 +781,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   return result;
 }
 void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
+  SCHEDLOG(context, "scheduler_80097F90 - thread {}", (void*)thread);
   auto pcrb = &GetKPCR(context)->prcb_data;
 
   xboxkrnl::xeKeKfAcquireSpinLock(
@@ -790,6 +818,7 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
 }
 
 X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
+  SCHEDLOG(context, "xeSchedulerSwitchThread");
   auto pcr = GetKPCR(context);
   auto prcb = &pcr->prcb_data;
 
@@ -848,6 +877,7 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
 
 */
 X_STATUS xeSchedulerSwitchThread2(PPCContext* context) {
+  SCHEDLOG(context, "xeSchedulerSwitchThread2");
 reenter:
   auto pcr = GetKPCR(context);
   auto prcb = &pcr->prcb_data;
@@ -927,6 +957,7 @@ int xeKeResumeThread(PPCContext* context, X_KTHREAD* thread) {
 }
 
 void xeSuspendThreadApcRoutine(PPCContext* context) {
+  SCHEDLOG(context, "xeSuspendThreadApcRoutine called");
   auto thrd = GetKThread(context);
   xeKeWaitForSingleObject(&thrd->suspend_sema, 2, 0, 0, 0);
 }
@@ -1126,6 +1157,8 @@ void xeKeSetAffinityThread(PPCContext* context, X_KTHREAD* thread,
 }
 void xeKeSetPriorityClassThread(PPCContext* context, X_KTHREAD* thread,
                                 bool a2) {
+  SCHEDLOG(context, "xeKeSetPriorityClassThread - thread {}, a2 {}",
+           (void*)thread, a2);
   uint32_t old_irql = context->kernel_state->LockDispatcher(context);
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, false);
@@ -1159,10 +1192,14 @@ void xeKeSetPriorityClassThread(PPCContext* context, X_KTHREAD* thread,
 
 void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
                               int priority) {
+
+  SCHEDLOG(context, "xeKeChangeThreadPriority - thread {}, a2 {}",
+           (void*)thread, priority);
   auto prio = thread->priority;
   auto thread_prcb = thread->a_prcb_ptr;
 
   if (prio == priority) {
+    SCHEDLOG(context, "Skipping, priority is the same");
     return;
   }
   auto thread_state = thread->thread_state;
