@@ -27,7 +27,6 @@ class XEvent : public XObject {
   void InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header);
 
   int32_t Set(uint32_t priority_increment, bool wait);
-  int32_t Pulse(uint32_t priority_increment, bool wait);
   int32_t Reset();
   void Query(uint32_t* out_type, uint32_t* out_state);
   void Clear();
@@ -37,11 +36,7 @@ class XEvent : public XObject {
                                     ByteStream* stream);
 
  protected:
-  xe::threading::WaitHandle* GetWaitHandle() override { return event_.get(); }
-
- private:
-  bool manual_reset_ = false;
-  std::unique_ptr<xe::threading::Event> event_;
+  xe::threading::WaitHandle* GetWaitHandle() override { return nullptr; }
 };
 
 }  // namespace kernel

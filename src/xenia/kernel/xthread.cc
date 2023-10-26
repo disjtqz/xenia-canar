@@ -160,6 +160,8 @@ XThread* XThread::GetCurrentThread() {
   XThread* thread = GetFlsXThread();
   if (!thread) {
     assert_always("Attempting to use guest stuff from a non-guest thread.");
+  } else {
+    thread->assert_valid();
   }
   return thread;
 }
@@ -549,6 +551,7 @@ class reenter_exception {
 void XThread::Execute() {
   XELOGKERNEL("XThread::Execute thid {} (handle={:08X}, '{}', native={:08X})",
               thread_id(), handle(), "", 69420);
+  assert_valid();
   // Let the kernel know we are starting.
   kernel_state()->OnThreadExecute(this);
   //TODO: not confident that this is correct, but it makes sense
@@ -604,6 +607,7 @@ void XThread::Execute() {
 }
 
 void XThread::Reenter(uint32_t address) {
+  assert_valid();
   // TODO(gibbed): Maybe use setjmp/longjmp on Windows?
   // https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/longjmp#remarks
   // On Windows with /EH, setjmp/longjmp do stack unwinding.
@@ -693,18 +697,36 @@ void XThread::SwitchToDirect() {
   cpu::ThreadState::Bind(thread_state());
   fiber()->SwitchTo();
 }
+void XThread::assert_valid() { 
+    auto ts = cpu::ThreadState::Get();
 
+    xenia_assert(ts == thread_state());
+
+    auto context = ts->context();
+
+    xenia_assert(GetKThread(context) == guest_object<X_KTHREAD>());
+    X_HANDLE handle_res = 0;
+    bool got_handle = kernel_state()->object_table()->HostHandleForGuestObject(
+        guest_object(), handle_res);
+    xenia_assert(got_handle);
+
+    xenia_assert(handle_res == handle());
+
+    xenia_assert(GetFlsXThread() == this);
+
+}
 bool XThread::GetTLSValue(uint32_t slot, uint32_t* value_out) {
+    assert_valid();
   if (slot * 4 > tls_total_size_) {
     return false;
   }
-
   auto mem = memory()->TranslateVirtual(tls_dynamic_address_ + slot * 4);
   *value_out = xe::load_and_swap<uint32_t>(mem);
   return true;
 }
 
 bool XThread::SetTLSValue(uint32_t slot, uint32_t value) {
+  assert_valid();
   if (slot * 4 >= tls_total_size_) {
     return false;
   }

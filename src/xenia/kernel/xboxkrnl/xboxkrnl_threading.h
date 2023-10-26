@@ -162,7 +162,8 @@ void xeKeSetPriorityClassThread(PPCContext* context, X_KTHREAD* thread,
 
 void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
                               int priority);
-
+int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
+                             int increment, int adjustment, unsigned char wait);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

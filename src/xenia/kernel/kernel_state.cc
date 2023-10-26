@@ -422,7 +422,7 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
   if (!dispatch_thread_running_) {
     dispatch_thread_running_ = true;
     dispatch_thread_ = object_ref<XHostThread>(new XHostThread(
-        this, 128 * 1024, (0b100000) << 24,
+        this, 128 * 1024, 0,
         [this]() {
           // As we run guest callbacks the debugger must be able to suspend us.
           auto context = cpu::ThreadState::GetContext();
@@ -1026,8 +1026,8 @@ void KernelState::SystemClockInterrupt() {
   }
   uint32_t r3 = kpcr->current_irql;
   uint32_t r4 = kpcr->software_interrupt_state;
-  if (r3 < 2 && r3 < r4) {
-   // xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
+  if (r3 < r4) {
+   xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
   }
 }
 
@@ -1280,7 +1280,7 @@ X_KPCR_PAGE* KernelState::KPCRPageForCpuNumber(uint32_t i) {
   return memory()->TranslateVirtual<X_KPCR_PAGE*>(processor()->GetPCRForCPU(i));
 }
 
-void KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
+X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   // todo: disable interrupts here!
   // this is incomplete
   auto pre_swap = [this, context, guest]() {
@@ -1332,6 +1332,20 @@ void KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
 
     xthrd->SwitchToDirect();
   }
+  //this is r31 after the swap, but im not sure
+  //if it equals our thread or the thread we switched back from.
+  //im assuming our thread
+
+  X_KTHREAD* thread_to_load_from = GetKThread(context);
+  xenia_assert(thread_to_load_from != guest);
+  auto r3 = thread_to_load_from->unk_A4;
+  auto wait_result = thread_to_load_from->wait_result;
+  GetKPCR(context)->current_irql = r3;
+  auto intstate = GetKPCR(context)->software_interrupt_state;
+  if (r3 < intstate) {
+ //   xboxkrnl::xeDispatchProcedureCallInterrupt(r3, intstate, context);
+  }
+  return wait_result;
 }
 cpu::XenonInterruptController* KernelState::InterruptControllerFromPCR(
     cpu::ppc::PPCContext* context, X_KPCR* pcr) {
@@ -1363,13 +1377,19 @@ uint64_t KernelState::GetKernelInterruptTime() {
 }
 void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
   context->kernel_state = kernel_state();
-
+  auto kpcr = GetKPCR(context);
+  auto kthread = GetKThread(context);
   while (true) {
-    auto kpcr = GetKPCR(context);
+
     kpcr->prcb_data.running_idle_thread =
         kpcr->prcb_data.idle_thread;
 
     while (!kpcr->generic_software_interrupt) {
+
+      xenia_assert(context->ExternalInterruptsEnabled());
+
+      xenia_assert(GetKThread(context) == kthread);
+      xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
       _mm_pause();
     }

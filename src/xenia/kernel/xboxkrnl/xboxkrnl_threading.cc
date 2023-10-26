@@ -381,16 +381,14 @@ void KeSetCurrentProcessType_entry(dword_t type, const ppc_context_t& context) {
 }
 DECLARE_XBOXKRNL_EXPORT1(KeSetCurrentProcessType, kThreading, kImplemented);
 
-dword_result_t KeQueryPerformanceFrequency_entry() {
-  uint64_t result = Clock::guest_tick_frequency();
-  return static_cast<uint32_t>(result);
-}
+dword_result_t KeQueryPerformanceFrequency_entry() { return 50000000ULL; }
 DECLARE_XBOXKRNL_EXPORT2(KeQueryPerformanceFrequency, kThreading, kImplemented,
                          kHighFrequency);
 
 uint32_t KeDelayExecutionThread(uint32_t processor_mode, uint32_t alertable,
                                 uint64_t* interval_ptr,
                                 cpu::ppc::PPCContext* ctx) {
+    #if 1
   XThread* thread = XThread::GetCurrentThread();
 
   if (alertable) {
@@ -407,8 +405,14 @@ uint32_t KeDelayExecutionThread(uint32_t processor_mode, uint32_t alertable,
       return result;
     }
   }
-
   return result;
+  #else
+
+    
+  
+    return xeNtYieldExecution(ctx);
+#endif
+
 }
 
 dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
@@ -601,11 +605,8 @@ uint32_t xeNtClearEvent(uint32_t handle) {
   X_STATUS result = X_STATUS_SUCCESS;
 
   auto ev = kernel_state()->object_table()->LookupObject<XEvent>(handle);
-  if (ev) {
-    ev->Reset();
-  } else {
-    result = X_STATUS_INVALID_HANDLE;
-  }
+
+  ev->guest_object<X_KEVENT>()->header.signal_state = 0;
 
   return result;
 }
@@ -650,7 +651,11 @@ uint32_t xeKeReleaseSemaphore(X_KSEMAPHORE* semaphore_ptr, uint32_t increment,
   // TODO(benvanik): increment thread priority?
   // TODO(benvanik): wait?
 
-  return sem->ReleaseSemaphore(adjustment);
+  // return sem->ReleaseSemaphore(adjustment);
+
+  return xeKeReleaseSemaphore(cpu::ThreadState::GetContext(),
+                              sem->guest_object<X_KSEMAPHORE>(), increment,
+                              adjustment, wait);
 }
 
 dword_result_t KeReleaseSemaphore_entry(pointer_t<X_KSEMAPHORE> semaphore_ptr,
@@ -702,14 +707,16 @@ DECLARE_XBOXKRNL_EXPORT1(NtCreateSemaphore, kThreading, kImplemented);
 
 dword_result_t NtReleaseSemaphore_entry(dword_t sem_handle,
                                         dword_t release_count,
-                                        lpdword_t previous_count_ptr) {
+                                        lpdword_t previous_count_ptr,
+                                        const ppc_context_t& context) {
   X_STATUS result = X_STATUS_SUCCESS;
   int32_t previous_count = 0;
 
   auto sem =
       kernel_state()->object_table()->LookupObject<XSemaphore>(sem_handle);
   if (sem) {
-    previous_count = sem->ReleaseSemaphore((int32_t)release_count);
+    previous_count = xeKeReleaseSemaphore(
+        context, sem->guest_object<X_KSEMAPHORE>(), 1, release_count, 0);
   } else {
     result = X_STATUS_INVALID_HANDLE;
   }
@@ -798,7 +805,7 @@ void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
     util::XeInsertHeadList(v4->mutants_list.blink_ptr, &mutant->unk_list,
                            context);
 
-    //kernel_state()->UnlockDispatcher(context, old_irql);
+    // kernel_state()->UnlockDispatcher(context, old_irql);
 
     xboxkrnl::xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context), old_irql);

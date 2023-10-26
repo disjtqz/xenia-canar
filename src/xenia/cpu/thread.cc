@@ -48,7 +48,9 @@ void HWDecrementer::WorkerMain() {
     }
 
     double wait_time_in_nanoseconds =
-        (static_cast<double>(decrementer_ticks) / 50000000.0) * 1000000000.0;
+        (static_cast<double>(decrementer_ticks) /
+         static_cast<double>(TIMEBASE_FREQUENCY)) *
+        1000000000.0;
     timer_->SetOnceAfter(chrono::hundrednanoseconds(
         static_cast<long long>(wait_time_in_nanoseconds / 100.0)));
     {
@@ -197,7 +199,10 @@ void HWThread::EnqueueRunnableThread(RunnableThread* rth) {
   runnable_thread_list_.Push(&rth->list_entry_);
 }
 
-void HWThread::YieldToScheduler() { this->idle_process_fiber_->SwitchTo(); }
+void HWThread::YieldToScheduler() {
+  cpu::ThreadState::Bind(idle_process_threadstate_);
+  this->idle_process_fiber_->SwitchTo();
+}
 
 // todo: handle interrupt controller/irql shit, that matters too
 // theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
@@ -228,7 +233,7 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
   auto new_ctx = new_ts->context();
 
   uint64_t msr = new_ctx->msr;
-  new_ctx->DisableEI();
+  // new_ctx->DisableEI();
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
   new_ctx->msr = msr;
   cpu::ThreadState::Bind(old_ts);
@@ -295,6 +300,23 @@ bool HWThread::SendGuestIPI(void (*ipi_func)(void*), void* ud) {
   guest_ipi_list_.Push(&msg->list_entry_);
   guest_ipi_dispatch_event_->SetBoostPriority();
   return true;
+}
+
+uint64_t HWThread::mftb() const {
+  // need to rescale to TIMEBASE_FREQUENCY
+  long long freq = _Query_perf_frequency();
+
+  long long counter = _Query_perf_counter();
+  unsigned long long rem = 0;
+
+  unsigned long long ratio = (49875000ULL << 32) / static_cast<uint64_t>(freq);
+
+  unsigned long long result_low = (ratio * counter) >> 32;
+
+  unsigned long long result_high = __umulh(ratio, counter);
+
+  unsigned long long result = result_low | (result_high << 32);
+  return result;
 }
 
 }  // namespace cpu

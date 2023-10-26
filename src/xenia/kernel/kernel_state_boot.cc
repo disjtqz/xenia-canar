@@ -286,6 +286,7 @@ void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
   thread->unk_CA = v20;
   // timeslice related
   thread->unk_B4 = process->unk_0C;
+  thread->msr_mask = 0xFDFFD7FF;
 }
 
 void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {

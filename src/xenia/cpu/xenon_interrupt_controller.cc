@@ -49,8 +49,12 @@ void XenonInterruptController::Initialize() {
                                               WriteRegisterStub);
 }
 
+void XenonInterruptController::SetInterruptSource(uint64_t src) {
+  WriteRegisterOffset(0x50, src);
+}
 void XenonInterruptController::SendExternalInterrupt(
     ExternalInterruptArgs& args) {
+  SetInterruptSource(args.source_);
   xenia_assert(false);
 }
 

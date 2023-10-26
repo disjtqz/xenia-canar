@@ -120,14 +120,14 @@ int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
 }
 
 int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
-                             int unk, int unk2, unsigned char unk3) {
+                             int increment, int adjustment, unsigned char wait) {
   auto old_irql = context->kernel_state->LockDispatcher(context);
   int32_t old_signal_state = semaphore->header.signal_state;
 
   auto current_thread =
       context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
 
-  int32_t new_signal_state = old_signal_state + unk2;
+  int32_t new_signal_state = old_signal_state + adjustment;
 
   if (new_signal_state > semaphore->limit ||
       new_signal_state < old_signal_state) {
@@ -142,11 +142,11 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
 
   if (!old_signal_state &&
       !util::XeIsListEmpty(&semaphore->header.wait_list, context)) {
-    xeDispatchSignalStateChange(context, &semaphore->header, unk);
+    xeDispatchSignalStateChange(context, &semaphore->header, increment);
   }
 
-  if (unk3) {
-    current_thread->unk_A6 = unk3;
+  if (wait) {
+    current_thread->unk_A6 = wait;
     current_thread->unk_A4 = old_irql;
 
   } else {

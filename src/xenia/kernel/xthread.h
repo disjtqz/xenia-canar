@@ -107,6 +107,8 @@ class XThread : public XObject {
   uint8_t active_cpu() const;
   void SetActiveCpu(uint8_t cpu_index, bool initial = false);
 
+  void assert_valid();
+
   bool GetTLSValue(uint32_t slot, uint32_t* value_out);
   bool SetTLSValue(uint32_t slot, uint32_t value);
 

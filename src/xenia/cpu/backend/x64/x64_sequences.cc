@@ -484,43 +484,15 @@ EMITTER_OPCODE_TABLE(OPCODE_ROUND, ROUND_F32, ROUND_F64, ROUND_V128);
 // ============================================================================
 struct LOAD_CLOCK : Sequence<LOAD_CLOCK, I<OPCODE_LOAD_CLOCK, I64Op>> {
   static void Emit(X64Emitter& e, const EmitArgType& i) {
-    if (cvars::inline_loadclock) {
-      e.mov(e.rcx,
-            e.GetBackendCtxPtr(offsetof(X64BackendContext, guest_tick_count)));
-      e.mov(i.dest, e.qword[e.rcx]);
-    } else {
-      // When scaling is disabled and the raw clock source is selected, the code
-      // in the Clock class is actually just forwarding tick counts after one
-      // simple multiply and division. In that case we rather bake the scaling
-      // in here to cut extra function calls with CPU cache misses and stack
-      // frame overhead.
-      if (cvars::clock_no_scaling && cvars::clock_source_raw) {
-        auto ratio = Clock::guest_tick_ratio();
-        // The 360 CPU is an in-order CPU, AMD64 usually isn't. Without
-        // mfence/lfence magic the rdtsc instruction can be executed sooner or
-        // later in the cache window. Since it's resolution however is much
-        // higher than the 360's mftb instruction this can safely be ignored.
-
-        // Read time stamp in edx (high part) and eax (low part).
-        e.rdtsc();
-        // Make it a 64 bit number in rax.
-        e.shl(e.rdx, 32);
-        e.or_(e.rax, e.rdx);
-        // Apply tick frequency scaling.
-        e.mov(e.rcx, ratio.first);
-        e.mul(e.rcx);
-        // We actually now have a 128 bit number in rdx:rax.
-        e.mov(e.rcx, ratio.second);
-        e.div(e.rcx);
-        e.mov(i.dest, e.rax);
-      } else {
-        e.CallNative(LoadClock);
-        e.mov(i.dest, e.rax);
-      }
-    }
+    e.CallNative(LoadClock);
+    e.mov(i.dest, e.rax);
   }
   static uint64_t LoadClock(void* raw_context) {
-    return Clock::QueryGuestTickCount();
+    auto context = reinterpret_cast<ppc::PPCContext*>(raw_context);
+    // get hw thread from pcr page number
+    auto hw_thread =
+        context->processor->GetCPUThread((context->r[13] >> 12) & 0xF);
+    return hw_thread->mftb();
   }
 };
 EMITTER_OPCODE_TABLE(OPCODE_LOAD_CLOCK, LOAD_CLOCK);
@@ -2120,9 +2092,9 @@ struct RSQRT_V128 : Sequence<RSQRT_V128, I<OPCODE_RSQRT, V128Op, V128Op>> {
     e.ChangeMxcsrMode(MXCSRMode::Vmx);
     Xmm src1 = GetInputRegOrConstant(e, i.src1, e.xmm3);
     /*
-        the vast majority of inputs to vrsqrte come from vmsum3 or vmsum4 as part
-        of a vector normalization sequence. in fact, its difficult to find uses of vrsqrte in titles
-        that have inputs which do not come from vmsum.
+        the vast majority of inputs to vrsqrte come from vmsum3 or vmsum4 as
+       part of a vector normalization sequence. in fact, its difficult to find
+       uses of vrsqrte in titles that have inputs which do not come from vmsum.
     */
     if (i.src1.value && i.src1.value->AllFloatVectorLanesSameValue()) {
       e.vmovss(e.xmm0, src1);
@@ -3193,8 +3165,7 @@ struct SET_ROUNDING_MODE_I32
 
       if (constant_value & 4) {
         e.or_(flags_ptr, 1U << kX64BackendNonIEEEMode);
-      }
-      else {
+      } else {
         e.btr(flags_ptr, kX64BackendNonIEEEMode);
       }
       e.mov(e.dword[e.rsp + StackLayout::GUEST_SCRATCH], e.eax);
@@ -3202,14 +3173,14 @@ struct SET_ROUNDING_MODE_I32
       e.vldmxcsr(e.dword[e.rsp + StackLayout::GUEST_SCRATCH]);
 
     } else {
-      //can andnot, but this is a very infrequently used opcode
+      // can andnot, but this is a very infrequently used opcode
       e.mov(e.eax, 1U << kX64BackendNonIEEEMode);
       e.mov(e.edx, e.eax);
       e.not_(e.edx);
       e.mov(e.ecx, flags_ptr);
-      //edx = flags w/ non ieee cleared
+      // edx = flags w/ non ieee cleared
       e.and_(e.edx, e.ecx);
-      //eax = flags w/ non ieee set
+      // eax = flags w/ non ieee set
       e.or_(e.eax, e.ecx);
       e.bt(i.src1, 2);
 

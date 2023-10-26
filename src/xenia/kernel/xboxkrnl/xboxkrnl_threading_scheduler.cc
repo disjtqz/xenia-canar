@@ -247,7 +247,7 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
 }
 
 void HandleCpuThreadDisownedIPI(void* ud) {
-  // xenia_assert(false);
+  xenia_assert(false);
 }
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
@@ -283,9 +283,9 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
           do a non-blocking host IPI here. we need to be sure the original cpu
          this thread belonged to has given it up before we continue
       */
-      context->processor->GetCPUThread(old_cpu_for_thread)
-          ->TrySendInterruptFromHost(HandleCpuThreadDisownedIPI,
-                                     (void*)kthread);
+      //context->processor->GetCPUThread(old_cpu_for_thread)
+       //   ->TrySendInterruptFromHost(HandleCpuThreadDisownedIPI,
+     //                                (void*)kthread);
     }
     return;
   }
@@ -457,6 +457,11 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
     v12->thread_state = 3;
     prcb->next_thread = v12;
   }
+
+  auto v13 = prcb->next_thread;
+  if (v13) {
+    return v13.xlat();
+  }
   xboxkrnl::xeKeKfReleaseSpinLock(context, list_lock, 0, false);
 
   return nullptr;
@@ -486,9 +491,11 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context) {
     if (GetKPCR(context)->timeslice_ended) {
       GetKPCR(context)->timeslice_ended = 0;
       next_thread = xeSelectThreadDueToTimesliceExpiration(context);
+
       if (!next_thread) {
         return;
       }
+
       break;
     }
     // failed to select a thread to switch to
@@ -706,7 +713,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   if (v2->next_thread) {
     v1->unk_B4 = v1->process->unk_0C;
     auto v4 = v1->priority;
-    if (v4 < 0x12) {
+    if ((unsigned int)v4 < 0x12) {
       v4 = v4 - v1->unk_BA - 1;
       if (v4 < v1->unk_B9) {
         v4 = v1->unk_B9;

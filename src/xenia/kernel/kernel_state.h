@@ -323,7 +323,7 @@ class KernelState {
   uint64_t GetKernelInterruptTime();
   X_KPCR_PAGE* KPCRPageForCpuNumber(uint32_t i);
 
-  void ContextSwitch(cpu::ppc::PPCContext* context, X_KTHREAD* guest);
+  X_STATUS ContextSwitch(cpu::ppc::PPCContext* context, X_KTHREAD* guest);
   // the cpu number is encoded in the pcr address
   uint32_t GetPCRCpuNum(X_KPCR* pcr) {
     return (memory_->HostToGuestVirtual(pcr) >> 12) & 0xF;

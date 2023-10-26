@@ -82,6 +82,9 @@ class HWThread;
 
 
 */
+//this figure comes courtesy of libxenon. turns out 50mhz was not the real frequency, so i wonder where we got that figure from
+static constexpr uint64_t TIMEBASE_FREQUENCY = 49875000ULL;
+
 static constexpr int32_t DECREMENTER_DISABLE = 0x7FFFFFFF;
 class HWDecrementer {
   volatile int32_t value_ = -1;
@@ -172,6 +175,8 @@ class HWThread {
   void YieldToScheduler();
 
   bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud);
+
+  uint64_t mftb() const;
   // SendGuestIPI is designed to run on a guest thread
   // it ought to be nonblocking, unlike TrySendHostIPI
   bool SendGuestIPI(void (*ipi_func)(void*), void* ud);

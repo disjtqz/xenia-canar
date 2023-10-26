@@ -52,6 +52,7 @@ class XenonInterruptController {
 
   void Initialize();
 
+  void SetInterruptSource(uint64_t src);
  public:
   XenonInterruptController(HWThread* thread, Processor* processor);
   ~XenonInterruptController();
@@ -65,6 +66,8 @@ class XenonInterruptController {
 
   void WriteRegisterOffset(uint32_t offset, uint64_t value);
   uint64_t ReadRegisterOffset(uint32_t offset);
+
+  
 };
 
 }  // namespace cpu
