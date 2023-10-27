@@ -100,10 +100,9 @@ static void FreeContext(void* ctx) {
                        memory::DeallocationType::kRelease);
 }
 
-ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
-                         uint32_t stack_base, uint32_t pcr_address)
-
-{
+ThreadState* ThreadState::Create(Processor* processor, uint32_t thread_id,
+                                 uint32_t stack_base, uint32_t pcr_address) {
+  // return new ThreadState(processor, thread_id, stack_base, pcr_address);
   if (thread_id == UINT_MAX) {
     // System thread. Assign the system thread ID with a high bit
     // set so people know what's up.
@@ -113,7 +112,7 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
 
   // Allocate with 64b alignment.
 
-  context_ = reinterpret_cast<ppc::PPCContext*>(AllocateContext());
+  auto context_ = reinterpret_cast<ppc::PPCContext*>(AllocateContext());
   processor->backend()->InitializeBackendContext(context_);
   assert_true(((uint64_t)context_ & 0x3F) == 0);
   std::memset(context_, 0, sizeof(ppc::PPCContext));
@@ -126,7 +125,7 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
   context_->membase_bit = memory->membase_bit();
   context_->physical_membase = memory->physical_membase();
   context_->processor = processor;
-  context_->thread_state = this;
+  context_->thread_state = reinterpret_cast<ThreadState*>(context_);
   context_->thread_id = thread_id;
 
   // Set initial registers.
@@ -141,11 +140,7 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
   // we have way more than 32 vrs, but setting it to all ones seems closer to
   // correct than 0
   context_->vrsave = ~0u;
-}
-
-ThreadState* ThreadState::Create(Processor* processor, uint32_t thread_id,
-                                 uint32_t stack_base, uint32_t pcr_address) {
-  return new ThreadState(processor, thread_id, stack_base, pcr_address);
+  return reinterpret_cast<ThreadState*>(context_);
 }
 
 ThreadState::~ThreadState() {
@@ -159,11 +154,12 @@ ThreadState::~ThreadState() {
     SetCurrentContext(nullptr);
   }
 #endif
-  if (context_) {
-    context_->processor->backend()->DeinitializeBackendContext(context_);
-    FreeContext(reinterpret_cast<void*>(context_));
+  if (context()) {
+    context()->processor->backend()->DeinitializeBackendContext(context());
   }
 }
+
+void ThreadState::operator delete(void* vp) { FreeContext(vp); }
 
 void ThreadState::Bind(ThreadState* thread_state) {
 #if defined(THREADSTATE_USE_TEB) || defined(THREADSTATE_USE_FLS)

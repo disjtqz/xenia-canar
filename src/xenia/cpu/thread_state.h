@@ -23,11 +23,14 @@ class Processor;
 
 class ThreadState {
  public:
-  ThreadState(Processor* processor, uint32_t thread_id, uint32_t stack_base = 0,
-              uint32_t pcr_address = 0);
+
   ~ThreadState();
 
-  ppc::PPCContext* context() const { return context_; }
+  void operator delete(void* vp);
+
+  ppc::PPCContext* context() const {
+    return reinterpret_cast<ppc::PPCContext*>(const_cast<ThreadState*>(this));
+  }
 
   static void Bind(ThreadState* thread_state);
   static ThreadState* Get();
@@ -38,10 +41,6 @@ class ThreadState {
   static ThreadState* Create(Processor* processor, uint32_t thread_id,
                              uint32_t stack_base = 0, uint32_t pcr_address = 0);
   
- private:
-
-  // NOTE: must be 64b aligned for SSE ops.
-  ppc::PPCContext* context_;
 };
 
 }  // namespace cpu
