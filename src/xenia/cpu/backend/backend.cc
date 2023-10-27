@@ -23,10 +23,6 @@ bool Backend::Initialize(Processor* processor) {
   return true;
 }
 
-void* Backend::AllocThreadData() { return nullptr; }
-
-void Backend::FreeThreadData(void* thread_data) {}
-
 }  // namespace backend
 }  // namespace cpu
 }  // namespace xe

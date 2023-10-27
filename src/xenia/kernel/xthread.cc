@@ -159,7 +159,7 @@ bool XThread::IsInThread(XThread* other) { return GetFlsXThread() == other; }
 XThread* XThread::GetCurrentThread() {
   XThread* thread = GetFlsXThread();
   if (!thread) {
-   // assert_always("Attempting to use guest stuff from a non-guest thread.");
+    // assert_always("Attempting to use guest stuff from a non-guest thread.");
   } else {
     thread->assert_valid();
   }
@@ -550,15 +550,19 @@ class reenter_exception {
 void XThread::Execute() {
   XELOGKERNEL("XThread::Execute thid {} (handle={:08X}, '{}', native={:08X})",
               thread_id(), handle(), "", 69420);
+  auto context = thread_state_->context();
+  cpu::ppc::PPCGprSnapshot snapshot{};
+  context->TakeGPRSnapshot(&snapshot);
   assert_valid();
+
   // Let the kernel know we are starting.
   kernel_state()->OnThreadExecute(this);
   // TODO: not confident that this is correct, but it makes sense
-  xboxkrnl::xeProcessKernelApcs(thread_state_->context());
+  xboxkrnl::xeProcessKernelApcs(context);
 
   // Dispatch any APCs that were queued before the thread was created first.
   DeliverAPCs();
-
+  context->RestoreGPRSnapshot(&snapshot);
   uint32_t address;
   std::vector<uint64_t> args;
   bool want_exit_code;
@@ -693,7 +697,8 @@ void XThread::Schedule() {
 void XThread::YieldCPU() { HWThread()->YieldToScheduler(); }
 
 void XThread::SwitchToDirect() {
-
+  xenia_assert(cpu::ThreadState::Get() != thread_state());
+  xenia_assert(fiber() != threading::Fiber::GetCurrentFiber());
   this->SetCurrentThread();
   cpu::ThreadState::Bind(thread_state());
   GetKPCR()->prcb_data.current_thread = guest_object();
@@ -771,34 +776,9 @@ X_STATUS XThread::Suspend(uint32_t* out_suspend_count) {
 
 X_STATUS XThread::Delay(uint32_t processor_mode, uint32_t alertable,
                         uint64_t interval) {
-  int64_t timeout_ticks = interval;
-  uint32_t timeout_ms;
-  if (timeout_ticks > 0) {
-    // Absolute time, based on January 1, 1601.
-    // TODO(benvanik): convert time to relative time.
-    assert_always();
-    timeout_ms = 0;
-  } else if (timeout_ticks < 0) {
-    // Relative time.
-    timeout_ms = uint32_t(-timeout_ticks / 10000);  // Ticks -> MS
-  } else {
-    timeout_ms = 0;
-  }
-  timeout_ms = Clock::ScaleGuestDurationMillis(timeout_ms);
-  if (alertable) {
-    auto result =
-        xe::threading::AlertableSleep(std::chrono::milliseconds(timeout_ms));
-    switch (result) {
-      default:
-      case xe::threading::SleepResult::kSuccess:
-        return X_STATUS_SUCCESS;
-      case xe::threading::SleepResult::kAlerted:
-        return X_STATUS_USER_APC;
-    }
-  } else {
-    xe::threading::Sleep(std::chrono::milliseconds(timeout_ms));
-    return X_STATUS_SUCCESS;
-  }
+  return xboxkrnl::xeKeDelayExecutionThread(cpu::ThreadState::GetContext(),
+                                            processor_mode, alertable,
+                                            (int64_t*)&interval);
 }
 
 bool XThread::Save(ByteStream* stream) {

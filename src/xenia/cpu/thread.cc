@@ -28,7 +28,7 @@ bool Thread::IsInThread() { return current_thread_ != nullptr; }
 
 Thread* Thread::GetCurrentThread() { return current_thread_; }
 uint32_t Thread::GetCurrentThreadId() {
-  return Thread::GetCurrentThread()->thread_state()->thread_id();
+  return cpu::ThreadState::GetContext()->thread_id;
 }
 
 void HWDecrementer::WorkerMain() {
@@ -200,6 +200,9 @@ void HWThread::EnqueueRunnableThread(RunnableThread* rth) {
 }
 
 void HWThread::YieldToScheduler() {
+  xenia_assert(cpu::ThreadState::Get() != idle_process_threadstate_);
+  xenia_assert(threading::Fiber::GetCurrentFiber() !=
+               this->idle_process_fiber_.get());
   cpu::ThreadState::Bind(idle_process_threadstate_);
   this->idle_process_fiber_->SwitchTo();
 }
@@ -227,17 +230,23 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
     return 0;
   }
   // todo: need to set current thread to idle thread!!
-  //auto old_ts = cpu::ThreadState::Get();
-  //auto new_ts = interrupt_wrapper->thiz->idle_process_threadstate_;
- // cpu::ThreadState::Bind(new_ts);
- // auto new_ctx = new_ts->context();
+  // auto old_ts = cpu::ThreadState::Get();
+  // auto new_ts = interrupt_wrapper->thiz->idle_process_threadstate_;
+  // cpu::ThreadState::Bind(new_ts);
+  // auto new_ctx = new_ts->context();
 
- // uint64_t msr = new_ctx->msr;
+  // uint64_t msr = new_ctx->msr;
   // new_ctx->DisableEI();
+  auto current_context = cpu::ThreadState::GetContext();
+  ppc::PPCGprSnapshot snap;
+  current_context->TakeGPRSnapshot(&snap);
+
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
 
-  //new_ctx->msr = msr;
-  //cpu::ThreadState::Bind(old_ts);
+  current_context->RestoreGPRSnapshot(&snap);
+
+  // new_ctx->msr = msr;
+  // cpu::ThreadState::Bind(old_ts);
 
   return 1;
 }

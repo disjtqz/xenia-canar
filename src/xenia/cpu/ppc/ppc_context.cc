@@ -15,8 +15,8 @@
 #include "xenia/base/assert.h"
 #include "xenia/base/atomic.h"
 #include "xenia/base/string_util.h"
-#include "xenia/kernel/kernel_guest_structures.h"
 #include "xenia/cpu/thread.h"
+#include "xenia/kernel/kernel_guest_structures.h"
 namespace xe {
 namespace cpu {
 namespace ppc {
@@ -226,6 +226,35 @@ void PPCContext::CheckInterrupt() {
     }
   }
 }
+void PPCContext::TakeGPRSnapshot(PPCGprSnapshot* out) {
+  unsigned i;
+  for (i = 0; i < 13; ++i) {
+    out->r[i] = this->r[i];
+  }
+  // skip r13
+  for (i = 14; i < 32; ++i) {
+    out->r[i - 1] = this->r[i];
+  }
+  out->ctr = this->ctr;
+
+  out->lr = this->lr;
+  out->msr = this->msr;
+}
+void PPCContext::RestoreGPRSnapshot(const PPCGprSnapshot* in) {
+  unsigned i;
+  for (i = 0; i < 13; ++i) {
+    this->r[i] = in->r[i];
+  }
+  // skip r13
+  for (i = 14; i < 32; ++i) {
+    this->r[i] = in->r[i-1];
+  }
+  this->ctr = in->ctr;
+
+  this->lr = in->lr;
+  this->msr = in->msr;
+}
+
 }  // namespace ppc
 }  // namespace cpu
 }  // namespace xe

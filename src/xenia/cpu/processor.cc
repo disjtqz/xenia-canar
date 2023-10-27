@@ -521,14 +521,6 @@ void Processor::OnFunctionDefined(Function* function) {
 
 void Processor::OnThreadCreated(uint32_t thread_handle,
                                 ThreadState* thread_state, Thread* thread) {
-  auto global_lock = global_critical_region_.Acquire();
-  auto thread_info = std::make_unique<ThreadDebugInfo>();
-  thread_info->thread_handle = thread_handle;
-  thread_info->thread_id = thread_state->thread_id();
-  thread_info->thread = thread;
-  thread_info->state = ThreadDebugInfo::State::kAlive;
-  thread_info->suspended = false;
-  thread_debug_infos_.emplace(thread_info->thread_id, std::move(thread_info));
 }
 
 void Processor::OnThreadExit(uint32_t thread_id) {
@@ -554,11 +546,7 @@ std::vector<ThreadDebugInfo*> Processor::QueryThreadDebugInfos() {
 }
 
 ThreadDebugInfo* Processor::QueryThreadDebugInfo(uint32_t thread_id) {
-  const auto& it = thread_debug_infos_.find(thread_id);
-  if (it == thread_debug_infos_.end()) {
-    return nullptr;
-  }
-  return it->second.get();
+  return nullptr;
 }
 
 void Processor::AddBreakpoint(Breakpoint* breakpoint) {

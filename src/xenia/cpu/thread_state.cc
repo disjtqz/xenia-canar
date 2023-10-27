@@ -18,17 +18,27 @@
 #include "xenia/cpu/processor.h"
 
 #include "xenia/xbox.h"
-#define THREADSTATE_USE_TEB
-
+//#define THREADSTATE_USE_TEB
+#define THREADSTATE_USE_FLS
 namespace xe {
 namespace cpu {
-#if !defined(THREADSTATE_USE_TEB)
+#if defined(THREADSTATE_USE_TEB)
+#elif defined(THREADSTATE_USE_FLS)
+static threading::TlsHandle g_context_fls_handle = threading::kInvalidTlsHandle;
+
+struct initialize_fls_handle_t {
+  initialize_fls_handle_t() {
+    g_context_fls_handle = threading::AllocateFlsHandle();
+  }
+} fls_handle_initializer;
+
+#else
 thread_local ThreadState* thread_state_ = nullptr;
 #endif
-// Teb Wow32Reserved
 
 #define TEB_OFFSET_CONTEXT 0x100
 
+#if defined(THREADSTATE_USE_TEB)
 static ppc::PPCContext* CurrentContext() {
   return reinterpret_cast<ppc::PPCContext*>(__readgsqword(TEB_OFFSET_CONTEXT));
 }
@@ -36,6 +46,20 @@ static ppc::PPCContext* CurrentContext() {
 static void SetCurrentContext(ppc::PPCContext* context) {
   __writegsqword(TEB_OFFSET_CONTEXT, reinterpret_cast<uint64_t>(context));
 }
+
+#elif defined(THREADSTATE_USE_FLS)
+static ppc::PPCContext* CurrentContext() {
+  return reinterpret_cast<ppc::PPCContext*>(
+      threading::GetFlsValue(g_context_fls_handle));
+}
+
+static void SetCurrentContext(ppc::PPCContext* context) {
+  threading::SetFlsValue(g_context_fls_handle,
+                         reinterpret_cast<uintptr_t>(context));
+}
+#else
+
+#endif
 
 static void* AllocateContext() {
   size_t granularity = xe::memory::allocation_granularity();
@@ -79,15 +103,14 @@ static void FreeContext(void* ctx) {
 ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
                          uint32_t stack_base, uint32_t pcr_address)
     : processor_(processor),
-      memory_(processor->memory()),
-      thread_id_(thread_id) {
-  if (thread_id_ == UINT_MAX) {
+      memory_(processor->memory())
+   {
+  if (thread_id == UINT_MAX) {
     // System thread. Assign the system thread ID with a high bit
     // set so people know what's up.
     uint32_t system_thread_handle = xe::threading::current_thread_system_id();
-    thread_id_ = 0x80000000 | system_thread_handle;
+    thread_id = 0x80000000 | system_thread_handle;
   }
-  backend_data_ = processor->backend()->AllocThreadData();
 
   // Allocate with 64b alignment.
 
@@ -99,10 +122,11 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
   // Stash pointers to common structures that callbacks may need.
   context_->global_mutex = &xe::global_critical_region::mutex();
   context_->virtual_membase = memory_->virtual_membase();
+  context_->membase_bit = memory_->membase_bit();
   context_->physical_membase = memory_->physical_membase();
   context_->processor = processor_;
   context_->thread_state = this;
-  context_->thread_id = thread_id_;
+  context_->thread_id = thread_id;
 
   // Set initial registers.
   context_->r[1] = stack_base;
@@ -119,10 +143,7 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
 }
 
 ThreadState::~ThreadState() {
-  if (backend_data_) {
-    processor_->backend()->FreeThreadData(backend_data_);
-  }
-#if !defined(THREADSTATE_USE_TEB)
+#if !defined(THREADSTATE_USE_TEB) && !defined(THREADSTATE_USE_FLS)
   if (thread_state_ == this) {
     thread_state_ = nullptr;
   }
@@ -139,7 +160,7 @@ ThreadState::~ThreadState() {
 }
 
 void ThreadState::Bind(ThreadState* thread_state) {
-#if defined(THREADSTATE_USE_TEB)
+#if defined(THREADSTATE_USE_TEB) || defined(THREADSTATE_USE_FLS)
   SetCurrentContext(thread_state->context());
 #else
   thread_state_ = thread_state;
@@ -147,14 +168,14 @@ void ThreadState::Bind(ThreadState* thread_state) {
 }
 XE_NOALIAS
 ppc::PPCContext* ThreadState::GetContext() {
-#if defined(THREADSTATE_USE_TEB)
+#if defined(THREADSTATE_USE_TEB) || defined(THREADSTATE_USE_FLS)
   return CurrentContext();
 #else
   return thread_state_ ? thread_state_->context() : nullptr;
 #endif
 }
 ThreadState* ThreadState::Get() {
-#if defined(THREADSTATE_USE_TEB)
+#if defined(THREADSTATE_USE_TEB) || defined(THREADSTATE_USE_FLS)
   auto context = CurrentContext();
   if (context) {
     return context->thread_state;
@@ -166,9 +187,9 @@ ThreadState* ThreadState::Get() {
 }
 
 uint32_t ThreadState::GetThreadID() {
-  auto ts = ThreadState::Get();
+  auto ctx = ThreadState::GetContext();
 
-  return ts ? ts->thread_id_ : 0xFFFFFFFF;
+  return ctx ? ctx->thread_id : 0xFFFFFFFF;
 }
 
 }  // namespace cpu

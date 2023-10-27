@@ -249,9 +249,24 @@ enum class PPCRegister {
   kVSCR,
   kCR,
 };
+struct PPCGprSnapshot {
+    // snapshot of all gpregs except for r13
+  uint64_t r[31]; 
+  uint64_t ctr;  
+  uint64_t lr;     
+  uint64_t msr;
+};
 
 #pragma pack(push, 8)
 typedef struct alignas(64) PPCContext_s {
+  // Processor-specific data pointer. Used on callbacks to get access to the
+  // current runtime and its data.
+  Processor* processor;
+
+  // Shared kernel state, for easy access from kernel exports.
+  xe::kernel::KernelState* kernel_state;
+  ThreadState* thread_state;
+  unsigned char membase_bit;
   union {
     uint32_t value;
     struct {
@@ -420,20 +435,12 @@ typedef struct alignas(64) PPCContext_s {
   // Used to shuttle data into externs. Contents volatile.
   uint64_t scratch;
 
-  // Processor-specific data pointer. Used on callbacks to get access to the
-  // current runtime and its data.
-  Processor* processor;
-
-  // Shared kernel state, for easy access from kernel exports.
-  xe::kernel::KernelState* kernel_state;
 
   uint8_t* physical_membase;
 
   // Value of last reserved load
   uint64_t reserved_val;
-  ThreadState* thread_state;
   uint8_t* virtual_membase;
-
   template <typename T = uint8_t*>
   inline T TranslateVirtual(uint32_t guest_address) XE_RESTRICT const {
     static_assert(std::is_pointer_v<T>);
@@ -500,6 +507,8 @@ typedef struct alignas(64) PPCContext_s {
   void EnableEI() { msr |= 0x8000ULL; }
 
   void CheckInterrupt();
+  void TakeGPRSnapshot(PPCGprSnapshot* out);
+  void RestoreGPRSnapshot(const PPCGprSnapshot* in);
 } PPCContext;
 #pragma pack(pop)
 constexpr size_t ppcctx_size = sizeof(PPCContext);

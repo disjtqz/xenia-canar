@@ -347,6 +347,7 @@ class Memory {
   // Base address of virtual memory in the host address space.
   // This is often something like 0x100000000.
   inline uint8_t* virtual_membase() const { return virtual_membase_; }
+  inline unsigned char membase_bit() const { return mapping_bit_; }
 
   // Translates a guest virtual address to a host address that can be accessed
   // as a normal pointer.
@@ -511,7 +512,7 @@ class Memory {
                            uint32_t system_heap_flags = kSystemHeapDefault);
 
   // Frees memory allocated with SystemHeapAlloc.
-  void SystemHeapFree(uint32_t address, uint32_t* out_region_size=nullptr);
+  void SystemHeapFree(uint32_t address, uint32_t* out_region_size = nullptr);
 
   // Gets the heap for the address space containing the given address.
   XE_NOALIAS
@@ -563,6 +564,7 @@ class Memory {
 
   xe::memory::FileMappingHandle mapping_ =
       xe::memory::kFileMappingHandleInvalid;
+  unsigned char mapping_bit_ = 0;
   uint8_t* mapping_base_ = nullptr;
   union {
     struct {

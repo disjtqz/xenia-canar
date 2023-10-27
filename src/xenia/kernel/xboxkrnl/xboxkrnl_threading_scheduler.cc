@@ -33,6 +33,7 @@ namespace xboxkrnl {
 template <size_t fmt_len, typename... Ts>
 static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
                      Ts... args) {
+#if 1
 #define prefixfmt "(Context {}, Fiber {}, HW Thread {}, Guest Thread {}) "
 
   char tmpbuf[fmt_len + sizeof(prefixfmt)];
@@ -44,6 +45,9 @@ static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
   XELOGE(&tmpbuf[0], (void*)context, (void*)threading::Fiber::GetCurrentFiber(),
          context->kernel_state->GetPCRCpuNum(GetKPCR(context)),
          (void*)GetKThread(context), args...);
+#else
+
+#endif
 }
 
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk);
@@ -272,9 +276,9 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
   return result;
 }
 
-void HandleCpuThreadDisownedIPI(void* ud) { 
-    //xenia_assert(false);
-    //this is incorrect
+void HandleCpuThreadDisownedIPI(void* ud) {
+  // xenia_assert(false);
+  // this is incorrect
   xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
 }
 
@@ -312,9 +316,8 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
           do a non-blocking host IPI here. we need to be sure the original cpu
          this thread belonged to has given it up before we continue
       */
-       context->processor->GetCPUThread(old_cpu_for_thread)
-         ->SendGuestIPI(HandleCpuThreadDisownedIPI,
-                                     (void*)kthread);
+      context->processor->GetCPUThread(old_cpu_for_thread)
+          ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
     }
     return;
   }
@@ -576,8 +579,8 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
            (void*)thread, wait_result, priority_increment);
   xenia_assert(thread->thread_state == 5);
   thread->wait_result = thread->wait_result | wait_result;
-
-  xenia_assert(GetKPCR(context)->current_irql < IRQL_DISPATCH);
+  auto kpcr = GetKPCR(context);
+  xenia_assert(kpcr->current_irql < IRQL_DISPATCH);
 
   X_KWAIT_BLOCK* wait_blocks = context->TranslateVirtual(thread->wait_blocks);
   do {

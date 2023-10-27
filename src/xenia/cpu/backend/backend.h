@@ -51,10 +51,6 @@ class Backend {
   CodeCache* code_cache() const { return code_cache_; }
 
   virtual bool Initialize(Processor* processor);
-
-  virtual void* AllocThreadData();
-  virtual void FreeThreadData(void* thread_data);
-
   virtual void CommitExecutableRange(uint32_t guest_low,
                                      uint32_t guest_high) = 0;
 

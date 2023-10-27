@@ -29,9 +29,7 @@ class ThreadState {
 
   Processor* processor() const { return processor_; }
   Memory* memory() const { return memory_; }
-  void* backend_data() const { return backend_data_; }
   ppc::PPCContext* context() const { return context_; }
-  uint32_t thread_id() const { return thread_id_; }
 
   static void Bind(ThreadState* thread_state);
   static ThreadState* Get();
@@ -43,10 +41,6 @@ class ThreadState {
  private:
   Processor* processor_;
   Memory* memory_;
-  void* backend_data_;
-
-  uint32_t pcr_address_ = 0;
-  uint32_t thread_id_ = 0;
 
   // NOTE: must be 64b aligned for SSE ops.
   ppc::PPCContext* context_;

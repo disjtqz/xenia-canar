@@ -146,6 +146,7 @@ bool Memory::Initialize() {
     auto mapping_base = reinterpret_cast<uint8_t*>(1ull << n);
     if (!MapViews(mapping_base)) {
       mapping_base_ = mapping_base;
+      mapping_bit_ = static_cast<unsigned char>(n);
       break;
     }
   }
