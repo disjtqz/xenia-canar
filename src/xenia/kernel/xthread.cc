@@ -107,7 +107,7 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
 
   // Allocate processor thread state.
   // This is thread safe.
-  thread_state_ = new cpu::ThreadState(
+  thread_state_ =  cpu::ThreadState::Create(
       kernel_state->processor(), this->handle(), stack_base_, pcr_address_);
   XELOGI("XThread{:08X} ({:X}) Stack: {:08X}-{:08X}", handle(), handle(),
          stack_limit_, stack_base_);

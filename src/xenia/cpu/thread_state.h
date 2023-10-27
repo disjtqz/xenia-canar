@@ -35,6 +35,8 @@ class ThreadState {
   XE_NOALIAS
   static ppc::PPCContext* GetContext();
 
+  static ThreadState* Create(Processor* processor, uint32_t thread_id,
+                             uint32_t stack_base = 0, uint32_t pcr_address = 0);
   
  private:
 

@@ -18,7 +18,7 @@
 #include "xenia/cpu/processor.h"
 
 #include "xenia/xbox.h"
-//#define THREADSTATE_USE_TEB
+// #define THREADSTATE_USE_TEB
 #define THREADSTATE_USE_FLS
 namespace xe {
 namespace cpu {
@@ -102,8 +102,8 @@ static void FreeContext(void* ctx) {
 
 ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
                          uint32_t stack_base, uint32_t pcr_address)
-   
-   {
+
+{
   if (thread_id == UINT_MAX) {
     // System thread. Assign the system thread ID with a high bit
     // set so people know what's up.
@@ -141,6 +141,11 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
   // we have way more than 32 vrs, but setting it to all ones seems closer to
   // correct than 0
   context_->vrsave = ~0u;
+}
+
+ThreadState* ThreadState::Create(Processor* processor, uint32_t thread_id,
+                                 uint32_t stack_base, uint32_t pcr_address) {
+  return new ThreadState(processor, thread_id, stack_base, pcr_address);
 }
 
 ThreadState::~ThreadState() {

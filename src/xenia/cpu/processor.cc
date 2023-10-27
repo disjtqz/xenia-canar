@@ -186,7 +186,7 @@ bool Processor::Setup(std::unique_ptr<backend::Backend> backend) {
   for (unsigned i = 0; i < 6; ++i) {
     // idle threadid must be 0
     cpu::ThreadState* processor_idle_state =
-        new cpu::ThreadState(this, i, 0x801B7000, GetPCRForCPU(i));
+        ThreadState::Create(this, i, 0x801B7000, GetPCRForCPU(i));
 
     hw_threads_.push_back(std::make_unique<HWThread>(i, processor_idle_state));
   }
