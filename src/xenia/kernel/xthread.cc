@@ -428,7 +428,6 @@ X_STATUS XThread::Create() {
 
     cpu::ThreadState::Bind(thread_state_);
     running_ = true;
-    xboxkrnl::xeKfLowerIrql(thread_state_->context(), IRQL_PASSIVE);
     Execute();
     running_ = false;
 
@@ -553,15 +552,11 @@ void XThread::Execute() {
   auto context = thread_state_->context();
   cpu::ppc::PPCGprSnapshot snapshot{};
   context->TakeGPRSnapshot(&snapshot);
+  xboxkrnl::xeKfLowerIrql(thread_state_->context(), IRQL_PASSIVE);
   assert_valid();
 
   // Let the kernel know we are starting.
   kernel_state()->OnThreadExecute(this);
-  // TODO: not confident that this is correct, but it makes sense
-  xboxkrnl::xeProcessKernelApcs(context);
-
-  // Dispatch any APCs that were queued before the thread was created first.
-  DeliverAPCs();
   context->RestoreGPRSnapshot(&snapshot);
   uint32_t address;
   std::vector<uint64_t> args;
