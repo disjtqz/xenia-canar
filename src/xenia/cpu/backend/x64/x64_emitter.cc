@@ -426,11 +426,12 @@ void X64Emitter::DebugBreak() {
 }
 
 uint64_t TrapDebugPrint(void* raw_context, uint64_t address) {
-  auto thread_state =
-      reinterpret_cast<ppc::PPCContext_s*>(raw_context)->thread_state;
-  uint32_t str_ptr = uint32_t(thread_state->context()->r[3]);
+  auto context = reinterpret_cast<ppc::PPCContext*>(raw_context);
+
+
+  uint32_t str_ptr = uint32_t(context->r[3]);
   // uint16_t str_len = uint16_t(thread_state->context()->r[4]);
-  auto str = thread_state->memory()->TranslateVirtual<const char*>(str_ptr);
+  auto str = context->TranslateVirtual<const char*>(str_ptr);
   // TODO(benvanik): truncate to length?
   XELOGD("(DebugPrint) {}", str);
 

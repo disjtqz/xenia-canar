@@ -28,7 +28,6 @@ class ThreadState {
   ~ThreadState();
 
   Processor* processor() const { return processor_; }
-  Memory* memory() const { return memory_; }
   ppc::PPCContext* context() const { return context_; }
 
   static void Bind(ThreadState* thread_state);
@@ -40,7 +39,6 @@ class ThreadState {
   
  private:
   Processor* processor_;
-  Memory* memory_;
 
   // NOTE: must be 64b aligned for SSE ops.
   ppc::PPCContext* context_;

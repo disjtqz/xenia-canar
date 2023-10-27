@@ -102,8 +102,7 @@ static void FreeContext(void* ctx) {
 
 ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
                          uint32_t stack_base, uint32_t pcr_address)
-    : processor_(processor),
-      memory_(processor->memory())
+    : processor_(processor)
    {
   if (thread_id == UINT_MAX) {
     // System thread. Assign the system thread ID with a high bit
@@ -121,9 +120,11 @@ ThreadState::ThreadState(Processor* processor, uint32_t thread_id,
 
   // Stash pointers to common structures that callbacks may need.
   context_->global_mutex = &xe::global_critical_region::mutex();
-  context_->virtual_membase = memory_->virtual_membase();
-  context_->membase_bit = memory_->membase_bit();
-  context_->physical_membase = memory_->physical_membase();
+  auto memory = processor->memory();
+
+  context_->virtual_membase = memory->virtual_membase();
+  context_->membase_bit = memory->membase_bit();
+  context_->physical_membase = memory->physical_membase();
   context_->processor = processor_;
   context_->thread_state = this;
   context_->thread_id = thread_id;
