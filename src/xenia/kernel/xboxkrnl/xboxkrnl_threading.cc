@@ -1199,7 +1199,7 @@ void xeKeLeaveCriticalRegion(PPCContext* context) {
   if (!enable_count) {
     if (!GetKThread(context)->apc_lists[0].empty(context)) {
       // kernel apc list not empty
-      GetKThread(context)->running_kernel_apcs = 1;
+      GetKThread(context)->deferred_apc_software_interrupt_state = 1;
       GetKPCR(context)->apc_software_interrupt_state = 1;
 
       // not very confident in this
@@ -1788,7 +1788,7 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
         goto LABEL_25;
       }
     } else {
-      apc_thread->running_kernel_apcs = 1;
+      apc_thread->deferred_apc_software_interrupt_state = 1;
       if (target_thread_state == 2) {
         auto thread_processor = apc_thread->current_cpu;
         if (thread_processor == GetKPCR(context)->prcb_data.current_cpu) {

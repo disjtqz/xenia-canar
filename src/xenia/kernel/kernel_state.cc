@@ -1307,6 +1307,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
                  context->HostToGuestVirtual(kpcr));
     context->msr = old_msr;
     kpcr->prcb_data.enqueued_processor_threads_lock.pcr_of_owner = 0;
+    kpcr->apc_software_interrupt_state = guest->deferred_apc_software_interrupt_state;
   };
   X_HANDLE host_handle;
 

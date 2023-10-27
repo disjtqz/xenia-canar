@@ -990,7 +990,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
   uint64_t v11 = 0;
   auto v12 = timeout;
   while (1) {
-    if (this_thread->running_kernel_apcs && !this_thread->unk_A4) {
+    if (this_thread->deferred_apc_software_interrupt_state && !this_thread->unk_A4) {
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), 0);
       goto LABEL_41;
@@ -1307,7 +1307,7 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
   auto v7 = v6;
   X_STATUS result;
   while (1) {
-    if (thread->running_kernel_apcs && !thread->unk_A4) {
+    if (thread->deferred_apc_software_interrupt_state && !thread->unk_A4) {
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), 0);
       goto LABEL_28;

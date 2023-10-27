@@ -376,7 +376,8 @@ struct X_KTHREAD {
   util::X_TYPED_LIST<XAPC, offsetof(XAPC, list_entry)> apc_lists[2];
   EZPointer<X_KPROCESS> process;                 // 0x84
   uint8_t unk_88;                                // 0x88
-  uint8_t running_kernel_apcs;                   // 0x89
+  //when context switch happens, this is copied into apc_software_interrupt_state for kpcr
+  uint8_t deferred_apc_software_interrupt_state;                   // 0x89
   uint8_t unk_8A;                                // 0x8A
   uint8_t may_queue_apcs;                        // 0x8B
   X_KSPINLOCK apc_lock;                          // 0x8C
