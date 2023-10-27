@@ -125,7 +125,6 @@ ThreadState* ThreadState::Create(Processor* processor, uint32_t thread_id,
   context_->membase_bit = memory->membase_bit();
   context_->physical_membase = memory->physical_membase();
   context_->processor = processor;
-  context_->thread_state = reinterpret_cast<ThreadState*>(context_);
   context_->thread_id = thread_id;
 
   // Set initial registers.
@@ -150,7 +149,7 @@ ThreadState::~ThreadState() {
   }
 #else
   auto cc = CurrentContext();
-  if (cc && cc->thread_state == this) {
+  if (cc && cc->thread_state() == this) {
     SetCurrentContext(nullptr);
   }
 #endif
@@ -180,7 +179,7 @@ ThreadState* ThreadState::Get() {
 #if defined(THREADSTATE_USE_TEB) || defined(THREADSTATE_USE_FLS)
   auto context = CurrentContext();
   if (context) {
-    return context->thread_state;
+    return context->thread_state();
   }
   return nullptr;
 #else

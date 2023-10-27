@@ -88,8 +88,9 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
     uint64_t allocate_args[] = {
         object_size_without_headers + sizeof(X_OBJECT_HEADER),
         object_factory->pool_tag, poolarg};
-    context->processor->Execute(
-        context->thread_state, object_factory->allocate_proc, allocate_args, 3, true);
+    context->processor->Execute(context->thread_state(),
+                                object_factory->allocate_proc, allocate_args, 3,
+                                true);
 
     uint32_t allocation = static_cast<uint32_t>(context->r[3]);
 
@@ -141,8 +142,9 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
             sizeof(X_OBJECT_HEADER_NAME_INFO) + sizeof(X_OBJECT_HEADER),
         object_factory->pool_tag, poolarg};
 
-    context->processor->Execute(
-        context->thread_state, object_factory->allocate_proc, allocate_args, 3, true);
+    context->processor->Execute(context->thread_state(),
+                                object_factory->allocate_proc, allocate_args, 3,
+                                true);
   }
   uint32_t named_object_allocation = static_cast<uint32_t>(context->r[3]);
   if (!named_object_allocation) {

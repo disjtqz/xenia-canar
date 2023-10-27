@@ -1408,7 +1408,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
                            static_cast<uint32_t>(current_systemtime),
                            static_cast<uint32_t>(current_systemtime >> 32)};
 
-    context->processor->Execute(context->thread_state, queued_dpc.routine,
+    context->processor->Execute(context->thread_state(), queued_dpc.routine,
                                 dpc_args, countof(dpc_args));
   }
 }
@@ -1458,7 +1458,8 @@ void xeExecuteDPCList2(
 
       set_msr_interrupt_bits(context, 0xFFFF8000);
       uint64_t dpc_args[] = {context->HostToGuestVirtual(dpc), ctx, arg1, arg2};
-      context->processor->Execute(context->thread_state, routine, dpc_args, 4);
+      context->processor->Execute(context->thread_state(), routine, dpc_args,
+                                  4);
 
       // make sure the routine didnt change the irql
       xenia_assert(GetKPCR(context)->current_irql == IRQL_DISPATCH);
@@ -1613,7 +1614,7 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
           scratch_address + 8,
           scratch_address + 12,
       };
-      ctx->processor->Execute(ctx->thread_state, apc->kernel_routine,
+      ctx->processor->Execute(ctx->thread_state(), apc->kernel_routine,
                               kernel_args, xe::countof(kernel_args));
     } else {
       ctx->kernel_state->memory()->SystemHeapFree(apc_ptr);
@@ -1626,7 +1627,7 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 
     if (normal_routine) {
       uint64_t normal_args[] = {normal_context, arg1, arg2};
-      ctx->processor->Execute(ctx->thread_state, normal_routine, normal_args,
+      ctx->processor->Execute(ctx->thread_state(), normal_routine, normal_args,
                               xe::countof(normal_args));
     }
 
@@ -1675,7 +1676,7 @@ static void YankApcList(PPCContext* ctx, X_KTHREAD* current_thread,
 
       if (this_entry->rundown_routine) {
         uint64_t args[] = {ctx->HostToGuestVirtual(this_entry)};
-        kernel_state()->processor()->Execute(ctx->thread_state,
+        kernel_state()->processor()->Execute(ctx->thread_state(),
                                              this_entry->rundown_routine, args,
                                              xe::countof(args));
       } else {

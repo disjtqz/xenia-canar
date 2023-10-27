@@ -250,10 +250,10 @@ enum class PPCRegister {
   kCR,
 };
 struct PPCGprSnapshot {
-    // snapshot of all gpregs except for r13
-  uint64_t r[31]; 
-  uint64_t ctr;  
-  uint64_t lr;     
+  // snapshot of all gpregs except for r13
+  uint64_t r[31];
+  uint64_t ctr;
+  uint64_t lr;
   uint64_t msr;
 };
 
@@ -265,8 +265,9 @@ typedef struct alignas(64) PPCContext_s {
 
   // Shared kernel state, for easy access from kernel exports.
   xe::kernel::KernelState* kernel_state;
-  ThreadState* thread_state;
   unsigned char membase_bit;
+
+  ThreadState* thread_state() { return reinterpret_cast<ThreadState*>(this); }
   union {
     uint32_t value;
     struct {
@@ -434,7 +435,6 @@ typedef struct alignas(64) PPCContext_s {
 
   // Used to shuttle data into externs. Contents volatile.
   uint64_t scratch;
-
 
   uint8_t* physical_membase;
 
