@@ -1399,6 +1399,62 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
   return result;
 }
 
+int32_t xeKeSetBasePriorityThread(PPCContext* context, X_KTHREAD* thread,
+                                  int increment) {
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, false);
+
+  int v8 = thread->unk_C9;
+  int v9 = thread->unk_B9;
+  int result = v9 - v8;
+  if (thread->unk_B8) {
+    result = 16 * thread->unk_B8;
+  }
+  thread->unk_B8 = 0;
+
+  if (std::abs(increment) >= 16) {
+    char v11 = 1;
+    if (increment <= 0) {
+      v11 = -1;
+    }
+    thread->unk_B8 = v11;
+  }
+
+  int v12 = thread->unk_CA;
+
+  int v13 = v8 + increment;
+  if (v8 + increment <= v12) {
+    if (v13 < thread->unk_C8) {
+      v13 = thread->unk_C8;
+    }
+  } else {
+    v13 = thread->unk_CA;
+  }
+  int v14;
+  if (thread->unk_B8) {
+    v14 = v13;
+  } else {
+    v14 = thread->priority - thread->unk_BA - v9 + v13;
+    if (v14 > v12) {
+      v14 = thread->unk_CA;
+    }
+  }
+  int v15 = thread->priority;
+  thread->unk_B9 = v13;
+  thread->unk_BA = 0;
+  if (v14 != v15) {
+    thread->unk_B4 = thread->process->unk_0C;
+    xeKeChangeThreadPriority(context, thread, v14);
+  }
+
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, 0, false);
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return result;
+}
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

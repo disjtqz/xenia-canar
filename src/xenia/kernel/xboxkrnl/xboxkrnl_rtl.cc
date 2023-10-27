@@ -612,6 +612,8 @@ void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const p
       cs->owning_thread = cur_thread;
       cs->recursion_count = 1;
       return;
+    } else {
+      context->CheckInterrupt();
     }
   }
 

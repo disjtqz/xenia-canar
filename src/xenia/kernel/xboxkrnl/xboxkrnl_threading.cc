@@ -328,17 +328,10 @@ dword_result_t KeQueryBasePriorityThread_entry(lpvoid_t thread_ptr) {
 }
 DECLARE_XBOXKRNL_EXPORT1(KeQueryBasePriorityThread, kThreading, kImplemented);
 
-dword_result_t KeSetBasePriorityThread_entry(lpvoid_t thread_ptr,
-                                             dword_t increment) {
-  int32_t prev_priority = 0;
-  auto thread = XObject::GetNativeObject<XThread>(kernel_state(), thread_ptr);
-
-  if (thread) {
-    prev_priority = thread->QueryPriority();
-    thread->SetPriority(increment);
-  }
-
-  return prev_priority;
+dword_result_t KeSetBasePriorityThread_entry(pointer_t<X_KTHREAD> thread_ptr,
+                                             dword_t increment,
+                                             const ppc_context_t& context) {
+  return xeKeSetBasePriorityThread(context, thread_ptr, increment);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeSetBasePriorityThread, kThreading, kImplemented);
 
@@ -2100,7 +2093,8 @@ DECLARE_XBOXKRNL_EXPORT1(ExReleaseReadWriteLock, kThreading, kImplemented);
 
 // NOTE: This function is very commonly inlined, and probably won't be called!
 pointer_result_t InterlockedPushEntrySList_entry(
-    pointer_t<X_SLIST_HEADER> plist_ptr, pointer_t<X_SINGLE_LIST_ENTRY> entry) {
+    pointer_t<X_SLIST_HEADER> plist_ptr, pointer_t<X_SINGLE_LIST_ENTRY> entry,
+    const ppc_context_t& context) {
   assert_not_null(plist_ptr);
   assert_not_null(entry);
 
@@ -2108,6 +2102,7 @@ pointer_result_t InterlockedPushEntrySList_entry(
   alignas(8) X_SLIST_HEADER new_hdr = {{0}, 0, 0};
   uint32_t old_head = 0;
   do {
+    context->CheckInterrupt();
     old_hdr = *plist_ptr;
     new_hdr.depth = old_hdr.depth + 1;
     new_hdr.sequence = old_hdr.sequence + 1;
@@ -2125,13 +2120,14 @@ DECLARE_XBOXKRNL_EXPORT2(InterlockedPushEntrySList, kThreading, kImplemented,
                          kHighFrequency);
 
 pointer_result_t InterlockedPopEntrySList_entry(
-    pointer_t<X_SLIST_HEADER> plist_ptr) {
+    pointer_t<X_SLIST_HEADER> plist_ptr, const ppc_context_t& context) {
   assert_not_null(plist_ptr);
 
   uint32_t popped = 0;
   alignas(8) X_SLIST_HEADER old_hdr = {{0}, 0, 0};
   alignas(8) X_SLIST_HEADER new_hdr = {{0}, 0, 0};
   do {
+    context->CheckInterrupt();
     old_hdr = *plist_ptr;
     auto next = kernel_memory()->TranslateVirtual<X_SINGLE_LIST_ENTRY*>(
         old_hdr.next.next);
@@ -2153,13 +2149,14 @@ DECLARE_XBOXKRNL_EXPORT2(InterlockedPopEntrySList, kThreading, kImplemented,
                          kHighFrequency);
 
 pointer_result_t InterlockedFlushSList_entry(
-    pointer_t<X_SLIST_HEADER> plist_ptr) {
+    pointer_t<X_SLIST_HEADER> plist_ptr, const ppc_context_t& context) {
   assert_not_null(plist_ptr);
 
   alignas(8) X_SLIST_HEADER old_hdr = *plist_ptr;
   alignas(8) X_SLIST_HEADER new_hdr = {{0}, 0, 0};
   uint32_t first = 0;
   do {
+    context->CheckInterrupt();
     old_hdr = *plist_ptr;
     first = old_hdr.next.next;
     new_hdr.next.next = 0;

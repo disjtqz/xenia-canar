@@ -94,7 +94,6 @@ class XThread : public XObject {
 
   int32_t priority() const { return priority_; }
   int32_t QueryPriority();
-  void SetPriority(int32_t increment);
 
   // Xbox thread IDs:
   // 0 - core 0, thread 0 - user

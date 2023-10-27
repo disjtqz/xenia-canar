@@ -646,28 +646,6 @@ void XThread::RundownAPCs() {
 
 int32_t XThread::QueryPriority() { return priority_; }
 
-void XThread::SetPriority(int32_t increment) {
-  if (is_guest_thread()) {
-    guest_object<X_KTHREAD>()->priority = static_cast<uint8_t>(increment);
-  }
-  priority_ = increment;
-  int32_t target_priority = 0;
-  if (increment > 0x22) {
-    target_priority = xe::threading::ThreadPriority::kHighest;
-  } else if (increment > 0x11) {
-    target_priority = xe::threading::ThreadPriority::kAboveNormal;
-  } else if (increment < -0x22) {
-    target_priority = xe::threading::ThreadPriority::kLowest;
-  } else if (increment < -0x11) {
-    target_priority = xe::threading::ThreadPriority::kBelowNormal;
-  } else {
-    target_priority = xe::threading::ThreadPriority::kNormal;
-  }
-  if (!cvars::ignore_thread_priorities) {
-    //  thread_->set_priority(target_priority);
-  }
-}
-
 void XThread::SetAffinity(uint32_t affinity) {
   auto context = cpu::ThreadState::GetContext();
 

@@ -167,6 +167,9 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
 X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
                                   bool alertable, int64_t* interval);
 
+int32_t xeKeSetBasePriorityThread(PPCContext* context, X_KTHREAD* thread,
+                                  int increment);
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe
