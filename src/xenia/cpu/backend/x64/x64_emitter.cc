@@ -506,7 +506,7 @@ uint64_t ResolveFunction(void* raw_context, uint64_t target_address) {
   */
 
   if (cvars::enable_host_guest_stack_synchronization) {
-    auto processor = thread_state->processor();
+    auto processor = guest_context->processor;
 
     auto module_for_address =
         processor->LookupModule(static_cast<uint32_t>(target_address));
@@ -686,7 +686,7 @@ uint64_t ResolveFunction(void* raw_context, uint64_t target_address) {
       }
     }
   }
-  auto fn = thread_state->processor()->ResolveFunction(
+  auto fn = guest_context->processor->ResolveFunction(
       static_cast<uint32_t>(target_address));
   assert_not_null(fn);
   auto x64_fn = static_cast<X64Function*>(fn);
