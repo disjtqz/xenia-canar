@@ -1311,9 +1311,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   };
   X_HANDLE host_handle;
 
-  //auto saved_currthread = XThread::GetCurrentThread();
-  auto saved_ts = cpu::ThreadState::Get();
-  
+  xenia_assert(GetKPCR(context)->prcb_data.current_thread.xlat() == guest);
 
   if (!object_table()->HostHandleForGuestObject(
           context->HostToGuestVirtual(guest), host_handle)) {
@@ -1339,7 +1337,6 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
 
     xthrd->SwitchToDirect();
   }
-  cpu::ThreadState::Bind(saved_ts);
  // XThread::SetCurrentThread(saved_currthread);
 
   //this is r31 after the swap, but im not sure

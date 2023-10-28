@@ -33,7 +33,7 @@ namespace xboxkrnl {
 template <size_t fmt_len, typename... Ts>
 static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
                      Ts... args) {
-#if 1
+#if 0
 #define prefixfmt "(Context {}, Fiber {}, HW Thread {}, Guest Thread {}) "
 
   char tmpbuf[fmt_len + sizeof(prefixfmt)];
@@ -990,7 +990,8 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
   uint64_t v11 = 0;
   auto v12 = timeout;
   while (1) {
-    if (this_thread->deferred_apc_software_interrupt_state && !this_thread->unk_A4) {
+    if (this_thread->deferred_apc_software_interrupt_state &&
+        !this_thread->unk_A4) {
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), 0);
       goto LABEL_41;
@@ -1115,6 +1116,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       }
     }
   LABEL_41:
+    context->CheckInterrupt();
     this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
   }
   auto obj_type = object->type;
@@ -1452,6 +1454,51 @@ int32_t xeKeSetBasePriorityThread(PPCContext* context, X_KTHREAD* thread,
       context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, 0, false);
   xeDispatcherSpinlockUnlock(
       context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return result;
+}
+
+X_STATUS xeKeSignalAndWaitForSingleObjectEx(
+    PPCContext* context,
+    ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> signal,
+    ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
+    unsigned char mode, bool alertable, int64_t* timeout) {
+  auto wait_object_type = context->TranslateVirtual<X_OBJECT_TYPE*>(
+      wait.GetAdjacent()->object_type_ptr);
+  // either encodes an offset from the object base to the object to wait on,
+  // or a default object to wait on?
+  uint32_t unk = wait_object_type->unknown_size_or_object_;
+  X_DISPATCH_HEADER* waiter =
+      context->TranslateVirtual<X_DISPATCH_HEADER*>(unk);
+  if (!((unsigned int)unk >> 16)) {
+    waiter = reinterpret_cast<X_DISPATCH_HEADER*>(
+        reinterpret_cast<char*>(wait.m_base) + unk);
+  }
+  X_STATUS result = X_STATUS_SUCCESS;
+  auto signal_type_ptr = signal.GetAdjacent()->object_type_ptr;
+  auto globals = context->kernel_state->GetKernelGuestGlobals();
+
+  if (signal_type_ptr ==
+      static_cast<uint32_t>(globals +
+                            offsetof(KernelGuestGlobals, ExEventObjectType))) {
+    xeKeSetEvent(context, reinterpret_cast<X_KEVENT*>(signal.m_base), 1, 1);
+
+  } else if (signal_type_ptr ==
+             static_cast<uint32_t>(
+                 globals + offsetof(KernelGuestGlobals, ExMutantObjectType))) {
+    xeKeReleaseMutant(context, reinterpret_cast<X_KMUTANT*>(signal.m_base), 1,
+                      0, 1);
+  } else if (signal_type_ptr ==
+             static_cast<uint32_t>(globals + offsetof(KernelGuestGlobals,
+                                                      ExSemaphoreObjectType))) {
+    xeKeReleaseSemaphore(
+        context, reinterpret_cast<X_KSEMAPHORE*>(signal.m_base), 1, 1, 1);
+  } else {
+    result = X_STATUS_OBJECT_TYPE_MISMATCH;
+  }
+  if (result >= X_STATUS_SUCCESS) {
+    result =
+        xeKeWaitForSingleObject(context, waiter, 3, mode, alertable, timeout);
+  }
   return result;
 }
 

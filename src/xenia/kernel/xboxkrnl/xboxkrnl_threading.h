@@ -169,6 +169,11 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
 
 int32_t xeKeSetBasePriorityThread(PPCContext* context, X_KTHREAD* thread,
                                   int increment);
+X_STATUS xeKeSignalAndWaitForSingleObjectEx(
+    PPCContext* context,
+    ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> signal,
+    ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
+    unsigned char mode, bool alertable, int64_t* timeout);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

@@ -96,7 +96,6 @@ void HWDecrementer::Set(int32_t value) {
 bool HWThread::HandleInterrupts() { return false; }
 
 void HWThread::RunRunnable(RunnableThread* runnable) {
-  cpu::ThreadState::Bind(runnable->thread_state_);
   runnable->fiber_->SwitchTo();
 }
 
@@ -114,26 +113,11 @@ void HWThread::ThreadFunc() {
   }
 
   ready_ = true;
-  idle_process_threadstate_->context()->processor->NotifyHWThreadBooted(cpu_number_);
+  idle_process_threadstate_->context()->processor->NotifyHWThreadBooted(
+      cpu_number_);
 
   while (true) {
-    cpu::ThreadState::Bind(idle_process_threadstate_);
-
-    // if true, the thread yielded up to us to handle an interrupt.
-    // after handling it, return execution to the thread that was interrupted
-    if (HandleInterrupts()) {
-      RunRunnable(last_run_thread_);
-      continue;
-    }
-
-    last_run_thread_ =
-        reinterpret_cast<RunnableThread*>(runnable_thread_list_.Pop());
-
-    if (!last_run_thread_) {
-      RunIdleProcess();
-    } else {
-      RunRunnable(last_run_thread_);
-    }
+    RunIdleProcess();
   }
 }
 
@@ -203,7 +187,7 @@ void HWThread::YieldToScheduler() {
   xenia_assert(cpu::ThreadState::Get() != idle_process_threadstate_);
   xenia_assert(threading::Fiber::GetCurrentFiber() !=
                this->idle_process_fiber_.get());
-  cpu::ThreadState::Bind(idle_process_threadstate_);
+  // cpu::ThreadState::Bind(idle_process_threadstate_);
   this->idle_process_fiber_->SwitchTo();
 }
 

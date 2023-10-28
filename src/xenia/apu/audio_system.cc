@@ -91,11 +91,12 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
             return true;
           },
           kernel_state->GetSystemProcess()));
+  //guest_thread_->Create();
   guest_received_event_ = threading::Event::CreateAutoResetEvent(false);
   threading::Thread::CreationParameters crparams{};
   worker_thread_ = threading::Thread::Create(
       crparams, std::bind(&AudioSystem::WorkerThreadMain, this));
-
+ 
 
   // As we run audio callbacks the debugger must be able to suspend us.
   worker_thread_->set_name("Audio Worker");
@@ -106,7 +107,7 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
 void AudioSystem::WorkerThreadMain() {
   // Initialize driver and ringbuffer.
   Initialize();
-
+  
   // Main run loop.
   while (worker_running_) {
     // These handles signify the number of submitted samples. Once we reach

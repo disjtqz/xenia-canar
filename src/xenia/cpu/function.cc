@@ -40,6 +40,7 @@ bool BuiltinFunction::Call(ThreadState* thread_state, uint32_t return_address) {
 
   ThreadState* original_thread_state = ThreadState::Get();
   if (original_thread_state != thread_state) {
+    xenia_assert(false);
     ThreadState::Bind(thread_state);
   }
 
@@ -47,6 +48,7 @@ bool BuiltinFunction::Call(ThreadState* thread_state, uint32_t return_address) {
   handler_(thread_state->context(), arg0_, arg1_);
 
   if (original_thread_state != thread_state) {
+    xenia_assert(false);
     ThreadState::Bind(original_thread_state);
   }
 
@@ -131,12 +133,14 @@ bool GuestFunction::Call(ThreadState* thread_state, uint32_t return_address) {
 
   ThreadState* original_thread_state = ThreadState::Get();
   if (original_thread_state != thread_state) {
+    xenia_assert(false);
     ThreadState::Bind(thread_state);
   }
 
   bool result = CallImpl(thread_state, return_address);
 
   if (original_thread_state != thread_state) {
+    xenia_assert(false);
     ThreadState::Bind(original_thread_state);
   }
 

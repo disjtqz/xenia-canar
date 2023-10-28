@@ -1075,29 +1075,24 @@ DECLARE_XBOXKRNL_EXPORT3(NtWaitForMultipleObjectsEx, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
 
 dword_result_t NtSignalAndWaitForSingleObjectEx_entry(
-    dword_t signal_handle, dword_t wait_handle, dword_t alertable, dword_t r6,
+    dword_t signal_handle, dword_t wait_handle, dword_t mode, dword_t alertable,
     lpqword_t timeout_ptr, const ppc_context_t& context) {
   X_STATUS result = X_STATUS_SUCCESS;
-
-  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
 
   auto signal_object = kernel_state()->object_table()->LookupObject<XObject>(
       signal_handle, true);
   auto wait_object =
       kernel_state()->object_table()->LookupObject<XObject>(wait_handle, true);
   if (signal_object && wait_object) {
-    uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-    result = XObject::SignalAndWait(signal_object.get(), wait_object.get(), 3,
-                                    1, alertable,
-                                    timeout_ptr ? &timeout : nullptr, context);
+    int64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+
+    result = xeKeSignalAndWaitForSingleObjectEx(
+        context, signal_object->guest_object<X_DISPATCH_HEADER>(),
+        wait_object->guest_object<X_DISPATCH_HEADER>(), mode, alertable,
+        timeout_ptr ? &timeout : nullptr);
+
   } else {
     result = X_STATUS_INVALID_HANDLE;
-  }
-  context->kernel_state->UnlockDispatcher(context, old_irql);
-  if (alertable) {
-    if (result == X_STATUS_USER_APC) {
-      result = xeProcessUserApcs(nullptr);
-    }
   }
   return result;
 }
@@ -1534,8 +1529,8 @@ uint32_t xeNtQueueApcThread(uint32_t thread_handle, uint32_t apc_routine,
     return X_STATUS_NO_MEMORY;
   }
   XAPC* apc = context->TranslateVirtual<XAPC*>(apc_ptr);
-  xeKeInitializeApc(apc, thread->guest_object(), XAPC::kDummyKernelRoutine, 0,
-                    apc_routine, 1 /*user apc mode*/, apc_routine_context);
+  xeKeInitializeApc(apc, thread->guest_object(), 0, 0, apc_routine,
+                    1 /*user apc mode*/, apc_routine_context);
 
   if (!xeKeInsertQueueApc(apc, arg1, arg2, 0, context)) {
     memory->SystemHeapFree(apc_ptr);
@@ -1599,7 +1594,7 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 
     xeKeKfReleaseSpinLock(ctx, &current_thread->apc_lock, unlocked_irql);
     alert_status = alert_status_res;
-    if (apc->kernel_routine != XAPC::kDummyKernelRoutine) {
+    if (apc->kernel_routine != 0) {
       uint64_t kernel_args[] = {
           apc_ptr,
           scratch_address + 0,

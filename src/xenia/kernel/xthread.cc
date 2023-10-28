@@ -34,6 +34,7 @@ DEFINE_bool(ignore_thread_priorities, true,
 DEFINE_bool(ignore_thread_affinities, true,
             "Ignores game-specified thread affinities.", "Kernel");
 
+#define     LOOKUP_XTHREAD_FROM_KTHREAD 1
 namespace xe {
 namespace kernel {
 
@@ -49,8 +50,7 @@ X_KTHREAD* GetKThread(PPCContext* context) {
   return context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
 }
 const uint32_t XAPC::kSize;
-const uint32_t XAPC::kDummyKernelRoutine;
-const uint32_t XAPC::kDummyRundownRoutine;
+
 
 using xe::cpu::ppc::PPCOpcode;
 
@@ -107,8 +107,8 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
 
   // Allocate processor thread state.
   // This is thread safe.
-  thread_state_ =  cpu::ThreadState::Create(
-      kernel_state->processor(), this->handle(), stack_base_, pcr_address_);
+  thread_state_ = cpu::ThreadState::Create(
+      kernel_state->processor(), this->handle(), stack_base_, 0);
   XELOGI("XThread{:08X} ({:X}) Stack: {:08X}-{:08X}", handle(), handle(),
          stack_limit_, stack_base_);
 
@@ -139,6 +139,7 @@ bool XThread::IsInThread() {
   return false;
 }
 
+#if !LOOKUP_XTHREAD_FROM_KTHREAD
 static threading::TlsHandle g_current_xthread_fls =
     threading::kInvalidTlsHandle;
 
@@ -165,6 +166,48 @@ XThread* XThread::GetCurrentThread() {
   }
   return thread;
 }
+
+void XThread::SetCurrentThread(XThread* thrd) {
+  threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)thrd);
+}
+
+#else
+static XThread* GetFlsXThread() {
+  auto context = cpu::ThreadState::GetContext();
+
+  auto kpc = GetKPCR(context);
+
+  // return reinterpret_cast<XThread*>(
+  //   threading::GetFlsValue(g_current_xthread_fls));
+  X_HANDLE handle;
+  auto object_table = context->kernel_state->object_table();
+
+  if (object_table->HostHandleForGuestObject(kpc->prcb_data.current_thread,
+                                             handle)) {
+    return object_table->LookupObject<XThread>(handle, false).release();
+  } else {
+    return nullptr;
+  }
+}
+
+bool XThread::IsInThread(XThread* other) { return GetFlsXThread() == other; }
+
+XThread* XThread::GetCurrentThread() {
+  XThread* thread = GetFlsXThread();
+  if (!thread) {
+    // assert_always("Attempting to use guest stuff from a non-guest thread.");
+  } else {
+    thread->assert_valid();
+  }
+  return thread;
+}
+
+void XThread::SetCurrentThread(XThread* thrd) {
+  // threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)thrd);
+}
+#endif
+
+void XThread::SetCurrentThread() { SetCurrentThread(this); }
 
 uint32_t XThread::GetCurrentThreadHandle() {
   XThread* thread = XThread::GetCurrentThread();
@@ -204,6 +247,7 @@ void XThread::InitializeGuestObject() {
   auto guest_thread = guest_object<X_KTHREAD>();
   auto thread_guest_ptr = guest_object();
   guest_thread->header.type = 6;
+  util::XeInitializeListHead(&guest_thread->header.wait_list, context_here);
   auto guest_globals = kernel_state()->GetKernelGuestGlobals(context_here);
   util::XeInitializeListHead(&guest_thread->mutants_list, memory());
   uint32_t process_info_block_address =
@@ -423,10 +467,12 @@ X_STATUS XThread::Create() {
   params.stack_size = 16_MiB;  // Allocate a big host stack.
 
   fiber_ = xe::threading::Fiber::Create(params, [this]() {
-    // Execute user code.
+  // Execute user code.
+#if !LOOKUP_XTHREAD_FROM_KTHREAD
     threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)this);
-
+#endif
     cpu::ThreadState::Bind(thread_state_);
+    xenia_assert(GetKThread() == this->guest_object<X_KTHREAD>());
     running_ = true;
     Execute();
     running_ = false;
@@ -460,12 +506,14 @@ X_STATUS XThread::Create() {
 }
 
 X_STATUS XThread::Exit(int exit_code) {
+  auto cpu_context = thread_state_->context();
+  xboxkrnl::xeKfLowerIrql(cpu_context, IRQL_PASSIVE);
   // This may only be called on the thread itself.
   assert_true(XThread::GetCurrentThread() == this);
   // TODO(chrispy): not sure if this order is correct, should it come after
   // apcs?
   auto kthread = guest_object<X_KTHREAD>();
-  auto cpu_context = thread_state_->context();
+  
   kthread->terminated = 1;
 
   // TODO(benvanik): dispatch events? waiters? etc?
@@ -493,6 +541,16 @@ X_STATUS XThread::Exit(int exit_code) {
   running_ = false;
   ReleaseHandle();
 
+
+  xboxkrnl::xeKeEnterCriticalRegion(cpu_context);
+  uint32_t old_irql2 =
+      xboxkrnl::xeKeKfAcquireSpinLock(cpu_context, &kthread->apc_lock);
+
+  kthread->may_queue_apcs = 0;
+  //also does some stuff with the suspendsemaphore here, which doesnt make sense to me
+  //the thread is already running
+
+  xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kthread->apc_lock, old_irql2);
   // xe::FatalError("Brokey!");
   //  NOTE: this does not return!
   // xe::threading::Thread::Exit(exit_code);
@@ -508,6 +566,14 @@ X_STATUS XThread::Exit(int exit_code) {
 
   kprocess->thread_count = kprocess->thread_count - 1;
   kthread->thread_state = 4;
+
+  util::XeInsertHeadList(
+      &GetKPCR(cpu_context)->prcb_data.terminating_threads_list,
+      &kthread->ready_prcb_entry, cpu_context);
+
+  //unsure about these args
+  xboxkrnl::xeKeInsertQueueDpc(&GetKPCR(cpu_context)->prcb_data.thread_exit_dpc,
+                               0, 0, cpu_context);
   return xboxkrnl::xeSchedulerSwitchThread2(cpu_context);
 }
 
@@ -623,19 +689,15 @@ void XThread::EnqueueApc(uint32_t normal_routine, uint32_t normal_context,
 
   xenia_assert(success == X_STATUS_SUCCESS);
 }
-void XThread::SetCurrentThread(XThread* thrd) {
-  threading::SetFlsValue(g_current_xthread_fls, (uintptr_t)thrd);
-}
-
-void XThread::SetCurrentThread() { SetCurrentThread(this); }
-
 void XThread::DeliverAPCs() {
+  xenia_assert(GetKThread() == guest_object<X_KTHREAD>());
   // https://www.drdobbs.com/inside-nts-asynchronous-procedure-call/184416590?pgno=1
   // https://www.drdobbs.com/inside-nts-asynchronous-procedure-call/184416590?pgno=7
   xboxkrnl::xeProcessUserApcs(thread_state_->context());
 }
 
 void XThread::RundownAPCs() {
+  xenia_assert(GetKThread() == guest_object<X_KTHREAD>());
   xboxkrnl::xeRundownApcs(thread_state_->context());
 }
 
@@ -667,22 +729,20 @@ void XThread::Schedule() {
       context, kernel_state()->GetDispatcherLock(context), old_irql);
 }
 
-void XThread::YieldCPU() { HWThread()->YieldToScheduler(); }
-
 void XThread::SwitchToDirect() {
   xenia_assert(cpu::ThreadState::Get() != thread_state());
   xenia_assert(fiber() != threading::Fiber::GetCurrentFiber());
-  this->SetCurrentThread();
-  cpu::ThreadState::Bind(thread_state());
   GetKPCR()->prcb_data.current_thread = guest_object();
   fiber()->SwitchTo();
 }
+
 void XThread::assert_valid() {
-  auto ts = cpu::ThreadState::Get();
+  auto current_threadstate = cpu::ThreadState::Get();
+  auto expected_threadstate = thread_state();
 
-  xenia_assert(ts == thread_state());
+  xenia_assert(current_threadstate == expected_threadstate);
 
-  auto context = ts->context();
+  auto context = current_threadstate->context();
 
   xenia_assert(GetKThread(context) == guest_object<X_KTHREAD>());
   X_HANDLE handle_res = 0;
@@ -695,7 +755,6 @@ void XThread::assert_valid() {
   xenia_assert(GetFlsXThread() == this);
 }
 bool XThread::GetTLSValue(uint32_t slot, uint32_t* value_out) {
-  assert_valid();
   if (slot * 4 > tls_total_size_) {
     return false;
   }
@@ -705,7 +764,6 @@ bool XThread::GetTLSValue(uint32_t slot, uint32_t* value_out) {
 }
 
 bool XThread::SetTLSValue(uint32_t slot, uint32_t value) {
-  assert_valid();
   if (slot * 4 >= tls_total_size_) {
     return false;
   }
@@ -749,6 +807,7 @@ X_STATUS XThread::Suspend(uint32_t* out_suspend_count) {
 
 X_STATUS XThread::Delay(uint32_t processor_mode, uint32_t alertable,
                         uint64_t interval) {
+  xenia_assert(GetKThread() == guest_object<X_KTHREAD>());
   return xboxkrnl::xeKeDelayExecutionThread(cpu::ThreadState::GetContext(),
                                             processor_mode, alertable,
                                             (int64_t*)&interval);
@@ -774,7 +833,7 @@ void XHostThread::XHostThreadForwarder(cpu::ppc::PPCContext* context, void* ud1,
 XHostThread::XHostThread(KernelState* kernel_state, uint32_t stack_size,
                          uint32_t creation_flags, std::function<int()> host_fn,
                          uint32_t guest_process)
-    : XThread(kernel_state, stack_size, 0, 0, 0, creation_flags, false, false,
+    : XThread(kernel_state, stack_size, 0, 0, 0, creation_flags, true, false,
               guest_process),
       host_fn_(host_fn) {
   host_trampoline = kernel_state->processor()->backend()->CreateGuestTrampoline(

@@ -70,7 +70,6 @@ class XThread : public XObject {
 
   const CreationParams* creation_params() const { return &creation_params_; }
   uint32_t tls_ptr() const { return tls_static_address_; }
-  uint32_t pcr_ptr() const { return pcr_address_; }
   // True if the thread is created by the guest app.
   bool is_guest_thread() const { return guest_thread_; }
   bool main_thread() const { return main_thread_; }
@@ -125,7 +124,6 @@ class XThread : public XObject {
   static void SetCurrentThread(XThread* thrd);
   void SetCurrentThread();
   void Schedule();
-  void YieldCPU();
 
   void SwitchToDirect(); 
 
@@ -156,7 +154,6 @@ class XThread : public XObject {
   uint32_t tls_static_address_ = 0;
   uint32_t tls_dynamic_address_ = 0;
   uint32_t tls_total_size_ = 0;
-  uint32_t pcr_address_ = 0;
   uint32_t stack_alloc_base_ = 0;  // Stack alloc base
   uint32_t stack_alloc_size_ = 0;  // Stack alloc size
   uint32_t stack_base_ = 0;        // High address
