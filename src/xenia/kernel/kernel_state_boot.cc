@@ -444,6 +444,13 @@ void KernelState::BootInitializeStatics() {
   block->extimer_apc_kernel_routine =
       kernel_trampoline_group_.NewLongtermTrampoline(
           xboxkrnl::xeEXTimerAPCKernelRoutine);
+
+  block->graphics_interrupt_dpc.Initialize(
+      kernel_trampoline_group_.NewLongtermTrampoline(
+          &KernelState::GraphicsInterruptDPC),
+      0);
+  //cpu2,remember all dpc cpu numbers are +1, because 0 means "any cpu"
+  block->graphics_interrupt_dpc.desired_cpu_number = 3;
 }
 
 void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {

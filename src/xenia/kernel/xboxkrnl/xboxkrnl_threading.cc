@@ -634,9 +634,8 @@ DECLARE_XBOXKRNL_EXPORT1(KeInitializeSemaphore, kThreading, kImplemented);
 
 uint32_t xeKeReleaseSemaphore(X_KSEMAPHORE* semaphore_ptr, uint32_t increment,
                               uint32_t adjustment, uint32_t wait) {
-  return xeKeReleaseSemaphore(cpu::ThreadState::GetContext(),
-                              semaphore_ptr, increment,
-                              adjustment, wait);
+  return xeKeReleaseSemaphore(cpu::ThreadState::GetContext(), semaphore_ptr,
+                              increment, adjustment, wait);
 }
 
 dword_result_t KeReleaseSemaphore_entry(pointer_t<X_KSEMAPHORE> semaphore_ptr,
@@ -1098,9 +1097,15 @@ static void PrefetchForCAS(const void* value) { swcache::PrefetchW(value); }
 
 uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                                bool change_irql) {
-  auto old_irql = change_irql ? xeKfRaiseIrql(ctx, 2) : 0;
-
   PrefetchForCAS(lock);
+  auto old_irql = 0;
+
+  if (change_irql) {
+    auto kpcr = GetKPCR(ctx);
+    old_irql = kpcr->current_irql;
+    kpcr->current_irql = 2;
+  }
+
   assert_true(lock->pcr_of_owner != static_cast<uint32_t>(ctx->r[13]));
   // Lock.
   while (!xe::atomic_cas(0, xe::byte_swap(static_cast<uint32_t>(ctx->r[13])),
@@ -1130,8 +1135,14 @@ void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
       return;
     }
 
-    // Restore IRQL.
-    xeKfLowerIrql(ctx, old_irql);
+    auto kpcr = GetKPCR(ctx);
+
+    kpcr->current_irql = old_irql;
+
+    uint16_t swint = GetKPCR(ctx)->software_interrupt_state;
+    if (old_irql < swint) {
+      xeDispatchProcedureCallInterrupt(old_irql, swint, ctx);
+    }
   }
 }
 
@@ -1397,6 +1408,8 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
 }
 static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {
   // todo: implement!
+  uint64_t old_msr = context->msr;
+  context->msr = (old_msr & ~0x8000ULL) | (value & 0x8000);
 }
 
 void xeExecuteDPCList2(

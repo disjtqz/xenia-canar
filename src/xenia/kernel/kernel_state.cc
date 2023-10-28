@@ -277,9 +277,9 @@ static void LaunchModuleInterrupt(void* ud) {
   LaunchInterrupt* launch = reinterpret_cast<LaunchInterrupt*>(ud);
   auto kernel = kernel_state();
   kernel->SetExecutableModule(*launch->module);
-  launch->thread = new XThread(kernel_state(), (*launch->module)->stack_size(),
-                               0, (*launch->module)->entry_point(), 0,
-                               0x1000100, true, true);
+  launch->thread =
+      new XThread(kernel_state(), (*launch->module)->stack_size(), 0,
+                  (*launch->module)->entry_point(), 0, 0x1000100, true, true);
 
   launch->thread->set_name("Main XThread");
 
@@ -293,12 +293,12 @@ static void LaunchModuleInterrupt(void* ud) {
   }
 
   // Waits for a debugger client, if desired.
-  //kernel->emulator()->processor()->PreLaunch();
+  // kernel->emulator()->processor()->PreLaunch();
 
   // Resume the thread now.
   // If the debugger has requested a suspend this will just decrement the
   // suspend count without resuming it until the debugger wants.
- // launch->thread->Resume();
+  // launch->thread->Resume();
 }
 
 object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
@@ -1024,10 +1024,15 @@ void KernelState::SystemClockInterrupt() {
       kpcr->generic_software_interrupt = 2;
     }
   }
+  GenericExternalInterruptEpilog(context);
+}
+void KernelState::GenericExternalInterruptEpilog(
+    cpu::ppc::PPCContext* context) {
+  auto kpcr = GetKPCR(context);
   uint32_t r3 = kpcr->current_irql;
   uint32_t r4 = kpcr->software_interrupt_state;
   if (r3 < r4) {
-   xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
+    xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
   }
 }
 
@@ -1111,7 +1116,19 @@ struct IPIParams {
   uint32_t interrupt_callback_data_;
   uint32_t interrupt_callback_;
 };
-void CPInterruptIPI(void* ud) {
+void KernelState::GraphicsInterruptDPC(PPCContext* context) {
+  uint32_t callback = static_cast<uint32_t>(context->r[5]);
+  uint64_t callback_data[] = {context->r[4], context->r[6]};
+
+  if (callback) {
+    xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, context);
+    context->processor->Execute(context->thread_state(), callback,
+                                callback_data, countof(callback_data));
+    xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, context);
+  }
+}
+
+void KernelState::CPInterruptIPI(void* ud) {
   IPIParams* params = reinterpret_cast<IPIParams*>(ud);
   auto current_ts = cpu::ThreadState::Get();
   auto current_context = current_ts->context();
@@ -1121,21 +1138,25 @@ void CPInterruptIPI(void* ud) {
       current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
   auto kthread =
       current_context->TranslateVirtual(pcr->prcb_data.current_thread);
-  //DPCImpersonationScope dpc_scope{};
- // kernel_state->BeginDPCImpersonation(current_context, dpc_scope);
 
-  // todo: check VdGlobalXamDevice here. if VdGlobalXamDevice is nonzero, should
-  // set X_PROCTYPE_SYSTEM
-  //xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, current_context);
+  auto guest_globals = kernel_state->GetKernelGuestGlobals(current_context);
 
-  uint64_t args[] = {params->source_, params->interrupt_callback_data_};
+  // in real xboxkrnl, it passes 0 for both args to the dpc,
+  // but its more convenient for us to pass the interrupt
+  guest_globals->graphics_interrupt_dpc.context = params->source_;
+  xboxkrnl::xeKeInsertQueueDpc(
+      &guest_globals->graphics_interrupt_dpc, params->interrupt_callback_,
+      params->interrupt_callback_data_, current_context);
 
-  params->processor_->Execute(current_ts, params->interrupt_callback_, args,
-                              xe::countof(args));
-//  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, current_context);
+  delete params;
 
-  //kernel_state->EndDPCImpersonation(current_context, dpc_scope);
-  //delete params;
+
+  //this causes all games to freeze!
+  // it is an external interrupt though, but i guess we need to wait until
+  // it exits an interrupt context
+  //GenericExternalInterruptEpilog(current_context);
+
+
 }
 
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
@@ -1169,29 +1190,6 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   auto hwthread = processor_->GetCPUThread(cpu);
   while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
   }
-#if 0
-  auto current_context = thread->thread_state()->context();
-  auto kthread = memory()->TranslateVirtual<X_KTHREAD*>(thread->guest_object());
-
-  auto pcr = memory()->TranslateVirtual<X_KPCR*>(thread->pcr_ptr());
-
-  DPCImpersonationScope dpc_scope{};
-  BeginDPCImpersonation(current_context, dpc_scope);
-
-  // todo: check VdGlobalXamDevice here. if VdGlobalXamDevice is nonzero, should
-  // set X_PROCTYPE_SYSTEM
-  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, current_context);
-
-  uint64_t args[] = {source, interrupt_callback_data};
-  processor_->Execute(thread->thread_state(), interrupt_callback, args,
-                      xe::countof(args));
-  xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, current_context);
-
-  EndDPCImpersonation(current_context, dpc_scope);
-
-#else
-
-#endif
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {
@@ -1307,7 +1305,8 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
                  context->HostToGuestVirtual(kpcr));
     context->msr = old_msr;
     kpcr->prcb_data.enqueued_processor_threads_lock.pcr_of_owner = 0;
-    kpcr->apc_software_interrupt_state = guest->deferred_apc_software_interrupt_state;
+    kpcr->apc_software_interrupt_state =
+        guest->deferred_apc_software_interrupt_state;
   };
   X_HANDLE host_handle;
 
@@ -1337,11 +1336,11 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
 
     xthrd->SwitchToDirect();
   }
- // XThread::SetCurrentThread(saved_currthread);
+  // XThread::SetCurrentThread(saved_currthread);
 
-  //this is r31 after the swap, but im not sure
-  //if it equals our thread or the thread we switched back from.
-  //im assuming our thread
+  // this is r31 after the swap, but im not sure
+  // if it equals our thread or the thread we switched back from.
+  // im assuming our thread
 
   X_KTHREAD* thread_to_load_from = GetKThread(context);
   xenia_assert(thread_to_load_from != guest);
@@ -1387,12 +1386,9 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
   auto kpcr = GetKPCR(context);
   auto kthread = GetKThread(context);
   while (true) {
-
-    kpcr->prcb_data.running_idle_thread =
-        kpcr->prcb_data.idle_thread;
+    kpcr->prcb_data.running_idle_thread = kpcr->prcb_data.idle_thread;
 
     while (!kpcr->generic_software_interrupt) {
-
       xenia_assert(context->ExternalInterruptsEnabled());
 
       xenia_assert(GetKThread(context) == kthread);
@@ -1404,7 +1400,8 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
     /*
       it doesnt call this function in normal kernel, but the code just looks to
       be it inlined
-      pass true so that the function does not reinstert the idle thread into the ready list
+      pass true so that the function does not reinstert the idle thread into the
+      ready list
     */
     xboxkrnl::xeHandleDPCsAndThreadSwapping(context, true);
   }

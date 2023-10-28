@@ -122,6 +122,7 @@ struct KernelGuestGlobals {
   uint32_t suspendthread_apc_routine;
   uint32_t extimer_dpc_routine;
   uint32_t extimer_apc_kernel_routine;
+  XDPC graphics_interrupt_dpc;
 };
 
 struct X_KPCR_PAGE;
@@ -331,6 +332,10 @@ class KernelState {
   cpu::XenonInterruptController* InterruptControllerFromPCR(cpu::ppc::PPCContext* context, X_KPCR* pcr);
   void SetCurrentInterruptPriority(cpu::ppc::PPCContext* context, X_KPCR* pcr,
                                    uint32_t priority);
+  static void GenericExternalInterruptEpilog(cpu::ppc::PPCContext* context);
+
+  static void GraphicsInterruptDPC(cpu::ppc::PPCContext* context);
+  static void CPInterruptIPI(void* ud);
  private:
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
   void InitializeProcess(X_KPROCESS* process, uint32_t type, char unk_18,
