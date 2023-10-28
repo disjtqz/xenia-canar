@@ -705,9 +705,9 @@ void xeHandleWaitTypeAll(PPCContext* context, X_KWAIT_BLOCK* block) {
   } while (current_waitblock != block);
 }
 void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
-                                 int unk) {
-  SCHEDLOG(context, "xeDispatchSignalStateChange - header {}, unk = {}",
-           (void*)header, unk);
+                                 int increment) {
+  SCHEDLOG(context, "xeDispatchSignalStateChange - header {}, increment = {}",
+           (void*)header, increment);
   auto waitlist_head = &header->wait_list;
 
   for (X_KWAIT_BLOCK* i = context->TranslateVirtual<X_KWAIT_BLOCK*>(
@@ -741,7 +741,7 @@ void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
           i->wait_list_entry.blink_ptr);
       xeHandleWaitTypeAll(context, v6);
     }
-    xeEnqueueThreadPostWait(context, v7, v6->wait_result_xstatus, unk);
+    xeEnqueueThreadPostWait(context, v7, v6->wait_result_xstatus, increment);
   LABEL_23:;
   }
 }
@@ -1501,6 +1501,19 @@ X_STATUS xeKeSignalAndWaitForSingleObjectEx(
   }
   return result;
 }
+
+int32_t xeKeQueryBasePriorityThread(PPCContext* context, X_KTHREAD* thread) {
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+  char v4 = thread->unk_B8;
+  int v5 = thread->unk_B9 - thread->unk_C9;
+  if (v4) {
+    v5 = 16 * v4;
+  }
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return v5;
+}
+
 
 }  // namespace xboxkrnl
 }  // namespace kernel

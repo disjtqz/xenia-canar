@@ -480,6 +480,11 @@ struct X_KPROCESS {
 };
 static_assert_size(X_KPROCESS, 0x60);
 
+struct X_EVENT_INFORMATION {
+  xe::be<uint32_t> type;
+  xe::be<uint32_t> signal_state;
+};
+
 #pragma pack(pop)
 
 }  // namespace kernel

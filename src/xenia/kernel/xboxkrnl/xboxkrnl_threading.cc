@@ -296,8 +296,10 @@ void KeSetCurrentStackPointers_entry(lpvoid_t stack_ptr,
 DECLARE_XBOXKRNL_EXPORT2(KeSetCurrentStackPointers, kThreading, kImplemented,
                          kHighFrequency);
 
-dword_result_t KeSetAffinityThread_entry(lpvoid_t thread_ptr, dword_t affinity,
-                                         lpdword_t previous_affinity_ptr) {
+dword_result_t KeSetAffinityThread_entry(pointer_t<X_KTHREAD> thread_ptr,
+                                         dword_t affinity,
+                                         lpdword_t previous_affinity_ptr,
+                                         const ppc_context_t& context) {
   // The Xbox 360, according to disassembly of KeSetAffinityThread, unlike
   // Windows NT, stores the previous affinity via the pointer provided as an
   // argument, not in the return value - the return value is used for the
@@ -305,26 +307,16 @@ dword_result_t KeSetAffinityThread_entry(lpvoid_t thread_ptr, dword_t affinity,
   if (!affinity) {
     return X_STATUS_INVALID_PARAMETER;
   }
-  auto thread = XObject::GetNativeObject<XThread>(kernel_state(), thread_ptr);
-  if (thread) {
-    if (previous_affinity_ptr) {
-      *previous_affinity_ptr = uint32_t(1) << thread->active_cpu();
-    }
-    thread->SetAffinity(affinity);
-  }
+  uint32_t prev_affinity = 0;
+  xeKeSetAffinityThread(context, thread_ptr, affinity, &prev_affinity);
+  *previous_affinity_ptr = prev_affinity;
   return X_STATUS_SUCCESS;
 }
 DECLARE_XBOXKRNL_EXPORT1(KeSetAffinityThread, kThreading, kImplemented);
 
-dword_result_t KeQueryBasePriorityThread_entry(lpvoid_t thread_ptr) {
-  int32_t priority = 0;
-
-  auto thread = XObject::GetNativeObject<XThread>(kernel_state(), thread_ptr);
-  if (thread) {
-    priority = thread->QueryPriority();
-  }
-
-  return priority;
+dword_result_t KeQueryBasePriorityThread_entry(pointer_t<X_KTHREAD> thread_ptr,
+                                               const ppc_context_t& context) {
+  return xeKeQueryBasePriorityThread(context, thread_ptr);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeQueryBasePriorityThread, kThreading, kImplemented);
 
@@ -410,8 +402,16 @@ void KeQuerySystemTime_entry(lpqword_t time_ptr, const ppc_context_t& ctx) {
 }
 DECLARE_XBOXKRNL_EXPORT1(KeQuerySystemTime, kThreading, kImplemented);
 
+static void do_tls_asserts(PPCContext* context) {
+  auto kpcr = GetKPCR(context);
+  auto kthread = context->TranslateVirtual(kpcr->prcb_data.current_thread);
+
+  xenia_assert(kpcr->tls_ptr == kthread->tls_address);
+}
+
 // https://msdn.microsoft.com/en-us/library/ms686801
-dword_result_t KeTlsAlloc_entry() {
+dword_result_t KeTlsAlloc_entry(const ppc_context_t& context) {
+  do_tls_asserts(context);
   uint32_t slot = kernel_state()->AllocateTLS();
   XThread::GetCurrentThread()->SetTLSValue(slot, 0);
 
@@ -420,7 +420,9 @@ dword_result_t KeTlsAlloc_entry() {
 DECLARE_XBOXKRNL_EXPORT1(KeTlsAlloc, kThreading, kImplemented);
 
 // https://msdn.microsoft.com/en-us/library/ms686804
-dword_result_t KeTlsFree_entry(dword_t tls_index) {
+dword_result_t KeTlsFree_entry(dword_t tls_index,
+                               const ppc_context_t& context) {
+  do_tls_asserts(context);
   if (tls_index == X_TLS_OUT_OF_INDEXES) {
     return 0;
   }
@@ -433,20 +435,12 @@ DECLARE_XBOXKRNL_EXPORT1(KeTlsFree, kThreading, kImplemented);
 // https://msdn.microsoft.com/en-us/library/ms686812
 dword_result_t KeTlsGetValue_entry(dword_t tls_index,
                                    const ppc_context_t& context) {
+  do_tls_asserts(context);
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
-#if 0
-  uint32_t value = 0;
-  if (XThread::GetCurrentThread()->GetTLSValue(tls_index, &value)) {
-    return value;
-  }
-
-  return 0;
-#else
   return static_cast<uint32_t>(
       *(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -
         static_cast<uint32_t>(tls_index) - 1));
-#endif
 }
 DECLARE_XBOXKRNL_EXPORT2(KeTlsGetValue, kThreading, kImplemented,
                          kHighFrequency);
@@ -454,19 +448,13 @@ DECLARE_XBOXKRNL_EXPORT2(KeTlsGetValue, kThreading, kImplemented,
 // https://msdn.microsoft.com/en-us/library/ms686818
 dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value,
                                    const ppc_context_t& context) {
+  do_tls_asserts(context);
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
-#if 0
-  if (XThread::GetCurrentThread()->SetTLSValue(tls_index, tls_value)) {
-    return 1;
-  }
 
-  return 0;
-#else
   *(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -
     tls_index - 1) = (uint32_t)tls_value;
   return 1;
-#endif
 }
 DECLARE_XBOXKRNL_EXPORT1(KeTlsSetValue, kThreading, kImplemented);
 
@@ -494,9 +482,9 @@ dword_result_t KeSetEvent_entry(pointer_t<X_KEVENT> event_ptr,
 DECLARE_XBOXKRNL_EXPORT2(KeSetEvent, kThreading, kImplemented, kHighFrequency);
 
 dword_result_t KePulseEvent_entry(pointer_t<X_KEVENT> event_ptr,
-                                  dword_t increment, dword_t wait) {
-  xenia_assert(false);
-  return 0;
+                                  dword_t increment, dword_t wait,
+                                  const ppc_context_t& context) {
+  return xeKePulseEvent(context, event_ptr, increment, wait);
 }
 DECLARE_XBOXKRNL_EXPORT2(KePulseEvent, kThreading, kImplemented,
                          kHighFrequency);
@@ -566,22 +554,43 @@ dword_result_t NtSetEvent_entry(dword_t handle, lpdword_t previous_state_ptr) {
 }
 DECLARE_XBOXKRNL_EXPORT2(NtSetEvent, kThreading, kImplemented, kHighFrequency);
 
-dword_result_t NtPulseEvent_entry(dword_t handle,
-                                  lpdword_t previous_state_ptr) {
-  X_STATUS result = X_STATUS_SUCCESS;
+dword_result_t NtPulseEvent_entry(dword_t handle, lpdword_t previous_state_ptr,
+                                  const ppc_context_t& context) {
+  auto ev = kernel_state()->object_table()->LookupObject<XEvent>(handle);
+  auto prev_state = xeKePulseEvent(context, ev->guest_object<X_KEVENT>(), 1, 0);
+  if (previous_state_ptr) {
+    *previous_state_ptr = prev_state;
+  }
 
-  xenia_assert(false);
-
-  return result;
+  return X_STATUS_SUCCESS;
 }
 DECLARE_XBOXKRNL_EXPORT2(NtPulseEvent, kThreading, kImplemented,
                          kHighFrequency);
-dword_result_t NtQueryEvent_entry(dword_t handle, lpdword_t out_struc) {
+dword_result_t NtQueryEvent_entry(dword_t handle,
+                                  pointer_t<X_EVENT_INFORMATION> out_struc,
+                                  const ppc_context_t& context) {
   X_STATUS result = X_STATUS_SUCCESS;
 
   xenia_assert(false);
+  auto kernel = context->kernel_state;
+  uint32_t object_ptr = 0;
+  result = kernel->ReferenceObjectByHandle(
+      context, handle,
+      kernel->GetKernelGuestGlobals() +
+          offsetof(KernelGuestGlobals, ExEventObjectType),
+      &object_ptr);
 
-  return result;
+  if (result < X_STATUS_SUCCESS) {
+    return result;
+  }
+  X_KEVENT* event = context->TranslateVirtual<X_KEVENT*>(object_ptr);
+  int32_t local_signalstate = event->header.signal_state;
+  auto local_type = event->header.type;
+  kernel->DereferenceObject(context, object_ptr);
+  out_struc->type = local_type;
+  out_struc->signal_state = local_signalstate;
+
+  return X_STATUS_SUCCESS;
 }
 DECLARE_XBOXKRNL_EXPORT2(NtQueryEvent, kThreading, kImplemented,
                          kHighFrequency);
@@ -788,8 +797,6 @@ void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
 
     util::XeInsertHeadList(v4->mutants_list.blink_ptr, &mutant->unk_list,
                            context);
-
-    // kernel_state()->UnlockDispatcher(context, old_irql);
 
     xboxkrnl::xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context), old_irql);

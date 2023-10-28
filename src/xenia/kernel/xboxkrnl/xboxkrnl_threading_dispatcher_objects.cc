@@ -62,6 +62,32 @@ int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int increment,
   return old_signalstate;
 }
 
+int32_t xeKePulseEvent(PPCContext* context, X_KEVENT* event, int increment,
+                     unsigned char wait) {
+  xenia_assert(event && event->header.type < 2);
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+
+  auto old_signalstate = event->header.signal_state;
+  auto wait_list = context->TranslateVirtual<X_KWAIT_BLOCK*>(
+      event->header.wait_list.flink_ptr);
+
+  if (!old_signalstate && &wait_list->wait_list_entry != &event->header.wait_list) {
+    event->header.signal_state = 1;
+    xeDispatchSignalStateChange(context, &event->header, increment);
+  } 
+  event->header.signal_state = 0;
+  if (wait) {
+    auto current_thread =
+        context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
+    current_thread->unk_A6 = wait;
+    current_thread->unk_A4 = old_irql;
+  } else {
+    xeDispatcherSpinlockUnlock(
+        context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  }
+  return old_signalstate;
+}
+
 int32_t xeKeResetEvent(PPCContext* context, X_KEVENT* event) {
   xenia_assert(event && event->header.type < 2);
   auto old_irql = context->kernel_state->LockDispatcher(context);

@@ -215,19 +215,14 @@ uint32_t XThread::GetCurrentThreadHandle() {
   return thread->handle();
 }
 
-uint32_t XThread::GetCurrentThreadId() {
-  XThread* thread = XThread::GetCurrentThread();
-  return thread->guest_object<X_KTHREAD>()->thread_id;
-}
+uint32_t XThread::GetCurrentThreadId() { return GetKThread()->thread_id; }
 
-uint32_t XThread::GetLastError() {
-  XThread* thread = XThread::GetCurrentThread();
-  return thread->last_error();
-}
+uint32_t XThread::GetLastError() { return GetKThread()->last_error; }
 
 void XThread::SetLastError(uint32_t error_code) {
-  XThread* thread = XThread::GetCurrentThread();
-  thread->set_last_error(error_code);
+  // XThread* thread = XThread::GetCurrentThread();
+  // thread->set_last_error(error_code);
+  GetKThread()->last_error = error_code;
 }
 
 uint32_t XThread::last_error() { return guest_object<X_KTHREAD>()->last_error; }

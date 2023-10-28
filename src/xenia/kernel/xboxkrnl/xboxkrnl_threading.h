@@ -38,6 +38,8 @@ uint32_t NtWaitForSingleObjectEx(uint32_t object_handle, uint32_t wait_mode,
 
 int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int increment,
                      unsigned char wait);
+int32_t xeKePulseEvent(PPCContext* context, X_KEVENT* event, int increment,
+                       unsigned char wait);
 int32_t
     xeKeResetEvent(PPCContext* context, X_KEVENT* event);
 
@@ -174,6 +176,8 @@ X_STATUS xeKeSignalAndWaitForSingleObjectEx(
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> signal,
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
     unsigned char mode, bool alertable, int64_t* timeout);
+
+int32_t xeKeQueryBasePriorityThread(PPCContext* context, X_KTHREAD* thread);
 
 }  // namespace xboxkrnl
 }  // namespace kernel
