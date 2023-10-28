@@ -26,15 +26,17 @@
 #include "xenia/kernel/kernel_guest_structures.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/user_module.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_ob.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/kernel/xevent.h"
 #include "xenia/kernel/xmutant.h"
+
 DEFINE_bool(ignore_thread_priorities, true,
             "Ignores game-specified thread priorities.", "Kernel");
 DEFINE_bool(ignore_thread_affinities, true,
             "Ignores game-specified thread affinities.", "Kernel");
 
-#define     LOOKUP_XTHREAD_FROM_KTHREAD 1
+#define LOOKUP_XTHREAD_FROM_KTHREAD 1
 namespace xe {
 namespace kernel {
 
@@ -50,7 +52,6 @@ X_KTHREAD* GetKThread(PPCContext* context) {
   return context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
 }
 const uint32_t XAPC::kSize;
-
 
 using xe::cpu::ppc::PPCOpcode;
 
@@ -107,8 +108,8 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
 
   // Allocate processor thread state.
   // This is thread safe.
-  thread_state_ = cpu::ThreadState::Create(
-      kernel_state->processor(), this->handle(), stack_base_, 0);
+  thread_state_ = cpu::ThreadState::Create(kernel_state->processor(),
+                                           this->handle(), stack_base_, 0);
   XELOGI("XThread{:08X} ({:X}) Stack: {:08X}-{:08X}", handle(), handle(),
          stack_limit_, stack_base_);
 
@@ -389,12 +390,18 @@ void XThread::FreeStack() {
 }
 
 X_STATUS XThread::Create() {
-  // Thread kernel object.
-  if (!CreateNative<X_KTHREAD>()) {
-    XELOGW("Unable to allocate thread object");
-    return X_STATUS_NO_MEMORY;
-  }
+  auto context = cpu::ThreadState::GetContext();
 
+  auto guest_globals = context->TranslateVirtual<KernelGuestGlobals*>(
+      kernel_state()->GetKernelGuestGlobals());
+  uint32_t created_object = 0;
+  X_STATUS create_status =
+      xboxkrnl::xeObCreateObject(&guest_globals->ExThreadObjectType, nullptr,
+                                 sizeof(X_KTHREAD), &created_object, context);
+  if (create_status != X_STATUS_SUCCESS) {
+    return create_status;
+  }
+  SetNativePointer(created_object);
   // Allocate a stack.
   if (!AllocateStack(creation_params_.stack_size)) {
     return X_STATUS_NO_MEMORY;
@@ -513,7 +520,7 @@ X_STATUS XThread::Exit(int exit_code) {
   // TODO(chrispy): not sure if this order is correct, should it come after
   // apcs?
   auto kthread = guest_object<X_KTHREAD>();
-  
+
   kthread->terminated = 1;
 
   // TODO(benvanik): dispatch events? waiters? etc?
@@ -541,14 +548,13 @@ X_STATUS XThread::Exit(int exit_code) {
   running_ = false;
   ReleaseHandle();
 
-
   xboxkrnl::xeKeEnterCriticalRegion(cpu_context);
   uint32_t old_irql2 =
       xboxkrnl::xeKeKfAcquireSpinLock(cpu_context, &kthread->apc_lock);
 
   kthread->may_queue_apcs = 0;
-  //also does some stuff with the suspendsemaphore here, which doesnt make sense to me
-  //the thread is already running
+  // also does some stuff with the suspendsemaphore here, which doesnt make
+  // sense to me the thread is already running
 
   xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kthread->apc_lock, old_irql2);
   // xe::FatalError("Brokey!");
@@ -571,7 +577,7 @@ X_STATUS XThread::Exit(int exit_code) {
       &GetKPCR(cpu_context)->prcb_data.terminating_threads_list,
       &kthread->ready_prcb_entry, cpu_context);
 
-  //unsure about these args
+  // unsure about these args
   xboxkrnl::xeKeInsertQueueDpc(&GetKPCR(cpu_context)->prcb_data.thread_exit_dpc,
                                0, 0, cpu_context);
   return xboxkrnl::xeSchedulerSwitchThread2(cpu_context);
