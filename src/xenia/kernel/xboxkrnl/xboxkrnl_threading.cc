@@ -634,20 +634,8 @@ DECLARE_XBOXKRNL_EXPORT1(KeInitializeSemaphore, kThreading, kImplemented);
 
 uint32_t xeKeReleaseSemaphore(X_KSEMAPHORE* semaphore_ptr, uint32_t increment,
                               uint32_t adjustment, uint32_t wait) {
-  auto sem =
-      XObject::GetNativeObject<XSemaphore>(kernel_state(), semaphore_ptr);
-  if (!sem) {
-    assert_always();
-    return 0;
-  }
-
-  // TODO(benvanik): increment thread priority?
-  // TODO(benvanik): wait?
-
-  // return sem->ReleaseSemaphore(adjustment);
-
   return xeKeReleaseSemaphore(cpu::ThreadState::GetContext(),
-                              sem->guest_object<X_KSEMAPHORE>(), increment,
+                              semaphore_ptr, increment,
                               adjustment, wait);
 }
 
