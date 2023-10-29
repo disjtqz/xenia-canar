@@ -225,7 +225,15 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
   ppc::PPCGprSnapshot snap;
   current_context->TakeGPRSnapshot(&snap);
 
+  auto kpcr = current_context->TranslateVirtualGPR<kernel::X_KPCR*>(
+      current_context->r[13]);
+
+  auto old_irql = kpcr->current_irql;
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
+  kpcr = current_context->TranslateVirtualGPR<kernel::X_KPCR*>(
+      current_context->r[13]);
+  auto new_irql = kpcr->current_irql;
+  xenia_assert(old_irql == new_irql);
 
   current_context->RestoreGPRSnapshot(&snap);
 

@@ -608,6 +608,14 @@ EMITTER_OPCODE_TABLE(OPCODE_BRANCH_FALSE, BRANCH_FALSE_I8, BRANCH_FALSE_I16,
                      BRANCH_FALSE_I32, BRANCH_FALSE_I64, BRANCH_FALSE_F32,
                      BRANCH_FALSE_F64);
 
+struct CHECK_INTERRUPT
+    : Sequence<CHECK_INTERRUPT, I<OPCODE_CHECK_INTERRUPT, VoidOp>> {
+  static void Emit(X64Emitter& e, const EmitArgType& i) {
+    e.EmitEmulatedInterruptCheck();
+  }
+};
+EMITTER_OPCODE_TABLE(OPCODE_CHECK_INTERRUPT, CHECK_INTERRUPT);
+
 }  // namespace x64
 }  // namespace backend
 }  // namespace cpu

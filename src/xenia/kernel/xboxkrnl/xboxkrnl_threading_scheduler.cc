@@ -582,7 +582,7 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
   xenia_assert(thread->thread_state == 5);
   thread->wait_result = thread->wait_result | wait_result;
   auto kpcr = GetKPCR(context);
-  xenia_assert(kpcr->current_irql < IRQL_DISPATCH);
+  xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
 
   X_KWAIT_BLOCK* wait_blocks = context->TranslateVirtual(thread->wait_blocks);
   do {

@@ -1344,7 +1344,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
 
     auto dpc = context->TranslateVirtual(timer->dpc);
     // check if null
-    if (dpc != (XDPC*)context->virtual_membase) {
+    if (dpc) {
       if (dpc->desired_cpu_number ||
           dpc->desired_cpu_number ==
               GetKPCR(context)->prcb_data.current_cpu + 1) {

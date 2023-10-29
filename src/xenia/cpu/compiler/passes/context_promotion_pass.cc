@@ -104,6 +104,10 @@ void ContextPromotionPass::PromoteBlock(Block* block) {
     if (i->opcode->flags & OPCODE_FLAG_VOLATILE) {
       // Volatile instruction - requires all context values be flushed.
       validity.reset();
+    } else if (i->opcode->flags & (OPCODE_FLAG_R13_BARRIER)) {
+      validity.reset(
+          offsetof(ppc::PPCContext, r[13]),
+          offsetof(ppc::PPCContext, r[13]) + sizeof(ppc::PPCContext::r[13]));
     } else if (i->opcode == &OPCODE_LOAD_CONTEXT_info) {
       size_t offset = i->src1.offset;
       if (validity.test(static_cast<uint32_t>(offset))) {
@@ -139,6 +143,10 @@ void ContextPromotionPass::RemoveDeadStoresBlock(Block* block) {
     if (i->opcode->flags & (OPCODE_FLAG_VOLATILE | OPCODE_FLAG_BRANCH)) {
       // Volatile instruction - requires all context values be flushed.
       validity.reset();
+    } else if (i->opcode->flags & (OPCODE_FLAG_R13_BARRIER)) {
+      validity.reset(
+          offsetof(ppc::PPCContext, r[13]),
+          offsetof(ppc::PPCContext, r[13]) + sizeof(ppc::PPCContext::r[13]));
     } else if (i->opcode == &OPCODE_STORE_CONTEXT_info) {
       size_t offset = i->src1.offset;
       if (!validity.test(static_cast<uint32_t>(offset))) {

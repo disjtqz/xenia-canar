@@ -1117,13 +1117,19 @@ struct IPIParams {
   uint32_t interrupt_callback_;
 };
 void KernelState::GraphicsInterruptDPC(PPCContext* context) {
+   
   uint32_t callback = static_cast<uint32_t>(context->r[5]);
   uint64_t callback_data[] = {context->r[4], context->r[6]};
-
+  auto kpcr = GetKPCR(context);
+  xenia_assert(kpcr->processtype_value_in_dpc == X_PROCTYPE_IDLE);
+  xenia_assert(kpcr->prcb_data.dpc_active != 0);
+  xenia_assert(context->msr == 0x9030);
+  xenia_assert(context->kernel_state->GetPCRCpuNum(kpcr) == 2);
   if (callback) {
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, context);
     context->processor->Execute(context->thread_state(), callback,
                                 callback_data, countof(callback_data));
+    xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, context);
   }
 }
@@ -1311,7 +1317,8 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   X_HANDLE host_handle;
 
   xenia_assert(GetKPCR(context)->prcb_data.current_thread.xlat() == guest);
-
+  
+  auto old_kpcr = GetKPCR(context);
   if (!object_table()->HostHandleForGuestObject(
           context->HostToGuestVirtual(guest), host_handle)) {
     // if theres no host object for this guest thread, its definitely the idle
@@ -1335,6 +1342,9 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
     xthrd->thread_state()->context()->r[13] = context->r[13];
 
     xthrd->SwitchToDirect();
+  }
+  if (GetKPCR(context) != old_kpcr) {
+    XELOGE("Thread was switched from one HW thread to another.");
   }
   // XThread::SetCurrentThread(saved_currthread);
 

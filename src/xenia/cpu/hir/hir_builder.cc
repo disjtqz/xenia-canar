@@ -20,7 +20,7 @@
 #include "xenia/cpu/hir/instr.h"
 #include "xenia/cpu/hir/label.h"
 #include "xenia/cpu/symbol.h"
-
+#include "xenia/cpu/thread.h"
 // Will scribble arena memory to hopefully find use before clears.
 // #define SCRIBBLE_ARENA_ON_RESET
 
@@ -1235,6 +1235,12 @@ void HIRBuilder::StoreContext(size_t offset, Value* value) {
 
 void HIRBuilder::ContextBarrier() {
   AppendInstr(OPCODE_CONTEXT_BARRIER_info, 0);
+}
+
+void HIRBuilder::CheckInterrupt() {
+  if (cvars::emulate_guest_interrupts_in_software) {
+    AppendInstr(OPCODE_CHECK_INTERRUPT_info, 0);
+  }
 }
 
 Value* HIRBuilder::LoadMmio(cpu::MMIORange* mmio_range, uint32_t address,
