@@ -204,10 +204,17 @@ static void ReallyDoInterrupt(PPCContext* context) {
     if (xchged != reinterpret_cast<uint64_t>(kpcr)) {
       auto ireq = reinterpret_cast<PPCInterruptRequest*>(xchged);
 
-      uintptr_t result = ireq->func_(ireq->ud_);
+      auto ireq_deref = *ireq;
 
-      if (ireq->result_out_) {
-        *ireq->result_out_ = result;
+      if (ireq_deref.result_out_) {
+        *ireq_deref.result_out_ = context->ExternalInterruptsEnabled();
+      }
+
+      uintptr_t result = ireq_deref.func_(ireq_deref.ud_);
+      if (ireq_deref.wait) {
+        if (ireq_deref.result_out_) {
+          *ireq_deref.result_out_ = result;
+        }
       }
     }
   }
@@ -247,7 +254,7 @@ void PPCContext::RestoreGPRSnapshot(const PPCGprSnapshot* in) {
   }
   // skip r13
   for (i = 14; i < 32; ++i) {
-    this->r[i] = in->r[i-1];
+    this->r[i] = in->r[i - 1];
   }
   this->ctr = in->ctr;
 

@@ -450,6 +450,8 @@ struct X_KTHREAD {
   // This struct is actually quite long... so uh, not filling this out!
 };
 static_assert_size(X_KTHREAD, 0xAB0);
+
+static_assert(offsetof(X_KTHREAD, apc_lists[0]) == 0x74);
 struct alignas(4096) X_KPCR_PAGE {
   X_KPCR pcr;        // 0x0
   char unk_2D8[40];  // 0x2D8

@@ -48,10 +48,6 @@ void XMutant::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
   xe::FatalError("Unimplemented XMutant::InitializeNative");
 }
 
-X_STATUS XMutant::ReleaseMutant(uint32_t priority_increment, bool abandon,
-                                bool wait) {
-  return X_STATUS_UNSUCCESSFUL;
-}
 
 X_STATUS XMutant::GetSignaledStatus(X_STATUS success_in) {
   if (success_in <= 63U) {

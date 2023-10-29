@@ -42,7 +42,11 @@ DEFINE_uint32(apu_max_queued_frames, 64,
 
 namespace xe {
 namespace apu {
-
+struct GuestMessage {
+  threading::AtomicListEntry list_entry;
+  uint32_t client_callback_;
+  uint32_t client_callback_arg_;
+};
 AudioSystem::AudioSystem(cpu::Processor* processor)
     : memory_(processor->memory()),
       processor_(processor),
@@ -75,11 +79,22 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
   if (result) {
     return result;
   }
-
+  kernel_state_ = kernel_state;
   worker_running_ = true;
+
+  threading::Thread::CreationParameters crparams{};
+  worker_thread_ = threading::Thread::Create(
+      crparams, std::bind(&AudioSystem::WorkerThreadMain, this));
+
+  // As we run audio callbacks the debugger must be able to suspend us.
+  worker_thread_->set_name("Audio Worker");
+
+  return X_STATUS_SUCCESS;
+}
+void AudioSystem::StartGuestWorkerThread() {
   guest_thread_ =
       kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
-          kernel_state, 128 * 1024, 1,
+          kernel_state_, 128 * 1024, 1,
           [this]() {
             while (true) {
               uint64_t args[] = {client_callback_arg_in_};
@@ -90,17 +105,8 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
             }
             return true;
           },
-          kernel_state->GetSystemProcess()));
-  // guest_thread_->Create();
-  guest_received_event_ = threading::Event::CreateAutoResetEvent(false);
-  threading::Thread::CreationParameters crparams{};
-  worker_thread_ = threading::Thread::Create(
-      crparams, std::bind(&AudioSystem::WorkerThreadMain, this));
-
-  // As we run audio callbacks the debugger must be able to suspend us.
-  worker_thread_->set_name("Audio Worker");
-
-  return X_STATUS_SUCCESS;
+          kernel_state_->GetSystemProcess()));
+  //guest_received_event_ = threading::Event::CreateAutoResetEvent(false);
 }
 void AudioSystem::GuestInterrupt(void* ud) {
   auto system = reinterpret_cast<AudioSystem*>(ud);
@@ -108,6 +114,7 @@ void AudioSystem::GuestInterrupt(void* ud) {
   system->processor_->Execute(cpu::ThreadState::Get(),
                               system->client_callback_in_, args,
                               xe::countof(args));
+ // system->guest_received_event_->Set();
 }
 
 void AudioSystem::WorkerThreadMain() {
@@ -149,11 +156,17 @@ void AudioSystem::WorkerThreadMain() {
       client_callback_arg_in_ = client_callback_arg;
       client_callback_in_ = client_callback;
 
-      while (!processor()->GetCPUThread(4)->TrySendInterruptFromHost(
-          &AudioSystem::GuestInterrupt, this)) {
-      }
-      // guest_thread_->Resume();
+      // auto msg = new GuestMessage();
+      //  msg->client_callback_ = client_callback_in_;
+      // msg->client_callback_arg_ = client_callback_arg_in_;
+      // guest_worker_messages_.Push(&msg->list_entry);
+
+    //  processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
+     //                                            this);
+
       // threading::Wait(guest_received_event_.get(), false);
+      //  guest_thread_->Resume();
+      //  threading::Wait(guest_received_event_.get(), false);
 #endif
       /* if (client_callback) {
         SCOPE_profile_cpu_i("apu", "xe::apu::AudioSystem->client_callback");

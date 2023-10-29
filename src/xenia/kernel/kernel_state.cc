@@ -340,7 +340,7 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   li.module = &module;
   li.thread = nullptr;
   while (!processor()->GetCPUThread(0)->TrySendInterruptFromHost(
-      LaunchModuleInterrupt, &li)) {
+      LaunchModuleInterrupt, &li, true)) {
     threading::NanoSleep(10000);
   }
   if (li.thread) {

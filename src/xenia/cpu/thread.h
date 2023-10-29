@@ -188,7 +188,7 @@ class HWThread {
 
   void YieldToScheduler();
 
-  bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud);
+  bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud, bool wait_done = false);
 
   uint64_t mftb() const;
   // SendGuestIPI is designed to run on a guest thread

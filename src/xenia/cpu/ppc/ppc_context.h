@@ -34,6 +34,7 @@ struct PPCInterruptRequest {
   uintptr_t (*func_)(void* ud);
   void* ud_;
   uintptr_t* result_out_;
+  bool wait;
 };
 // Map:
 // 0-31: GPR

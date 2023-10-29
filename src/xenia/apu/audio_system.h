@@ -60,6 +60,8 @@ class AudioSystem {
 
   void WorkerThreadMain();
 
+  void StartGuestWorkerThread();
+
   virtual X_STATUS CreateDriver(size_t index,
                                 xe::threading::Semaphore* semaphore,
                                 AudioDriver** out_driver) = 0;
@@ -71,6 +73,7 @@ class AudioSystem {
 
   Memory* memory_ = nullptr;
   cpu::Processor* processor_ = nullptr;
+  kernel::KernelState* kernel_state_ = nullptr;
   std::unique_ptr<XmaDecoder> xma_decoder_;
   uint32_t queued_frames_;
 
@@ -102,6 +105,8 @@ class AudioSystem {
   std::unique_ptr<threading::Event> guest_received_event_;
   uint32_t client_callback_in_;
   uint32_t client_callback_arg_in_;
+
+  threading::AtomicListHeader guest_worker_messages_;
 };
 
 }  // namespace apu

@@ -972,7 +972,6 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
                                       uint32_t wait_type, uint32_t wait_mode,
                                       uint32_t alertable, uint64_t* timeout_ptr,
                                       cpu::ppc::PPCContext* context) {
-
   X_DISPATCH_HEADER* objects_tmp[64];
   object_ref<XObject> objects[64];
   for (uint32_t n = 0; n < count; n++) {
@@ -1055,8 +1054,11 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
     old_irql = kpcr->current_irql;
     kpcr->current_irql = 2;
   }
-
-  assert_true(lock->pcr_of_owner != static_cast<uint32_t>(ctx->r[13]));
+  if (lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13])) {
+    // lock is already held!
+    xenia_assert(false);
+    return old_irql;
+  }
   // Lock.
   while (!xe::atomic_cas(0, xe::byte_swap(static_cast<uint32_t>(ctx->r[13])),
                          &lock->pcr_of_owner.value)) {
@@ -1816,7 +1818,7 @@ void KeInitializeDpc_entry(pointer_t<XDPC> dpc, lpvoid_t routine,
 DECLARE_XBOXKRNL_EXPORT2(KeInitializeDpc, kThreading, kImplemented, kSketchy);
 
 static void DPCIPIFunction(void* ud) {
-  xeHandleDPCsAndThreadSwapping(cpu::ThreadState::Get()->context());
+  KernelState::GenericExternalInterruptEpilog(cpu::ThreadState::GetContext());
 }
 uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
                             PPCContext* ctx) {

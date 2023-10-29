@@ -128,9 +128,12 @@ struct GuestIPI {
 };
 
 void HWThread::GuestIPIWorkerThreadFunc() {
+  std::vector<GuestIPI*> reversed_order{};
+  reversed_order.reserve(128);
   while (true) {
     // todo: add another event that signals that its time to terminate
     threading::Wait(guest_ipi_dispatch_event_.get(), false);
+#if 0
     auto list_entry = reinterpret_cast<GuestIPI*>(guest_ipi_list_.Pop());
     if (!list_entry) {
       continue;
@@ -139,6 +142,28 @@ void HWThread::GuestIPIWorkerThreadFunc() {
       threading::NanoSleep(10000);
     }
     delete list_entry;
+#else
+    auto list_entries = reinterpret_cast<GuestIPI*>(guest_ipi_list_.Flush());
+
+    GuestIPI* entry = list_entries;
+    if (!entry) {
+      continue;
+    }
+    while (entry) {
+      reversed_order.push_back(entry);
+      entry = reinterpret_cast<GuestIPI*>(entry->list_entry_.next_);
+    }
+
+    std::reverse(reversed_order.begin(), reversed_order.end());
+
+    for (auto&& ipi : reversed_order) {
+      while (!TrySendInterruptFromHost(ipi->function_, ipi->ud_)) {
+        // threading::MaybeYield();
+      }
+      delete ipi;
+    }
+    reversed_order.clear();
+#endif
   }
 }
 
@@ -168,7 +193,7 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
 
   // is putting it on the same os thread a good idea? nah, probably not
   // but until we have real thread allocation logic thats where it goes
-  guest_ipi_dispatch_worker_->set_affinity_mask(1ULL << cpu_number_);
+  // guest_ipi_dispatch_worker_->set_affinity_mask(1ULL << cpu_number_);
   guest_ipi_dispatch_worker_->set_name(
       std::string("PPC HW Thread IPI Worker ") + std::to_string(cpu_number));
   interrupt_controller_ = std::make_unique<XenonInterruptController>(
@@ -239,15 +264,17 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
 
   // new_ctx->msr = msr;
   // cpu::ThreadState::Bind(old_ts);
-
-  return 1;
+  delete interrupt_wrapper;
+  return 2;
 }
 #define NO_RESULT_MAGIC 0x69420777777ULL
-bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
-  GuestInterruptWrapper wrapper{};
-  wrapper.ipi_func = ipi_func;
-  wrapper.ud = ud;
-  wrapper.thiz = this;
+bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
+                                        bool wait_done) {
+  GuestInterruptWrapper* wrapper = new GuestInterruptWrapper();
+
+  wrapper->ipi_func = ipi_func;
+  wrapper->ud = ud;
+  wrapper->thiz = this;
   // ipi wrapper returns 0 if current context has interrupts disabled
   volatile uintptr_t result_from_call = 0;
   if (cvars::emulate_guest_interrupts_in_software) {
@@ -259,32 +286,46 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud) {
 
     ppc::PPCInterruptRequest request;
     request.func_ = IPIWrapperFunction;
-    request.ud_ = (void*)&wrapper;
+    request.ud_ = (void*)wrapper;
     request.result_out_ = (uintptr_t*)&result_from_call;
+    request.wait = wait_done;
 
     while (result_from_call == 0) {
       result_from_call = NO_RESULT_MAGIC;
       while (!xe::atomic_cas(reinterpret_cast<uint64_t>(p_pcr),
                              reinterpret_cast<uint64_t>(&request),
                              &p_pcr->emulated_interrupt)) {
-        threading::MaybeYield();
+        _mm_pause();
       }
 
       while (p_pcr->emulated_interrupt ==
              reinterpret_cast<uint64_t>(&request)) {
-        threading::MaybeYield();
+        _mm_pause();
       }
       // guest has read the interrupt, now wait for it to change our value
 
       while (result_from_call == NO_RESULT_MAGIC) {
-        threading::MaybeYield();
+        _mm_pause();
+      }
+
+      if (result_from_call == 0) {
+        continue;
+      } else {
+        if (!wait_done) {
+          return true;
+        } else {
+          while (result_from_call != 2) {
+            _mm_pause();
+          }
+          return true;
+        }
       }
     }
 
     return true;
 
   } else {
-    while (!os_thread_->IPI(IPIWrapperFunction, &wrapper,
+    while (!os_thread_->IPI(IPIWrapperFunction, wrapper,
                             (uintptr_t*)&result_from_call) ||
            result_from_call == 0) {
       threading::NanoSleep(10000);
@@ -300,7 +341,7 @@ bool HWThread::SendGuestIPI(void (*ipi_func)(void*), void* ud) {
   msg->function_ = ipi_func;
   msg->ud_ = ud;
   guest_ipi_list_.Push(&msg->list_entry_);
-  guest_ipi_dispatch_event_->SetBoostPriority();
+  guest_ipi_dispatch_event_->Set();
   return true;
 }
 

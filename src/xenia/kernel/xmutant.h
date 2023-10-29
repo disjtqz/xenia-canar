@@ -29,8 +29,6 @@ class XMutant : public XObject {
   void Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes);
   void InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header);
 
-  X_STATUS ReleaseMutant(uint32_t priority_increment, bool abandon, bool wait);
-
   bool Save(ByteStream* stream) override;
   static object_ref<XMutant> Restore(KernelState* kernel_state,
                                      ByteStream* stream);
