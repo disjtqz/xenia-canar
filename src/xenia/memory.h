@@ -354,6 +354,9 @@ class Memory {
   // Note that the contents at the specified host address are big-endian.
   template <typename T = uint8_t*>
   inline T TranslateVirtual(uint32_t guest_address) const {
+#if XE_COMPARISON_BUILD == 1
+    return reinterpret_cast<T>(static_cast<uint64_t>(guest_address));
+#else
 #if XE_PLATFORM_WIN32 == 1
     uint8_t* host_address = virtual_membase_ + guest_address;
     if (guest_address >= 0xE0000000) {
@@ -369,6 +372,7 @@ class Memory {
     return reinterpret_cast<T>(host_address);
 
 #endif
+    #endif
   }
   template <typename T>
   inline T* TranslateVirtual(TypedGuestPointer<T> guest_address) {

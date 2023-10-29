@@ -50,6 +50,8 @@ class AudioSystem {
   bool is_paused() const { return paused_; }
   void Pause();
   void Resume();
+  static void GuestInterrupt(void* ud);
+
 
  protected:
   explicit AudioSystem(cpu::Processor* processor);

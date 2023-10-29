@@ -10,6 +10,9 @@
 #ifndef XENIA_BASE_PLATFORM_H_
 #define XENIA_BASE_PLATFORM_H_
 
+//if true, hosttoguestvirtual/translatevirtual become no-ops, and xe::be becomes little endian
+#define     XE_COMPARISON_BUILD     0
+
 // This file contains the main platform switches used by xenia as well as any
 // fixups required to normalize the environment. Everything in here should be
 // largely portable.

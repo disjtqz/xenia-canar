@@ -129,12 +129,17 @@ struct endian_store {
 
   T value;
 };
-
+#if XE_COMPARISON_BUILD
+template <typename T>
+using be = endian_store<T, std::endian::little>;
+template <typename T>
+using le = endian_store<T, std::endian::big>;
+#else
 template <typename T>
 using be = endian_store<T, std::endian::big>;
 template <typename T>
 using le = endian_store<T, std::endian::little>;
-
+#endif
 }  // namespace xe
 
 #endif  // XENIA_BASE_BYTE_ORDER_H_

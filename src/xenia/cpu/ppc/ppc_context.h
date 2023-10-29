@@ -394,8 +394,16 @@ typedef struct alignas(64) PPCContext_s {
   } fpscr;  // Floating-point status and control register
 
   // Most frequently used registers first.
-
-  uint64_t r[32];  // 0x20 General purpose registers
+  union {
+    uint64_t r[32];  // 0x20 General purpose registers
+    #if XE_COMPARISON_BUILD
+    struct {
+      uint64_t rpad[12];
+      uint64_t kpcr;
+      uint64_t rpad2[19];
+    };
+    #endif
+  };
   uint64_t ctr;    // 0x18 Count register
   uint64_t lr;     // 0x10 Link register
 
@@ -444,6 +452,9 @@ typedef struct alignas(64) PPCContext_s {
   template <typename T = uint8_t*>
   inline T TranslateVirtual(uint32_t guest_address) XE_RESTRICT const {
     static_assert(std::is_pointer_v<T>);
+#if XE_COMPARISON_BUILD == 1
+    return reinterpret_cast<T>(static_cast<uint64_t>(guest_address));
+#else
 #if XE_PLATFORM_WIN32 == 1
     if (guest_address) {
       uint8_t* host_address = virtual_membase + guest_address;
@@ -458,6 +469,7 @@ typedef struct alignas(64) PPCContext_s {
 #else
     return processor->memory()->TranslateVirtual<T>(guest_address);
 
+#endif
 #endif
   }
   template <typename T>
@@ -479,11 +491,18 @@ typedef struct alignas(64) PPCContext_s {
   }
   template <typename T>
   bool IsNull(T* host) {
+#if XE_COMPARISON_BUILD == 1
+    return !host;
+#else
     return host == (T*)virtual_membase;
+#endif
   }
 
   template <typename T>
   inline uint32_t HostToGuestVirtual(T* host_ptr) XE_RESTRICT const {
+#if XE_COMPARISON_BUILD == 1
+    return static_cast<uint32_t>(reinterpret_cast<uint64_t>(host_ptr));
+#else
 #if XE_PLATFORM_WIN32 == 1
     uint64_t guest_tmp64 = static_cast<uint64_t>(
         reinterpret_cast<const uint8_t*>(host_ptr) - virtual_membase);
@@ -500,6 +519,7 @@ typedef struct alignas(64) PPCContext_s {
 #else
     return processor->memory()->HostToGuestVirtual(
         reinterpret_cast<void*>(host_ptr));
+#endif
 #endif
   }
   static std::string GetRegisterName(PPCRegister reg);

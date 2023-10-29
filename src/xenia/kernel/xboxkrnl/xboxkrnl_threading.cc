@@ -963,43 +963,20 @@ DECLARE_XBOXKRNL_EXPORT3(NtWaitForSingleObjectEx, kThreading, kImplemented,
 dword_result_t KeWaitForMultipleObjects_entry(
     dword_t count, lpdword_t objects_ptr, dword_t wait_type,
     dword_t wait_reason, dword_t processor_mode, dword_t alertable,
-    lpqword_t timeout_ptr, lpvoid_t wait_block_array_ptr,
+    lpqword_t timeout_ptr, pointer_t<X_KWAIT_BLOCK> wait_block_array_ptr,
     const ppc_context_t& context) {
-#if 0
-  assert_true(wait_type <= 1);
+  X_DISPATCH_HEADER* objects_tmp[64];
 
-  assert_true(count <= 64);
-  uint32_t old_irql = kernel_state()->LockDispatcher(context);
-  object_ref<XObject> objects[64];
-  {
-    auto crit = global_critical_region::AcquireDirect();
-    for (uint32_t n = 0; n < count; n++) {
-      auto object_ptr = kernel_memory()->TranslateVirtual(objects_ptr[n]);
-      auto object_ref = XObject::GetNativeObject<XObject>(kernel_state(),
-                                                          object_ptr, -1, true);
-      if (!object_ref) {
-        kernel_state()->UnlockDispatcher(context, old_irql);
-        return X_STATUS_INVALID_PARAMETER;
-      }
+  for (unsigned i = 0; i < count; ++i) {
+    objects_tmp[i] =
+        context->TranslateVirtual<X_DISPATCH_HEADER*>(objects_ptr[i]);
+  }
 
-      objects[n] = std::move(object_ref);
-    }
-  }
-  uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-  X_STATUS result = XObject::WaitMultiple(
-      uint32_t(count), reinterpret_cast<XObject**>(&objects[0]), wait_type,
-      wait_reason, processor_mode, alertable, timeout_ptr ? &timeout : nullptr,
-      context);
-  kernel_state()->UnlockDispatcher(context, old_irql);
-  if (alertable) {
-    if (result == X_STATUS_USER_APC) {
-      result = xeProcessUserApcs(nullptr);
-    }
-  }
-  return result;
-#else
-  return 0;
-#endif
+  // return 0;
+  int64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+  return xeKeWaitForMultipleObjects(
+      context, count, objects_tmp, wait_type, wait_reason, processor_mode,
+      alertable, timeout_ptr ? &timeout : nullptr, wait_block_array_ptr);
 }
 DECLARE_XBOXKRNL_EXPORT3(KeWaitForMultipleObjects, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
@@ -1008,50 +985,36 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
                                       uint32_t wait_type, uint32_t wait_mode,
                                       uint32_t alertable, uint64_t* timeout_ptr,
                                       cpu::ppc::PPCContext* context) {
-#if 0
-  assert_true(wait_type <= 1);
 
-  assert_true(count <= 64);
+  X_DISPATCH_HEADER* objects_tmp[64];
   object_ref<XObject> objects[64];
-
-  uint32_t old_irql = kernel_state()->LockDispatcher(context);
-  /*
-        Reserving to squash the constant reallocations, in a benchmark of one
-     particular game over a period of five minutes roughly 11% of CPU time was
-     spent inside a helper function to Windows' heap allocation function. 7% of
-     that time was traced back to here
-
-         edit: actually switched to fixed size array, as there can never be more
-     than 64 events specified
-  */
-  {
-    auto crit = global_critical_region::AcquireDirect();
-    for (uint32_t n = 0; n < count; n++) {
-      uint32_t object_handle = handles[n];
-      auto object = kernel_state()->object_table()->LookupObject<XObject>(
-          object_handle, true);
-      if (!object) {
-        kernel_state()->UnlockDispatcher(context, old_irql);
-        return X_STATUS_INVALID_PARAMETER;
-      }
-      objects[n] = std::move(object);
+  for (uint32_t n = 0; n < count; n++) {
+    uint32_t object_handle = handles[n];
+    auto object = kernel_state()->object_table()->LookupObject<XObject>(
+        object_handle, true);
+    if (!object) {
+      return X_STATUS_INVALID_PARAMETER;
     }
+    objects[n] = std::move(object);
+  }
+  for (uint32_t n = 0; n < count; ++n) {
+    objects_tmp[n] = objects[n]->guest_object<X_DISPATCH_HEADER>();
   }
 
-  auto result = XObject::WaitMultiple(
-      count, reinterpret_cast<XObject**>(&objects[0]), wait_type, 6, wait_mode,
-      alertable, timeout_ptr, context);
-  kernel_state()->UnlockDispatcher(context, old_irql);
+  // return 0;
+  int64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
 
-  if (alertable) {
-    if (result == X_STATUS_USER_APC) {
-      result = xeProcessUserApcs(nullptr);
-    }
-  }
+  // hack!!
+  auto tmp = kernel_memory()->SystemHeapAlloc(sizeof(X_KWAIT_BLOCK) * 66);
+
+  // im not sure wait reason is righrt
+  auto result = xeKeWaitForMultipleObjects(
+      context, count, objects_tmp, wait_type, 3, wait_mode, alertable,
+      timeout_ptr ? &timeout : nullptr,
+      context->TranslateVirtual<X_KWAIT_BLOCK*>(tmp));
+
+  kernel_memory()->SystemHeapFree(tmp);
   return result;
-#else
-  return 0;
-#endif
 }
 
 dword_result_t NtWaitForMultipleObjectsEx_entry(
@@ -1094,7 +1057,7 @@ DECLARE_XBOXKRNL_EXPORT3(NtSignalAndWaitForSingleObjectEx, kThreading,
                          kImplemented, kBlocking, kHighFrequency);
 
 static void PrefetchForCAS(const void* value) { swcache::PrefetchW(value); }
-
+XE_NOINLINE
 uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                                bool change_irql) {
   PrefetchForCAS(lock);
@@ -1122,7 +1085,7 @@ dword_result_t KfAcquireSpinLock_entry(pointer_t<X_KSPINLOCK> lock_ptr,
 }
 DECLARE_XBOXKRNL_EXPORT3(KfAcquireSpinLock, kThreading, kImplemented, kBlocking,
                          kHighFrequency);
-
+XE_NOINLINE
 void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                            uint32_t old_irql, bool change_irql) {
   assert_true(lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13]));
@@ -1233,6 +1196,7 @@ dword_result_t KeRaiseIrqlToDpcLevel_entry(const ppc_context_t& ctx) {
 }
 DECLARE_XBOXKRNL_EXPORT2(KeRaiseIrqlToDpcLevel, kThreading, kImplemented,
                          kHighFrequency);
+XE_NOINLINE
 void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql) {
   X_KPCR* kpcr = GetKPCR(ctx);
 
@@ -1258,7 +1222,7 @@ void KfLowerIrql_entry(dword_t new_irql, const ppc_context_t& ctx) {
   xeKfLowerIrql(ctx, static_cast<unsigned char>(new_irql));
 }
 DECLARE_XBOXKRNL_EXPORT2(KfLowerIrql, kThreading, kImplemented, kHighFrequency);
-
+XE_NOINLINE
 unsigned char xeKfRaiseIrql(PPCContext* ctx, unsigned char new_irql) {
   X_KPCR* v1 = ctx->TranslateVirtualGPR<X_KPCR*>(ctx->r[13]);
 

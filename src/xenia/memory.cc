@@ -423,6 +423,9 @@ void Memory::GetHeapsPageStatsSummary(const BaseHeap* const* provided_heaps,
 }
 
 uint32_t Memory::HostToGuestVirtual(const void* host_address) const {
+#if XE_COMPARISON_BUILD
+  return static_cast<uint32_t>(reinterpret_cast<uint64_t>(host_address));
+#else
   size_t virtual_address = reinterpret_cast<size_t>(host_address) -
                            reinterpret_cast<size_t>(virtual_membase_);
   uint32_t vE0000000_host_offset = heaps_.vE0000000.host_address_offset();
@@ -434,6 +437,7 @@ uint32_t Memory::HostToGuestVirtual(const void* host_address) const {
     virtual_address -= vE0000000_host_offset;
   }
   return uint32_t(virtual_address);
+#endif
 }
 
 uint32_t Memory::HostToGuestVirtualThunk(const void* context,
@@ -964,7 +968,7 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size,
 
   return true;
 }
-template<typename T>
+template <typename T>
 static inline T QuickMod(T value, uint32_t modv) {
   if (xe::is_pow2(modv)) {
     return value & (modv - 1);

@@ -16,6 +16,7 @@
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/kernel/xenumerator.h"
 #include "xenia/kernel/xevent.h"
 #include "xenia/kernel/xfile.h"
@@ -25,9 +26,7 @@
 #include "xenia/kernel/xsemaphore.h"
 #include "xenia/kernel/xsymboliclink.h"
 #include "xenia/kernel/xthread.h"
-#include "xenia/kernel/kernel_state.h"
 #include "xenia/xbox.h"
-
 namespace xe {
 namespace kernel {
 
@@ -192,148 +191,38 @@ uint32_t XObject::TimeoutTicksToMs(int64_t timeout_ticks) {
 
 X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
                        uint32_t alertable, uint64_t* opt_timeout) {
-  auto wait_handle = GetWaitHandle();
-  if (!wait_handle) {
-    // Object doesn't support waiting.
-    return X_STATUS_SUCCESS;
-  }
-  auto context = cpu::ThreadState::Get()->context();
-  auto irql = context->kernel_state->LockDispatcher(context);
-
-  auto timeout_ms =
-      opt_timeout ? std::chrono::milliseconds(Clock::ScaleGuestDurationMillis(
-                        TimeoutTicksToMs(*opt_timeout)))
-                  : std::chrono::milliseconds::max();
-
-  context->kernel_state->UnlockDispatcherAtIrql(context);
-  auto result =
-      xe::threading::Wait(wait_handle, alertable ? true : false, timeout_ms);
-  context->kernel_state->LockDispatcherAtIrql(context);
-  X_STATUS xresult;
-  switch (result) {
-    case xe::threading::WaitResult::kSuccess:
-      WaitCallback();
-      xresult= GetSignaledStatus(X_STATUS_SUCCESS);
-      break;
-    case xe::threading::WaitResult::kUserCallback:
-      // Or X_STATUS_ALERTED?
-      xresult= X_STATUS_USER_APC;
-      break;
-    case xe::threading::WaitResult::kTimeout:
-      xe::threading::MaybeYield();
-      xresult= X_STATUS_TIMEOUT;
-      break;
-    default:
-    case xe::threading::WaitResult::kAbandoned:
-    case xe::threading::WaitResult::kFailed:
-      xresult= X_STATUS_ABANDONED_WAIT_0;
-      break;
-  }
-  context->kernel_state->UnlockDispatcher(context, irql);
-  return xresult;
+  return xboxkrnl::xeKeWaitForSingleObject(
+      cpu::ThreadState::GetContext(), guest_object<X_DISPATCH_HEADER>(),wait_reason,
+      processor_mode, alertable, (int64_t*)opt_timeout);
 }
 
 X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object,
                                 uint32_t wait_reason, uint32_t processor_mode,
                                 uint32_t alertable, uint64_t* opt_timeout,
                                 cpu::ppc::PPCContext* context) {
-  auto timeout_ms =
-      opt_timeout ? std::chrono::milliseconds(Clock::ScaleGuestDurationMillis(
-                        TimeoutTicksToMs(*opt_timeout)))
-                  : std::chrono::milliseconds::max();
-
-  context->kernel_state->UnlockDispatcherAtIrql(context);
-  auto result = xe::threading::SignalAndWait(
-      signal_object->GetWaitHandle(), wait_object->GetWaitHandle(),
-      alertable ? true : false, timeout_ms);
-  context->kernel_state->LockDispatcherAtIrql(context);
-  switch (result) {
-    case xe::threading::WaitResult::kSuccess:
-      wait_object->WaitCallback();
-      return wait_object->GetSignaledStatus( X_STATUS_SUCCESS);
-    case xe::threading::WaitResult::kUserCallback:
-      // Or X_STATUS_ALERTED?
-      return X_STATUS_USER_APC;
-    case xe::threading::WaitResult::kTimeout:
-      xe::threading::MaybeYield();
-      return X_STATUS_TIMEOUT;
-    default:
-    case xe::threading::WaitResult::kAbandoned:
-    case xe::threading::WaitResult::kFailed:
-      return X_STATUS_ABANDONED_WAIT_0;
-  }
+  return xboxkrnl::xeKeSignalAndWaitForSingleObjectEx(
+      context, signal_object->guest_object<X_DISPATCH_HEADER>(),
+      wait_object->guest_object<X_DISPATCH_HEADER>(), processor_mode, alertable,
+      (int64_t*)opt_timeout);
 }
 
 X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
                                uint32_t wait_type, uint32_t wait_reason,
                                uint32_t processor_mode, uint32_t alertable,
-                               uint64_t* opt_timeout, cpu::ppc::PPCContext* context) {
-  xe::threading::WaitHandle* wait_handles[64];
-
-  for (size_t i = 0; i < count; ++i) {
-    wait_handles[i] = objects[i]->GetWaitHandle();
-    assert_not_null(wait_handles[i]);
+                               uint64_t* opt_timeout,
+                               cpu::ppc::PPCContext* context) {
+  X_DISPATCH_HEADER* objects_guest[64];
+  for (unsigned i = 0; i < count; ++i) {
+    objects_guest[i] = objects[i]->guest_object<X_DISPATCH_HEADER>();
   }
-
-  auto timeout_ms =
-      opt_timeout ? std::chrono::milliseconds(Clock::ScaleGuestDurationMillis(
-                        TimeoutTicksToMs(*opt_timeout)))
-                  : std::chrono::milliseconds::max();
-
-  if (wait_type) {
-   
-    context->kernel_state->UnlockDispatcherAtIrql(context);
-    auto result = xe::threading::WaitAny(wait_handles, count,
-                                         alertable ? true : false, timeout_ms);
-    context->kernel_state->LockDispatcherAtIrql(context);
-    switch (result.first) {
-      case xe::threading::WaitResult::kSuccess:
-        objects[result.second]->WaitCallback();
-
-        return objects[result.second]->GetSignaledStatus(X_STATUS(result.second));
-      case xe::threading::WaitResult::kUserCallback:
-        // Or X_STATUS_ALERTED?
-        return X_STATUS_USER_APC;
-      case xe::threading::WaitResult::kTimeout:
-        xe::threading::MaybeYield();
-        return X_STATUS_TIMEOUT;
-      default:
-      case xe::threading::WaitResult::kAbandoned:
-        return X_STATUS(X_STATUS_ABANDONED_WAIT_0 + result.second);
-      case xe::threading::WaitResult::kFailed:
-        return X_STATUS_UNSUCCESSFUL;
-    }
-  } else {
-    context->kernel_state->UnlockDispatcherAtIrql(context);
-    auto result = xe::threading::WaitAll(wait_handles, count,
-                                         alertable ? true : false, timeout_ms);
-    context->kernel_state->LockDispatcherAtIrql(context);
-    switch (result) {
-      case xe::threading::WaitResult::kSuccess: {
-        X_STATUS res = X_STATUS_SUCCESS;
-        for (uint32_t i = 0; i < count; i++) {
-          objects[i]->WaitCallback();
-          auto remapped_status =
-              objects[i]->GetSignaledStatus(static_cast<X_STATUS>(i));
-          if (remapped_status >= 64) {
-            res = remapped_status;
-          }
-        }
-
-        return res;
-      }
-      case xe::threading::WaitResult::kUserCallback:
-        // Or X_STATUS_ALERTED?
-        return X_STATUS_USER_APC;
-      case xe::threading::WaitResult::kTimeout:
-        xe::threading::MaybeYield();
-        return X_STATUS_TIMEOUT;
-      default:
-      case xe::threading::WaitResult::kAbandoned:
-      case xe::threading::WaitResult::kFailed:
-        return X_STATUS_ABANDONED_WAIT_0;
-    }
-  }
+  uint32_t tmp_wait_blocks =
+      kernel_memory()->SystemHeapAlloc(sizeof(X_KWAIT_BLOCK) * (count + 2));
+  X_STATUS tmp_status = xboxkrnl::xeKeWaitForMultipleObjects(
+      context, count, objects_guest, wait_type, wait_reason, processor_mode,
+      alertable, (int64_t*)opt_timeout,
+      context->TranslateVirtual<X_KWAIT_BLOCK*>(tmp_wait_blocks));
+  kernel_memory()->SystemHeapFree(tmp_wait_blocks);
+  return tmp_status;
 }
 
 uint8_t* XObject::CreateNative(uint32_t size) {
@@ -425,7 +314,6 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
                  .release();
 
     if (HasDispatcherHeader(result->type())) {
-
       if (MapGuestTypeToHost(header->type) != result->type()) {
         goto create_new;
       }
@@ -481,7 +369,6 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
 
         // return NULL;
     }
-
 
     kernel_state->object_table()->MapGuestObjectToHostHandle(guest_ptr,
                                                              object->handle());

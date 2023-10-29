@@ -48,6 +48,13 @@ struct TypedGuestPointer {
   //inline bool operator!() const { return !m_ptr.value; }
   inline operator uint32_t() const { return m_ptr; }
 };
+
+//matches hexrays' ADJ operator
+template<typename TShiftedPointer>
+inline auto ADJ(TShiftedPointer ptr) {
+  return ptr.GetAdjacent();
+}
+
 }  // namespace xe
 
 #endif  // XENIA_GUEST_POINTERS_H_

@@ -42,7 +42,11 @@ namespace kernel {
 
 X_KPCR* GetKPCR() { return GetKPCR(cpu::ThreadState::Get()->context()); }
 X_KPCR* GetKPCR(PPCContext* context) {
+#if XE_COMPARISON_BUILD
+  return reinterpret_cast<X_KPCR*>(context->kpcr);
+#else
   return context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
+#endif
 }
 
 X_KTHREAD* GetKThread() {

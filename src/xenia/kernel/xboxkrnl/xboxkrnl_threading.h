@@ -72,11 +72,14 @@ uint32_t
     xeNtQueueApcThread(uint32_t thread_handle, uint32_t apc_routine,
                             uint32_t apc_routine_context, uint32_t arg1,
                             uint32_t arg2, cpu::ppc::PPCContext* context);
+XE_NOINLINE
 void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql);
+XE_NOINLINE
 unsigned char xeKfRaiseIrql(PPCContext* ctx, unsigned char new_irql);
-
+XE_NOINLINE
 void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                            uint32_t old_irql, bool change_irql = true);
+XE_NOINLINE
 uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                                bool change_irql = true);
 
@@ -121,9 +124,11 @@ X_STATUS xeNtYieldExecution(PPCContext* context);
 */
 void xeDispatcherSpinlockUnlock(PPCContext* context, X_KSPINLOCK* lock,
                                 uint32_t irql);
-
+XE_NOINLINE
 void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread);
+XE_NOINLINE
 X_STATUS xeSchedulerSwitchThread(PPCContext* context);
+XE_NOINLINE
 X_STATUS xeSchedulerSwitchThread2(PPCContext* context);
 
 int xeKeSuspendThread(PPCContext* context, X_KTHREAD* thread);
@@ -178,6 +183,10 @@ X_STATUS xeKeSignalAndWaitForSingleObjectEx(
     unsigned char mode, bool alertable, int64_t* timeout);
 
 int32_t xeKeQueryBasePriorityThread(PPCContext* context, X_KTHREAD* thread);
+X_STATUS xeKeWaitForMultipleObjects(
+    PPCContext* context, unsigned int num_objects, X_DISPATCH_HEADER** objects,
+    unsigned wait_type, unsigned reason, unsigned char mode, int alertable,
+    int64_t* timeout, X_KWAIT_BLOCK* wait_blocks);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

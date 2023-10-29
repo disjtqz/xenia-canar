@@ -52,6 +52,7 @@ static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
 
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk);
 static void insert_8009D048(PPCContext* context, X_KTHREAD* thread);
+XE_NOINLINE
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority);
 static void xeProcessQueuedThreads(PPCContext* context,
@@ -252,6 +253,7 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
     performs bitscanning on the bitmask of available thread priorities to
     select the first runnable one that is greater than or equal to the prio arg
 */
+XE_NOINLINE
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority) {
   SCHEDLOG(context, "xeScanForReadyThread - prcb = {}, priority = {}",
@@ -785,6 +787,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   }
   return result;
 }
+XE_NOINLINE
 void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
   SCHEDLOG(context, "scheduler_80097F90 - thread {}", (void*)thread);
   auto pcrb = &GetKPCR(context)->prcb_data;
@@ -821,7 +824,7 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
   xeDispatcherSpinlockUnlock(context, &pcrb->enqueued_processor_threads_lock,
                              thread->unk_A4);
 }
-
+XE_NOINLINE
 X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
   SCHEDLOG(context, "xeSchedulerSwitchThread");
   auto pcr = GetKPCR(context);
@@ -881,6 +884,7 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
    asm
 
 */
+XE_NOINLINE
 X_STATUS xeSchedulerSwitchThread2(PPCContext* context) {
   SCHEDLOG(context, "xeSchedulerSwitchThread2");
 reenter:
@@ -1515,6 +1519,226 @@ int32_t xeKeQueryBasePriorityThread(PPCContext* context, X_KTHREAD* thread) {
 }
 
 
+
+X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_objects,
+                                    X_DISPATCH_HEADER** objects,
+                                    unsigned wait_type, unsigned reason,
+                                    unsigned char mode, int alertable,
+                                    int64_t* timeout,
+                                    X_KWAIT_BLOCK* wait_blocks) {
+  X_STATUS result;
+  auto thread = GetKThread(context);
+  if (thread->unk_A6)
+    thread->unk_A6 = 0;
+  else {
+    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+  }
+  unsigned int v21;
+  int64_t v43 = 0;
+  ShiftedPointer<xe::be<uint16_t>, X_KWAIT_BLOCK, 0x14> wait_blocks_shifted = nullptr;
+
+  int64_t v16 = 0;  // v43;
+  auto v17 = context->TranslateVirtual<X_KWAIT_BLOCK*>(v43>>32);
+  auto timeout2 = timeout;
+  int64_t other_timer_storage;
+  while (true) {
+    auto v19 = thread->deferred_apc_software_interrupt_state;
+    thread->wait_blocks = wait_blocks;
+    if (v19 && !thread->unk_A4) {
+      xeDispatcherSpinlockUnlock(
+          context, context->kernel_state->GetDispatcherLock(context), 0);
+      goto LABEL_60;
+    }
+    int v20 = 1;
+    thread->wait_result = 0;
+     v21 = 0;  // HIDWORD(v16);
+    if (num_objects) {
+      break;
+    }
+  LABEL_32:
+    if (wait_type == 0 && v20) {
+      v17->next_wait_block = wait_blocks;
+      xeHandleWaitTypeAll(context, v17);
+      result = thread->wait_result;
+      goto LABEL_75;
+    }
+    if (alertable) {
+      if (thread->alerted[mode]) {
+        result = X_STATUS_ALERTED;
+        thread->alerted[mode] = 0;
+        goto LABEL_73;
+      }
+      if (mode && !util::XeIsListEmpty(&thread->apc_lists[1], context)){
+        thread->unk_8A = 1;
+      LABEL_72:
+        result = X_STATUS_USER_APC;
+    LABEL_73:
+        xeDispatcherSpinlockUnlock(
+            context, context->kernel_state->GetDispatcherLock(context), thread->unk_A4);
+        goto deliver_apc_and_return;
+      }
+      if (thread->alerted[0]) {
+        result = X_STATUS_ALERTED;
+        thread->alerted[0] = 0;
+        goto LABEL_73;
+      }
+    } else if (mode && thread->unk_8A) {
+      goto LABEL_72;
+    }
+    if (timeout) {
+      if (!*timeout ||
+          (v17->next_wait_block = &thread->wait_timeout_block,
+           v17 = &thread->wait_timeout_block,
+           thread->wait_timeout_timer.header.wait_list.flink_ptr =
+               &thread->wait_timeout_timer.header.wait_list,
+           thread->wait_timeout_timer.header.wait_list.blink_ptr =
+               &thread->wait_timeout_timer.header.wait_list,
+
+           !XeInsertGlobalTimer(context, &thread->wait_timeout_timer, *timeout) )) {
+        result = X_STATUS_TIMEOUT;
+        goto LABEL_75;
+      }
+      v16 = thread->wait_timeout_timer.due_time;
+    }
+    v17->next_wait_block = wait_blocks;
+    v17 = wait_blocks;
+    do {
+      auto v32 = &v17->object->wait_list;
+      auto v33 = v17->object->wait_list.blink_ptr;
+      v17->wait_list_entry.flink_ptr = v32;
+      v17->wait_list_entry.blink_ptr = v33;
+      v33->flink_ptr = &v17->wait_list_entry;
+      v32->blink_ptr = &v17->wait_list_entry;
+      v17 = v17->next_wait_block.xlat();
+    } while (v17 != wait_blocks);
+    auto v34 = thread->unkptr_118;
+    if (v34) {
+      xe::FatalError("unkptr_118 used!");
+    }
+    thread->alertable = alertable;
+    thread->processor_mode = mode;
+    thread->wait_reason = reason;
+    auto v35 = (unsigned char)thread->unk_A4;
+    thread->thread_state = 5;
+    result = xeSchedulerSwitchThread2(context);
+    if (result == X_STATUS_USER_APC) {
+      xeProcessUserApcs(context);
+    }
+    if (result != X_STATUS_KERNEL_APC) {
+      return result;
+    }
+    if (timeout) {
+      if (timeout2<0 ) {
+        other_timer_storage =
+            context->kernel_state->GetKernelInterruptTime() - *timeout;
+        timeout2 = &other_timer_storage;
+        timeout = &other_timer_storage;
+      } else {
+        timeout = timeout2;
+      }
+    }
+  LABEL_60:
+    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+  }
+  auto v22 = objects;
+  wait_blocks_shifted = &wait_blocks->wait_result_xstatus;
+  int obj_type;
+  int v20;
+  //not actually X_KMUTANT, but it covers all the fields we need here
+  X_KMUTANT* v24;
+  while (1) {
+     v24 = (X_KMUTANT*)*v22;
+
+    obj_type = v24->header.type;
+    if (wait_type == 1) {
+      break;
+    }
+    if (obj_type == 2) {
+      auto v29 = v24->owner;
+      if (thread != v29.xlat() || v24->header.signal_state != 0x80000000) {
+        if (v24->header.signal_state > 0 || thread == v29.xlat()) {
+          goto LABEL_31;
+        }
+    LABEL_30:
+        //todo: fix!
+        v20 = 0;  // HIDWORD(v16);
+        goto LABEL_31;
+      }
+      goto LABEL_19;
+    }
+    if (v24->header.signal_state <= 0) {
+      goto LABEL_30;
+    }
+  LABEL_31:
+    auto v30 = v21;
+    ADJ(wait_blocks_shifted)->object = &v24->header;
+    ADJ(wait_blocks_shifted)->wait_type = wait_type;
+    ++v21;
+    ADJ(wait_blocks_shifted)->thread = thread;
+    v17 = ADJ(wait_blocks_shifted);
+    ++v22;
+    ADJ(wait_blocks_shifted)->wait_result_xstatus = v30;
+    ADJ(wait_blocks_shifted)->next_wait_block = ADJ(wait_blocks_shifted) + 1;
+    wait_blocks_shifted.m_base += 12;
+    if (v21 >= num_objects) {
+      goto LABEL_32;
+    }
+  }
+  bool is_mutant = obj_type == 2;
+  int saved_signalstate = v24->header.signal_state;
+  if (is_mutant) {
+    if (saved_signalstate <= 0 && thread != v24->owner.xlat()) {
+      goto LABEL_31;
+    }
+
+    if (saved_signalstate != 0x80000000) {
+      auto v38 = v24->header.signal_state - 1;
+      v24->header.signal_state = v38;
+      if (!v38) {
+        auto v39 = v24->abandoned;
+        v24->owner = thread;
+        if (v39 == 1) {
+          v24->abandoned = 0;  /// BYTE3(v16);
+          thread->wait_result = 128;
+        }
+        auto v40 = thread->mutants_list.blink_ptr;
+        auto v41 = v40->flink_ptr;
+        v24->unk_list.blink_ptr = v40;
+        v24->unk_list.flink_ptr = v41;
+        v41->blink_ptr = &v24->unk_list;
+        v40->flink_ptr = &v24->unk_list;
+      }
+      result = thread->wait_result | v21;
+      goto LABEL_75;
+    }
+  LABEL_19:
+    xeDispatcherSpinlockUnlock(
+        context, context->kernel_state->GetDispatcherLock(context),
+        thread->unk_A4);
+   // RtlRaiseStatus(X_STATUS_MUTANT_LIMIT_EXCEEDED);
+    xenia_assert(false);
+    goto LABEL_31;
+  }
+  if (saved_signalstate <= 0) {
+    goto LABEL_31;
+  }
+  auto object_type = v24->header.type;
+  if ((object_type & 7) == 1) {
+    v24->header.signal_state = 0;
+    //HIDWORD(v16);
+  } else if (object_type == 5) {
+    --v24->header.signal_state;
+  }
+  result = v21;
+LABEL_75:
+  context->kernel_state->UnlockDispatcherAtIrql(context);
+  scheduler_80097F90(context, thread);
+deliver_apc_and_return:
+  if (result == X_STATUS_USER_APC) {
+    xeProcessUserApcs(context);
+  }
+  return result;
+}
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

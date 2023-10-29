@@ -23,12 +23,16 @@ template <typename T>
 struct EZPointer : public TypedGuestPointer<T> {
     using TypedGuestPointer::operator=;
         T* xlat() {
+            #if XE_COMPARISON_BUILD
+            return reinterpret_cast<T*>(static_cast<uint64_t>(this->m_ptr));
+            #else
             if(m_ptr){
             return cpu::ThreadState::GetContext()->TranslateVirtual<T*>(m_ptr);
             }
             else {
                 return nullptr;
             }
+            #endif
         }
   inline T* operator->() {
     return xlat();
@@ -38,8 +42,11 @@ struct EZPointer : public TypedGuestPointer<T> {
   }
 
   inline EZPointer<T>& operator = (T* ptr) {
-      
+      #if XE_COMPARISON_BUILD
+      this->m_ptr = static_cast<uint32_t>(reinterpret_cast<uint64_t>(ptr));
+      #else
       this->m_ptr = cpu::ThreadState::GetContext()->HostToGuestVirtual(ptr);
+      #endif
       return *this;
   }
 
