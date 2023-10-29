@@ -300,7 +300,7 @@ void XThread::InitializeGuestObject() {
   guest_thread->msr_mask = 0xFDFFD7FF;
   guest_thread->process = process_info_block_address;
   guest_thread->stack_alloc_base = this->stack_base_;
-  guest_thread->create_time = Clock::QueryGuestSystemTime();
+  guest_thread->create_time = context_here->kernel_state->GetKernelSystemTime();
   util::XeInitializeListHead(&guest_thread->timer_list, memory());
   guest_thread->thread_id = this->handle();
   guest_thread->start_address = this->creation_params_.start_address;
@@ -451,11 +451,12 @@ X_STATUS XThread::Create() {
   InitializeGuestObject();
 
   // todo: not sure about this!
-  if (creation_params()->creation_flags & 0x40) {
+  if (creation_params()->creation_flags & XE_FLAG_PRIORITY_CLASS2) {
     xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
                                          guest_object<X_KTHREAD>(), false);
 
-  } else if ((creation_params()->creation_flags & 0x20) != 0) {
+  } else if ((creation_params()->creation_flags & XE_FLAG_PRIORITY_CLASS1) !=
+             0) {
     xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
                                          guest_object<X_KTHREAD>(), true);
   }
@@ -503,7 +504,7 @@ X_STATUS XThread::Create() {
   // Start the thread now that we're all setup.
 
   // thread_->Resume();
-  if ((creation_params_.creation_flags & X_CREATE_SUSPENDED) != 0) {
+  if ((creation_params_.creation_flags & XE_FLAG_THREAD_INITIALLY_SUSPENDED) != 0) {
     this->Suspend();
   }
   Schedule();

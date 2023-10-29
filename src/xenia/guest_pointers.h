@@ -10,6 +10,7 @@
 #ifndef XENIA_GUEST_POINTERS_H_
 #define XENIA_GUEST_POINTERS_H_
 
+#define offsetof32(...) static_cast<uint32_t>(__builtin_offsetof(__VA_ARGS__))
 namespace xe {
 template <typename TBase, typename TAdj, size_t offset>
 struct ShiftedPointer {

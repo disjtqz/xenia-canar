@@ -21,6 +21,18 @@ enum Irql : uint8_t {
   IRQL_DISPATCH = 2,
   IRQL_DPC = 3,
 };
+
+static constexpr uint32_t XE_FLAG_THREAD_INITIALLY_SUSPENDED = 1,
+                          XE_FLAG_SYSTEM_THREAD = 2,
+                          XE_FLAG_PRIORITY_CLASS1 = 0x20,
+                          XE_FLAG_PRIORITY_CLASS2 = 0x40,
+                          XE_FLAG_AFFINITY_CPU0 = 1U << 24,
+                          XE_FLAG_AFFINITY_CPU1 = 1U << 25,
+                          XE_FLAG_AFFINITY_CPU2 = 1U << 26,
+                          XE_FLAG_AFFINITY_CPU3 = 1U << 27,
+                          XE_FLAG_AFFINITY_CPU4 = 1U << 28,
+                          XE_FLAG_AFFINITY_CPU5 = 1U << 29;
+
 struct X_KTHREAD;
 struct X_KPROCESS;
 struct X_KPCR;
@@ -130,17 +142,17 @@ struct XAPC {
   // KAPC is 0x28(40) bytes? (what's passed to ExAllocatePoolWithTag)
   // This is 4b shorter than NT - looks like the reserved dword at +4 is gone.
   // NOTE: stored in guest memory.
-  uint16_t type;                            // +0
-  uint8_t apc_mode;                         // +2
-  uint8_t enqueued;                         // +3
-  EZPointer<X_KTHREAD> thread_ptr;  // +4
-  X_LIST_ENTRY list_entry;                  // +8
-  xe::be<uint32_t> kernel_routine;          // +16
-  xe::be<uint32_t> rundown_routine;         // +20
-  xe::be<uint32_t> normal_routine;          // +24
-  xe::be<uint32_t> normal_context;          // +28
-  xe::be<uint32_t> arg1;                    // +32
-  xe::be<uint32_t> arg2;                    // +36
+  uint16_t type;                     // +0
+  uint8_t apc_mode;                  // +2
+  uint8_t enqueued;                  // +3
+  EZPointer<X_KTHREAD> thread_ptr;   // +4
+  X_LIST_ENTRY list_entry;           // +8
+  xe::be<uint32_t> kernel_routine;   // +16
+  xe::be<uint32_t> rundown_routine;  // +20
+  xe::be<uint32_t> normal_routine;   // +24
+  xe::be<uint32_t> normal_context;   // +28
+  xe::be<uint32_t> arg1;             // +32
+  xe::be<uint32_t> arg2;             // +36
 };
 // https://www.nirsoft.net/kernel_struct/vista/DISPATCHER_HEADER.html
 struct X_DISPATCH_HEADER {
@@ -195,10 +207,10 @@ struct X_KSEMAPHORE {
 static_assert_size(X_KSEMAPHORE, 0x14);
 
 struct X_KMUTANT {
-  X_DISPATCH_HEADER header;            // 0x0
-  X_LIST_ENTRY unk_list;               // 0x10
+  X_DISPATCH_HEADER header;    // 0x0
+  X_LIST_ENTRY unk_list;       // 0x10
   EZPointer<X_KTHREAD> owner;  // 0x18
-  bool abandoned;                      // 0x1C
+  bool abandoned;              // 0x1C
   // these might just be padding
   uint8_t unk_1D;  // 0x1D
   uint8_t unk_1E;  // 0x1E
@@ -261,7 +273,7 @@ struct X_KPRCB {
   // thread_exit_dpc's routine drains this list and frees each threads threadid,
   // kernel stack and dereferences the thread
   X_LIST_ENTRY terminating_threads_list;  // 0x184
-  XDPC switch_thread_processor_dpc;                           // 0x18C
+  XDPC switch_thread_processor_dpc;       // 0x18C
 };
 // Processor Control Region
 struct X_KPCR {
@@ -334,11 +346,11 @@ struct X_KTIMER {
 static_assert_size(X_KTIMER, 0x28);
 
 struct X_EXTIMER {
-  X_KTIMER ktimer;         // 0x0
-  XDPC dpc;             // 0x28
-  XAPC apc;             // 0x44
-  X_LIST_ENTRY thread_timer_list_entry;     // 0x6C
-  X_KSPINLOCK timer_lock;  // 0x74
+  X_KTIMER ktimer;                       // 0x0
+  XDPC dpc;                              // 0x28
+  XAPC apc;                              // 0x44
+  X_LIST_ENTRY thread_timer_list_entry;  // 0x6C
+  X_KSPINLOCK timer_lock;                // 0x74
   // not confident in this name
   xe::be<uint32_t> period;  // 0x78
   bool has_apc;             // 0x7C
@@ -372,67 +384,68 @@ struct X_KTHREAD {
   uint8_t process_type;
   // apc_mode determines which list an apc goes into
   util::X_TYPED_LIST<XAPC, offsetof(XAPC, list_entry)> apc_lists[2];
-  EZPointer<X_KPROCESS> process;                 // 0x84
-  uint8_t unk_88;                                // 0x88
-  //when context switch happens, this is copied into apc_software_interrupt_state for kpcr
-  uint8_t deferred_apc_software_interrupt_state;                   // 0x89
-  uint8_t unk_8A;                                // 0x8A
-  uint8_t may_queue_apcs;                        // 0x8B
-  X_KSPINLOCK apc_lock;                          // 0x8C
-  xe::be<uint32_t> unk_90;                       // 0x90
-  X_LIST_ENTRY ready_prcb_entry;                 // 0x94
-  xe::be<uint32_t> msr_mask;                     // 0x9C
-  xe::be<X_STATUS> wait_result;                  // 0xA0
-  uint8_t unk_A4;                                // 0xA4
-  uint8_t processor_mode;                        // 0xA5
-  uint8_t unk_A6;                                // 0xA6
-  uint8_t wait_reason;                           // 0xA7
-  EZPointer<X_KWAIT_BLOCK> wait_blocks;  // 0xA8
-  uint8_t unk_AC[4];                             // 0xAC
-  int32_t apc_disable_count;                     // 0xB0
-  xe::be<int32_t> unk_B4;                        // 0xB4
-  uint8_t unk_B8;                                // 0xB8
-  uint8_t unk_B9;                                // 0xB9
-  uint8_t unk_BA;                                // 0xBA
-  uint8_t boost_disabled;                        // 0xBB
-  uint8_t suspend_count;                         // 0xBC
-  uint8_t unk_BD;                                // 0xBD
-  uint8_t terminated;                            // 0xBE
-  uint8_t current_cpu;                           // 0xBF
-  EZPointer<X_KPRCB> a_prcb_ptr;                 // 0xC0
-  EZPointer<X_KPRCB> another_prcb_ptr;           // 0xC4
-  uint8_t unk_C8;                                // 0xC8
-  uint8_t unk_C9;                                // 0xC9
-  uint8_t unk_CA;                                // 0xCA
-  uint8_t unk_CB;                                // 0xCB
-  X_KSPINLOCK timer_list_lock;                       // 0xCC
-  xe::be<uint32_t> stack_alloc_base;             // 0xD0
-  XAPC on_suspend;                               // 0xD4
-  X_KSEMAPHORE suspend_sema;                     // 0xFC
-  X_LIST_ENTRY process_threads;                  // 0x110
-  xe::be<uint32_t> unkptr_118;                   // 0x118
-  xe::be<uint32_t> unk_11C;                      // 0x11C
-  xe::be<uint32_t> unk_120;                      // 0x120
-  xe::be<uint32_t> unk_124;                      // 0x124
-  xe::be<uint32_t> unk_128;                      // 0x128
-  xe::be<uint32_t> unk_12C;                      // 0x12C
-  xe::be<uint64_t> create_time;                  // 0x130
-  xe::be<uint64_t> exit_time;                    // 0x138
-  xe::be<uint32_t> exit_status;                  // 0x140
-  //tracks all pending timers that have apcs which target this thread
-  X_LIST_ENTRY timer_list;                      // 0x144
-  xe::be<uint32_t> thread_id;                    // 0x14C
-  xe::be<uint32_t> start_address;                // 0x150
-  xe::be<uint32_t> unk_154;                      // 0x154
-  xe::be<uint32_t> unk_158;                      // 0x158
-  uint8_t unk_15C[0x4];                          // 0x15C
-  xe::be<uint32_t> last_error;                   // 0x160
-  xe::be<uint32_t> fiber_ptr;                    // 0x164
-  uint8_t unk_168[0x4];                          // 0x168
-  xe::be<uint32_t> creation_flags;               // 0x16C
-  uint8_t unk_170[0xC];                          // 0x170
-  xe::be<uint32_t> unk_17C;                      // 0x17C
-  uint8_t unk_180[0x930];                        // 0x180
+  EZPointer<X_KPROCESS> process;  // 0x84
+  uint8_t unk_88;                 // 0x88
+  // when context switch happens, this is copied into
+  // apc_software_interrupt_state for kpcr
+  uint8_t deferred_apc_software_interrupt_state;  // 0x89
+  uint8_t unk_8A;                                 // 0x8A
+  uint8_t may_queue_apcs;                         // 0x8B
+  X_KSPINLOCK apc_lock;                           // 0x8C
+  xe::be<uint32_t> unk_90;                        // 0x90
+  X_LIST_ENTRY ready_prcb_entry;                  // 0x94
+  xe::be<uint32_t> msr_mask;                      // 0x9C
+  xe::be<X_STATUS> wait_result;                   // 0xA0
+  uint8_t unk_A4;                                 // 0xA4
+  uint8_t processor_mode;                         // 0xA5
+  uint8_t unk_A6;                                 // 0xA6
+  uint8_t wait_reason;                            // 0xA7
+  EZPointer<X_KWAIT_BLOCK> wait_blocks;           // 0xA8
+  uint8_t unk_AC[4];                              // 0xAC
+  int32_t apc_disable_count;                      // 0xB0
+  xe::be<int32_t> unk_B4;                         // 0xB4
+  uint8_t unk_B8;                                 // 0xB8
+  uint8_t unk_B9;                                 // 0xB9
+  uint8_t unk_BA;                                 // 0xBA
+  uint8_t boost_disabled;                         // 0xBB
+  uint8_t suspend_count;                          // 0xBC
+  uint8_t unk_BD;                                 // 0xBD
+  uint8_t terminated;                             // 0xBE
+  uint8_t current_cpu;                            // 0xBF
+  EZPointer<X_KPRCB> a_prcb_ptr;                  // 0xC0
+  EZPointer<X_KPRCB> another_prcb_ptr;            // 0xC4
+  uint8_t unk_C8;                                 // 0xC8
+  uint8_t unk_C9;                                 // 0xC9
+  uint8_t unk_CA;                                 // 0xCA
+  uint8_t unk_CB;                                 // 0xCB
+  X_KSPINLOCK timer_list_lock;                    // 0xCC
+  xe::be<uint32_t> stack_alloc_base;              // 0xD0
+  XAPC on_suspend;                                // 0xD4
+  X_KSEMAPHORE suspend_sema;                      // 0xFC
+  X_LIST_ENTRY process_threads;                   // 0x110
+  xe::be<uint32_t> unkptr_118;                    // 0x118
+  xe::be<uint32_t> unk_11C;                       // 0x11C
+  xe::be<uint32_t> unk_120;                       // 0x120
+  xe::be<uint32_t> unk_124;                       // 0x124
+  xe::be<uint32_t> unk_128;                       // 0x128
+  xe::be<uint32_t> unk_12C;                       // 0x12C
+  xe::be<uint64_t> create_time;                   // 0x130
+  xe::be<uint64_t> exit_time;                     // 0x138
+  xe::be<uint32_t> exit_status;                   // 0x140
+  // tracks all pending timers that have apcs which target this thread
+  X_LIST_ENTRY timer_list;          // 0x144
+  xe::be<uint32_t> thread_id;       // 0x14C
+  xe::be<uint32_t> start_address;   // 0x150
+  xe::be<uint32_t> unk_154;         // 0x154
+  xe::be<uint32_t> unk_158;         // 0x158
+  uint8_t unk_15C[0x4];             // 0x15C
+  xe::be<uint32_t> last_error;      // 0x160
+  xe::be<uint32_t> fiber_ptr;       // 0x164
+  uint8_t unk_168[0x4];             // 0x168
+  xe::be<uint32_t> creation_flags;  // 0x16C
+  uint8_t unk_170[0xC];             // 0x170
+  xe::be<uint32_t> unk_17C;         // 0x17C
+  uint8_t unk_180[0x930];           // 0x180
 
   // This struct is actually quite long... so uh, not filling this out!
 };

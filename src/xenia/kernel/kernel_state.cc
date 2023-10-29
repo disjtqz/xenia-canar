@@ -273,10 +273,11 @@ struct LaunchInterrupt {
   XThread* thread;
 };
 
-static void LaunchModuleInterrupt(void* ud) {
+void KernelState::LaunchModuleInterrupt(void* ud) {
   LaunchInterrupt* launch = reinterpret_cast<LaunchInterrupt*>(ud);
   auto kernel = kernel_state();
   kernel->SetExecutableModule(*launch->module);
+  kernel->CreateDispatchThread();
   launch->thread =
       new XThread(kernel_state(), (*launch->module)->stack_size(), 0,
                   (*launch->module)->entry_point(), 0, 0x1000100, true, true);
@@ -416,13 +417,13 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
         variable_ptr, executable_module_->path(),
         xboxkrnl::XboxkrnlModule::kExLoadedImageNameSize);
   }
+}
+void KernelState::CreateDispatchThread() {
   // Spin up deferred dispatch worker.
-  // TODO(benvanik): move someplace more appropriate (out of ctor, but around
-  // here).
   if (!dispatch_thread_running_) {
     dispatch_thread_running_ = true;
     dispatch_thread_ = object_ref<XHostThread>(new XHostThread(
-        this, 128 * 1024, 0,
+        this, 128 * 1024, XE_FLAG_AFFINITY_CPU2,
         [this]() {
           // As we run guest callbacks the debugger must be able to suspend us.
           auto context = cpu::ThreadState::GetContext();
@@ -440,8 +441,7 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
             }
           }
           return 0;
-        },
-        GetSystemProcess()));  // don't think an equivalent exists on real hw
+        }));  // don't think an equivalent exists on real hw
     dispatch_thread_->set_name("Kernel Dispatch");
     dispatch_thread_->Create();
   }
@@ -1117,7 +1117,6 @@ struct IPIParams {
   uint32_t interrupt_callback_;
 };
 void KernelState::GraphicsInterruptDPC(PPCContext* context) {
-   
   uint32_t callback = static_cast<uint32_t>(context->r[5]);
   uint64_t callback_data[] = {context->r[4], context->r[6]};
   auto kpcr = GetKPCR(context);
@@ -1156,13 +1155,10 @@ void KernelState::CPInterruptIPI(void* ud) {
 
   delete params;
 
-
-  //this causes all games to freeze!
-  // it is an external interrupt though, but i guess we need to wait until
-  // it exits an interrupt context
-  //GenericExternalInterruptEpilog(current_context);
-
-
+  // this causes all games to freeze!
+  //  it is an external interrupt though, but i guess we need to wait until
+  //  it exits an interrupt context
+  // GenericExternalInterruptEpilog(current_context);
 }
 
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
@@ -1317,7 +1313,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   X_HANDLE host_handle;
 
   xenia_assert(GetKPCR(context)->prcb_data.current_thread.xlat() == guest);
-  
+
   auto old_kpcr = GetKPCR(context);
   if (!object_table()->HostHandleForGuestObject(
           context->HostToGuestVirtual(guest), host_handle)) {

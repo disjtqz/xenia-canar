@@ -113,11 +113,11 @@ uint32_t ExCreateThread(xe::be<uint32_t>* handle_ptr, uint32_t stack_size,
 
   auto kernel_state_var = kernel_state();
   // xenia_assert((creation_flags & 2) == 0);  // creating system thread?
-  if (creation_flags & 2) {
+  if (creation_flags & XE_FLAG_SYSTEM_THREAD) {
     XELOGE("Guest is creating a system thread!");
   }
 
-  uint32_t thread_process = (creation_flags & 2)
+  uint32_t thread_process = (creation_flags & XE_FLAG_SYSTEM_THREAD)
                                 ? kernel_state_var->GetSystemProcess()
                                 : kernel_state_var->GetTitleProcess();
   X_KPROCESS* target_process =
@@ -465,12 +465,6 @@ void KeInitializeEvent_entry(pointer_t<X_KEVENT> event_ptr, dword_t event_type,
   event_ptr->header.type = event_type;
   event_ptr->header.signal_state = (uint32_t)initial_state;
   util::XeInitializeListHead(&event_ptr->header.wait_list, context);
-  auto ev =
-      XObject::GetNativeObject<XEvent>(kernel_state(), event_ptr, event_type);
-  if (!ev) {
-    assert_always();
-    return;
-  }
 }
 DECLARE_XBOXKRNL_EXPORT1(KeInitializeEvent, kThreading, kImplemented);
 
@@ -617,13 +611,6 @@ void xeKeInitializeSemaphore(X_KSEMAPHORE* semaphore, int count, int limit) {
   util::XeInitializeListHead(
 
       &semaphore->header.wait_list, kernel_memory());
-
-  auto sem = XObject::GetNativeObject<XSemaphore>(kernel_state(), semaphore,
-                                                  5 /* SemaphoreObject */);
-  if (!sem) {
-    assert_always();
-    return;
-  }
 }
 // https://msdn.microsoft.com/en-us/library/windows/hardware/ff552150(v=vs.85).aspx
 void KeInitializeSemaphore_entry(pointer_t<X_KSEMAPHORE> semaphore_ptr,
@@ -1749,7 +1736,7 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
     auto target_thread_state = apc_thread->thread_state;
     if (apc_mode) {
       if (target_thread_state == 5 && apc_thread->processor_mode == 1 &&
-          apc_thread->alerted) {
+          apc_thread->alertable) {
         wait_status = X_STATUS_USER_APC;
         apc_thread->unk_8A = 1;
         goto LABEL_25;

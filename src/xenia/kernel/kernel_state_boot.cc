@@ -325,11 +325,12 @@ void KernelState::BootInitializeStatics() {
 
   // init unknown object
 
-  block->OddObj.field0 = 0x1000000;
-  block->OddObj.field4 = 1;
-  block->OddObj.points_to_self =
-      oddobject_offset + offsetof(X_UNKNOWN_TYPE_REFED, points_to_self);
-  block->OddObj.points_to_prior = block->OddObj.points_to_self;
+  block->OddObj.type = 1;
+
+  block->OddObj.signal_state = 1;
+  util::XeInitializeListHead(
+      &block->OddObj.wait_list,
+      oddobject_offset + offsetof32(X_DISPATCH_HEADER, wait_list));
 
   // init thread object
   block->ExThreadObjectType.pool_tag = 0x65726854;
@@ -411,8 +412,6 @@ void KernelState::BootInitializeStatics() {
   block->ObSymbolicLinkObjectType.delete_proc =
       kernel_trampoline_group_.NewLongtermTrampoline(DeleteSymlink);
 
-#define offsetof32(s, m) static_cast<uint32_t>(offsetof(s, m))
-
   host_object_type_enum_to_guest_object_type_ptr_ = {
       {XObject::Type::Event,
        kernel_guest_globals_ +
@@ -449,7 +448,7 @@ void KernelState::BootInitializeStatics() {
       kernel_trampoline_group_.NewLongtermTrampoline(
           &KernelState::GraphicsInterruptDPC),
       0);
-  //cpu2,remember all dpc cpu numbers are +1, because 0 means "any cpu"
+  // cpu2,remember all dpc cpu numbers are +1, because 0 means "any cpu"
   block->graphics_interrupt_dpc.desired_cpu_number = 3;
 }
 
@@ -457,7 +456,7 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   KernelGuestGlobals* block =
       memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
 
-  util::XeInitializeListHead( 
+  util::XeInitializeListHead(
       &block->UsbdBootEnumerationDoneEvent.header.wait_list, context);
   xboxkrnl::xeKeSetEvent(context, &block->UsbdBootEnumerationDoneEvent, 1, 0);
 
@@ -469,15 +468,15 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->Boot();
   }
-  //this is deliberate, does not change the interrupt priority!
+  // this is deliberate, does not change the interrupt priority!
   kpcr->current_irql = 2;
 }
 
 void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
                                    X_KPCR* kpcr) {
-    //todo: sets priority here! need to fill that in
+  // todo: sets priority here! need to fill that in
 
-    xboxkrnl::xeKfLowerIrql(context, 2);
+  xboxkrnl::xeKfLowerIrql(context, 2);
 }
 
 void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
@@ -520,7 +519,7 @@ void KernelState::BootKernel() {
     cpu_thread->SetBootFunction(&KernelState::HWThreadBootFunction, this);
     cpu_thread->SetDecrementerInterruptCallback(
         &KernelState::KernelDecrementerInterrupt, nullptr);
-    //dont need the thread list lock, because no guest code is running atm
+    // dont need the thread list lock, because no guest code is running atm
     util::XeInsertTailList(
         &idle_process->thread_list,
         &this->KPCRPageForCpuNumber(i)->idle_process_thread.process_threads,

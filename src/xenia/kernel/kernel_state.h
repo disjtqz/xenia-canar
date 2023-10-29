@@ -64,15 +64,7 @@ struct X_TIME_STAMP_BUNDLE {
   xe::be<uint32_t> tick_count;
   xe::be<uint32_t> padding;
 };
-struct X_UNKNOWN_TYPE_REFED {
-  xe::be<uint32_t> field0;
-  xe::be<uint32_t> field4;
-  // this is definitely a LIST_ENTRY?
-  xe::be<uint32_t> points_to_self;  // this field points to itself
-  xe::be<uint32_t>
-      points_to_prior;  // points to the previous field, which points to itself
-};
-static_assert_size(X_UNKNOWN_TYPE_REFED, 16);
+
 struct KernelGuestGlobals {
   X_OBJECT_TYPE ExThreadObjectType;
   X_OBJECT_TYPE ExEventObjectType;
@@ -86,7 +78,7 @@ struct KernelGuestGlobals {
   X_OBJECT_TYPE ObSymbolicLinkObjectType;
   // a constant buffer that some object types' "unknown_size_or_object" field
   // points to
-  X_UNKNOWN_TYPE_REFED OddObj;
+  X_DISPATCH_HEADER OddObj;
   X_KPROCESS idle_process;    // X_PROCTYPE_IDLE. runs in interrupt contexts. is
                               // also the context the kernel starts in?
   X_KPROCESS title_process;   // X_PROCTYPE_TITLE
@@ -337,6 +329,7 @@ class KernelState {
   static void GraphicsInterruptDPC(cpu::ppc::PPCContext* context);
   static void CPInterruptIPI(void* ud);
  private:
+  static void LaunchModuleInterrupt(void* ud);
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
   void InitializeProcess(X_KPROCESS* process, uint32_t type, char unk_18,
                          char unk_19, char unk_1A);
@@ -344,6 +337,7 @@ class KernelState {
                          int tls_static_data_address);
 
   void BootKernel();
+  void CreateDispatchThread();
   /*
     initializes objects/data that is normally pre-initialized in the rdata
     section of the kernel, or any other data that does not require execution on

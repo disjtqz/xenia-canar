@@ -213,7 +213,9 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
                                cpu::ppc::PPCContext* context) {
   X_DISPATCH_HEADER* objects_guest[64];
   for (unsigned i = 0; i < count; ++i) {
+    xenia_assert(objects[i]);
     objects_guest[i] = objects[i]->guest_object<X_DISPATCH_HEADER>();
+    xenia_assert(objects_guest[i]);
   }
   uint32_t tmp_wait_blocks =
       kernel_memory()->SystemHeapAlloc(sizeof(X_KWAIT_BLOCK) * (count + 2));
