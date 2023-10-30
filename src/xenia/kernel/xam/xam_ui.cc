@@ -94,7 +94,7 @@ X_RESULT xeXamDispatchDialog(T* dialog,
     return result;
   };
   auto post = []() {
-    xe::threading::Sleep(std::chrono::milliseconds(100));
+   // xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
     kernel_state()->BroadcastNotification(0x9, false);
   };
@@ -138,7 +138,7 @@ X_RESULT xeXamDispatchDialogEx(
     return result;
   };
   auto post = []() {
-    xe::threading::Sleep(std::chrono::milliseconds(100));
+    //xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
     kernel_state()->BroadcastNotification(0x9, false);
   };
@@ -162,7 +162,7 @@ X_RESULT xeXamDispatchHeadless(std::function<X_RESULT()> run_callback,
     kernel_state()->BroadcastNotification(0x9, true);
   };
   auto post = []() {
-    xe::threading::Sleep(std::chrono::milliseconds(100));
+   // xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
     kernel_state()->BroadcastNotification(0x9, false);
   };
@@ -186,7 +186,7 @@ X_RESULT xeXamDispatchHeadlessEx(
     kernel_state()->BroadcastNotification(0x9, true);
   };
   auto post = []() {
-    xe::threading::Sleep(std::chrono::milliseconds(100));
+    //xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
     kernel_state()->BroadcastNotification(0x9, false);
   };

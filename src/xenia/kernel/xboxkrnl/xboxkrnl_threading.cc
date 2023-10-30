@@ -1294,11 +1294,11 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
   auto globals = context->TranslateVirtual<KernelGuestGlobals*>(
       kernel->GetKernelGuestGlobals());
 
-  kernel->LockDispatcherAtIrql(context);
+  uint32_t original_irql = kernel->LockDispatcher(context);
   uint64_t current_interrupt_time = globals->KeTimestampBundle.interrupt_time;
 
   for (auto&& timer : globals->running_timers.IterateForward(context)) {
-    if (timer.due_time > current_interrupt_time) {
+    if (timer.due_time <= current_interrupt_time) {
       expired_timers.push_back(&timer);
     }
   }
@@ -1323,7 +1323,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
   for (auto&& timer : expired_timers) {
     timer->header.inserted = 0;
     timer->table_bucket_entry.Zero();
-
+    timer->header.signal_state = 1;
     if (context->TranslateVirtual<X_LIST_ENTRY*>(
             timer->header.wait_list.flink_ptr) != &timer->header.wait_list) {
       xeDispatchSignalStateChange(context, &timer->header, 0);
@@ -1349,16 +1349,24 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
       }
     }
   }
-  kernel->UnlockDispatcher(context, IRQL_DISPATCH);
+  //todo: control flow is a bit weird here, not 100% sure of this
+  if (qdpcs.size()) {
+    xeDispatcherSpinlockUnlock(context, kernel->GetDispatcherLock(context),
+                               IRQL_DISPATCH);
 
-  for (auto&& queued_dpc : qdpcs) {
-    uint64_t dpc_args[] = {context->HostToGuestVirtual(queued_dpc.dpc),
-                           queued_dpc.context,
-                           static_cast<uint32_t>(current_systemtime),
-                           static_cast<uint32_t>(current_systemtime >> 32)};
+    for (auto&& queued_dpc : qdpcs) {
+      uint64_t dpc_args[] = {context->HostToGuestVirtual(queued_dpc.dpc),
+                             queued_dpc.context,
+                             static_cast<uint32_t>(current_systemtime),
+                             static_cast<uint32_t>(current_systemtime >> 32)};
 
-    context->processor->Execute(context->thread_state(), queued_dpc.routine,
-                                dpc_args, countof(dpc_args));
+      context->processor->Execute(context->thread_state(), queued_dpc.routine,
+                                  dpc_args, countof(dpc_args));
+    }
+    xboxkrnl::xeKfLowerIrql(context, original_irql);
+  } else {
+    xeDispatcherSpinlockUnlock(context, kernel->GetDispatcherLock(context),
+                               original_irql);
   }
 }
 static void set_msr_interrupt_bits(PPCContext* context, uint32_t value) {

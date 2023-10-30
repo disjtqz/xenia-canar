@@ -419,6 +419,7 @@ using IPIFunction = uintptr_t (*)(void* ud);
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms682453(v=vs.85).aspx
 class Thread : public WaitHandle {
  public:
+  bool is_ppc_thread_ = false;
   struct CreationParameters {
     size_t stack_size = 4_MiB;
     bool create_suspended = false;

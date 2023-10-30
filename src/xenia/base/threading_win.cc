@@ -63,7 +63,13 @@ XE_NTDLL_IMPORT(NtQueueApcThreadEx, cls_NtQueueApcThreadEx,
                 NtQueueApcThreadExPointer);
 namespace xe {
 namespace threading {
-
+static bool IsInGuestThread() {
+  auto current_thread = Thread::GetCurrentThread();
+  if (current_thread) {
+    return current_thread->is_ppc_thread_;
+  }
+  return false;
+}
 void EnableAffinityConfiguration() {
   // chrispy: i don't think this is necessary,
   // affinity always seems to be the system mask? research more
@@ -167,6 +173,7 @@ void NanoSleep(int64_t ns) {
 void SyncMemory() { MemoryBarrier(); }
 
 void Sleep(std::chrono::microseconds duration) {
+  xenia_assert(!IsInGuestThread());
   if (duration.count() < 100) {
     MaybeYield();
   } else {
@@ -175,6 +182,7 @@ void Sleep(std::chrono::microseconds duration) {
 }
 
 SleepResult AlertableSleep(std::chrono::microseconds duration) {
+  xenia_assert(!IsInGuestThread());
   if (SleepEx(static_cast<DWORD>(duration.count() / 1000), TRUE) ==
       WAIT_IO_COMPLETION) {
     return SleepResult::kAlerted;
@@ -224,6 +232,7 @@ class Win32Handle : public T {
 
 WaitResult Wait(WaitHandle* wait_handle, bool is_alertable,
                 std::chrono::milliseconds timeout) {
+  xenia_assert(!IsInGuestThread());
   HANDLE handle = wait_handle->native_handle();
   DWORD result;
   DWORD timeout_dw = DWORD(timeout.count());

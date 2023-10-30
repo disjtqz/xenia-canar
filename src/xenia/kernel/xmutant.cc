@@ -25,7 +25,7 @@ XMutant::XMutant(KernelState* kernel_state)
 
 XMutant::XMutant() : XObject(kObjectType) {}
 
-XMutant::~XMutant() {}
+XMutant::~XMutant() { __debugbreak(); }
 
 void XMutant::Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes) {
   auto context = cpu::ThreadState::Get()->context();

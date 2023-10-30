@@ -127,7 +127,10 @@ class XObject {
   std::vector<X_HANDLE>& handles() { return handles_; }
 
   const std::string& name() const { return name_; }
-  uint32_t guest_object() const { return guest_object_ptr_; }
+  uint32_t guest_object() const { 
+      xenia_assert(guest_object_ptr_);
+      return guest_object_ptr_;
+  }
 
   // Has this object been created for use by the host?
   // Host objects are persisted through reloads/etc.
@@ -136,11 +139,11 @@ class XObject {
 
   template <typename T>
   T* guest_object() {
-    return memory()->TranslateVirtual<T*>(guest_object_ptr_);
+    return memory()->TranslateVirtual<T*>(guest_object());
   }
   template <typename T>
   const T* guest_object() const {
-    return memory()->TranslateVirtual<const T*>(guest_object_ptr_);
+    return memory()->TranslateVirtual<const T*>(guest_object());
   }
   void RetainHandle();
   bool ReleaseHandle();

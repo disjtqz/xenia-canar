@@ -182,7 +182,7 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   os_thread_->set_affinity_mask(1ULL << cpu_number_);
   os_thread_->set_name(std::string("PPC HW Thread ") +
                        std::to_string(cpu_number));
-
+  os_thread_->is_ppc_thread_ = true;
   guest_ipi_dispatch_event_ = threading::Event::CreateAutoResetEvent(false);
   params.stack_size = 512 * 1024;
   params.initial_priority = threading::ThreadPriority::kBelowNormal;

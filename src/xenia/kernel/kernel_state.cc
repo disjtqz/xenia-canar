@@ -422,9 +422,8 @@ void KernelState::CreateDispatchThread() {
   // Spin up deferred dispatch worker.
   if (!dispatch_thread_running_) {
     dispatch_thread_running_ = true;
-    dispatch_thread_ = object_ref<XHostThread>(new XHostThread(
-        this, 128 * 1024, XE_FLAG_AFFINITY_CPU2,
-        [this]() {
+    dispatch_thread_ = object_ref<XHostThread>(
+        new XHostThread(this, 128 * 1024, XE_FLAG_AFFINITY_CPU2, [this]() {
           // As we run guest callbacks the debugger must be able to suspend us.
           auto context = cpu::ThreadState::GetContext();
           while (dispatch_thread_running_) {
@@ -433,7 +432,9 @@ void KernelState::CreateDispatchThread() {
                 reinterpret_cast<DispatchQueueEntry*>(dispatch_queue_.Pop());
 
             if (!entry) {
-              xboxkrnl::xeNtYieldExecution(context);
+              //xboxkrnl::xeNtYieldExecution(context);
+              int64_t interval = -100000;//10 ms
+              xboxkrnl::xeKeDelayExecutionThread(context, 0, false, &interval);
               continue;
             } else {
               entry->function();
@@ -992,11 +993,13 @@ void KernelState::SystemClockInterrupt() {
   if (cpu_num == 0) {
     X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
         memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
-    uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
-    uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
-    lpKeTimeStampBundle->interrupt_time = time_imprecise;
-    lpKeTimeStampBundle->system_time = time_imprecise;
-    lpKeTimeStampBundle->tick_count = uptime_ms;
+    // uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
+    // uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
+
+    uint64_t time_imprecise =
+        (lpKeTimeStampBundle->interrupt_time += 1000000ULL);
+    lpKeTimeStampBundle->system_time += 1000000ULL;
+    lpKeTimeStampBundle->tick_count += 1;
 
     /*
       check timers!
@@ -1344,9 +1347,8 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   }
   // XThread::SetCurrentThread(saved_currthread);
 
-  // this is r31 after the swap, but im not sure
-  // if it equals our thread or the thread we switched back from.
-  // im assuming our thread
+ 
+  //r31 after the swap = our thread
 
   X_KTHREAD* thread_to_load_from = GetKThread(context);
   xenia_assert(thread_to_load_from != guest);

@@ -12,7 +12,7 @@
 
 #include "xenia/base/logging.h"
 #include "xenia/base/threading.h"
-
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 namespace xe {
 namespace kernel {
 namespace xam {
@@ -35,7 +35,8 @@ X_HRESULT XmpApp::XMPGetStatus(uint32_t state_ptr) {
   if (!XThread::GetCurrentThread()->main_thread()) {
     // Some stupid games will hammer this on a thread - induce a delay
     // here to keep from starving real threads.
-    xe::threading::Sleep(std::chrono::milliseconds(1));
+    int64_t interval = -10000LL;
+    xboxkrnl::xeKeDelayExecutionThread(cpu::ThreadState::GetContext(), 0, false, &interval);
   }
 
   XELOGD("XMPGetStatus({:08X})", state_ptr);
@@ -430,7 +431,9 @@ X_HRESULT XmpApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
 
       if (!XThread::GetCurrentThread()->main_thread()) {
         // Atrain spawns a thread 82437FD0 to call this in a tight loop forever.
-        xe::threading::Sleep(std::chrono::milliseconds(10));
+        int64_t interval = -100000LL;
+        xboxkrnl::xeKeDelayExecutionThread(cpu::ThreadState::GetContext(), 0,
+                                           false, &interval);
       }
 
       return X_E_SUCCESS;

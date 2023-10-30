@@ -459,7 +459,7 @@ void Sleep_entry(dword_t dwMilliseconds) {
 DECLARE_XAM_EXPORT1(Sleep, kNone, kImplemented);
 
 // https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-gettickcount
-dword_result_t GetTickCount_entry() { return Clock::QueryGuestUptimeMillis(); }
+dword_result_t GetTickCount_entry(const ppc_context_t& context) { return context->kernel_state->GetKernelTickCount(); }
 DECLARE_XAM_EXPORT1(GetTickCount, kNone, kImplemented);
 
 dword_result_t RtlSetLastNTError_entry(dword_t error_code) {

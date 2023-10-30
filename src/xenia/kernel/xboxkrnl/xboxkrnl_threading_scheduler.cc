@@ -33,7 +33,7 @@ namespace xboxkrnl {
 template <size_t fmt_len, typename... Ts>
 static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
                      Ts... args) {
-#if 0
+#if 1
 #define prefixfmt "(Context {}, Fiber {}, HW Thread {}, Guest Thread {}) "
 
   char tmpbuf[fmt_len + sizeof(prefixfmt)];
@@ -91,6 +91,8 @@ reenter:
     if (irql > IRQL_APC) {
       if (!kpcr->prcb_data.dpc_active) {
         kpcr->generic_software_interrupt = irql;
+      } else {
+        __nop();
       }
     } else {
       xboxkrnl::xeKeKfAcquireSpinLock(
@@ -108,6 +110,8 @@ reenter:
 
       context->kernel_state->ContextSwitch(context, next_thread.xlat());
 
+      //this is all already done in ContextSwitch!
+      #if 0
       // at this point we're supposed to load a bunch of fields from r31 and do
       // shit
 
@@ -121,6 +125,7 @@ reenter:
       if (r3 < r4) {
         xeDispatchProcedureCallInterrupt(r3, r4, context);
       }
+      #endif
     }
   } else if (irql <= IRQL_APC) {
     kpcr->current_irql = irql;
@@ -148,6 +153,8 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
     // PPCContext per guest thread
   }
   // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/ntos/ke/kthread_state.htm
+
+  xenia_assert(kthread->a_prcb_ptr. xlat() == v3);
   switch (kthread->thread_state) {
     case 1: {  // ready
       auto v23 = kthread->ready_prcb_entry.flink_ptr;
@@ -281,7 +288,9 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
 void HandleCpuThreadDisownedIPI(void* ud) {
   // xenia_assert(false);
   // this is incorrect
-  xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
+  //xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
+ // auto context = cpu::ThreadState::GetContext();
+  KernelState::GenericExternalInterruptEpilog(context);
 }
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
@@ -319,7 +328,7 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
          this thread belonged to has given it up before we continue
       */
       context->processor->GetCPUThread(old_cpu_for_thread)
-          ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
+         ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
     }
     return;
   }
@@ -649,11 +658,18 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
     }
   }
   thread->thread_state = 6;
+
+#if 0
   thread->ready_prcb_entry.flink_ptr = prcb->enqueued_threads_list.next;
 
   prcb->enqueued_threads_list.next =
       context->HostToGuestVirtual(&thread->ready_prcb_entry);
-
+#else
+  thread->ready_prcb_entry.flink_ptr =
+      GetKPCR(context)->prcb_data.enqueued_threads_list.next;
+  GetKPCR(context)->prcb_data.enqueued_threads_list.next =
+      context->HostToGuestVirtual(&thread->ready_prcb_entry);
+#endif
   xboxkrnl::xeKeKfReleaseSpinLock(
       context, &prcb->enqueued_processor_threads_lock, 0, false);
 }
@@ -1757,12 +1773,10 @@ int32_t xeKeSetDisableBoostThread(PPCContext* context, X_KTHREAD* thread,
 }
 
 int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
-                                  int priority) {
+                              int priority) {
   uint32_t old_irql = context->kernel_state->LockDispatcher(context);
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, false);
-
-
 
   auto old_priority = thread->priority;
   auto v8 = thread->process->unk_0C;
