@@ -83,6 +83,7 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
   worker_running_ = true;
 
   threading::Thread::CreationParameters crparams{};
+  guest_received_event_ = threading::Event::CreateAutoResetEvent(false);
   worker_thread_ = threading::Thread::Create(
       crparams, std::bind(&AudioSystem::WorkerThreadMain, this));
 
@@ -106,7 +107,7 @@ void AudioSystem::StartGuestWorkerThread() {
             return true;
           },
           kernel_state_->GetSystemProcess()));
-  //guest_received_event_ = threading::Event::CreateAutoResetEvent(false);
+  
 }
 void AudioSystem::GuestInterrupt(void* ud) {
   auto system = reinterpret_cast<AudioSystem*>(ud);
@@ -114,7 +115,7 @@ void AudioSystem::GuestInterrupt(void* ud) {
   system->processor_->Execute(cpu::ThreadState::Get(),
                               system->client_callback_in_, args,
                               xe::countof(args));
- // system->guest_received_event_->Set();
+  system->guest_received_event_->Set();
 }
 
 void AudioSystem::WorkerThreadMain() {
@@ -161,10 +162,10 @@ void AudioSystem::WorkerThreadMain() {
       // msg->client_callback_arg_ = client_callback_arg_in_;
       // guest_worker_messages_.Push(&msg->list_entry);
 
-    //  processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
-     //                                            this);
+     // processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
+       //                                         this);
 
-      // threading::Wait(guest_received_event_.get(), false);
+      //threading::Wait(guest_received_event_.get(), false);
       //  guest_thread_->Resume();
       //  threading::Wait(guest_received_event_.get(), false);
 #endif

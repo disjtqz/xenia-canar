@@ -50,6 +50,8 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
                           X_OBJECT_ATTRIBUTES* optional_attributes,
                           uint32_t object_size_without_headers,
                           uint32_t* out_object, cpu::ppc::PPCContext* context) {
+  cpu::ppc::PPCGprSnapshot savegplr;
+  context->TakeGPRSnapshot(&savegplr);
   unsigned int resulting_header_flags = 0;
   *out_object = 0;
   unsigned int poolarg = 0;
@@ -104,8 +106,10 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
       new_object_header->flags = resulting_header_flags;
 
       *out_object = allocation + sizeof(X_OBJECT_HEADER);
+      context->RestoreGPRSnapshot(&savegplr);
       return X_STATUS_SUCCESS;
     }
+    context->RestoreGPRSnapshot(&savegplr);
     return X_STATUS_INSUFFICIENT_RESOURCES;
   }
   /*
@@ -125,11 +129,13 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
                   context);
     if (remaining_path.length) {
       if (*context->TranslateVirtual<char*>(remaining_path.pointer) == '\\') {
+        context->RestoreGPRSnapshot(&savegplr);
         return X_STATUS_OBJECT_NAME_INVALID;
       }
     }
   }
   if (!trailing_path_component.length) {
+    context->RestoreGPRSnapshot(&savegplr);
     return X_STATUS_OBJECT_NAME_INVALID;
   }
   // the object and its name are all created in a single allocation
@@ -148,6 +154,7 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
   }
   uint32_t named_object_allocation = static_cast<uint32_t>(context->r[3]);
   if (!named_object_allocation) {
+    context->RestoreGPRSnapshot(&savegplr);
     return X_STATUS_INSUFFICIENT_RESOURCES;
   }
 
@@ -178,6 +185,7 @@ uint32_t xeObCreateObject(X_OBJECT_TYPE* object_factory,
   header_for_named_object->flags =
       resulting_header_flags & 0xFFFE | OBJECT_HEADER_FLAG_NAMED_OBJECT;
   *out_object = context->HostToGuestVirtual(&header_for_named_object[1]);
+  context->RestoreGPRSnapshot(&savegplr);
   return X_STATUS_SUCCESS;
 }
 dword_result_t ObOpenObjectByName_entry(lpunknown_t obj_attributes_ptr,

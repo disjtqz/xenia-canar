@@ -379,7 +379,7 @@ dword_result_t XMADisableContext_entry(lpvoid_t context_ptr, dword_t wait) {
 DECLARE_XBOXKRNL_EXPORT2(XMADisableContext, kAudio, kImplemented,
                          kHighFrequency);
 
-dword_result_t XMABlockWhileInUse_entry(lpvoid_t context_ptr) {
+dword_result_t XMABlockWhileInUse_entry(lpvoid_t context_ptr, const ppc_context_t& ppc_context) {
   do {
     XMA_CONTEXT_DATA context(context_ptr);
     if (!context.input_buffer_0_valid && !context.input_buffer_1_valid) {
@@ -389,6 +389,7 @@ dword_result_t XMABlockWhileInUse_entry(lpvoid_t context_ptr) {
       break;
     }
    // xe::threading::Sleep(std::chrono::milliseconds(1));
+    ppc_context->CheckInterrupt();
   } while (true);
   return 0;
 }

@@ -996,9 +996,8 @@ void KernelState::SystemClockInterrupt() {
     // uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
     // uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
 
-    uint64_t time_imprecise =
-        (lpKeTimeStampBundle->interrupt_time += 1000000ULL);
-    lpKeTimeStampBundle->system_time += 1000000ULL;
+    uint64_t time_imprecise = (lpKeTimeStampBundle->interrupt_time += 10000ULL);
+    lpKeTimeStampBundle->system_time += 10000ULL;
     lpKeTimeStampBundle->tick_count += 1;
 
     /*
@@ -1027,7 +1026,7 @@ void KernelState::SystemClockInterrupt() {
       kpcr->generic_software_interrupt = 2;
     }
   }
-  GenericExternalInterruptEpilog(context);
+ GenericExternalInterruptEpilog(context);
 }
 void KernelState::GenericExternalInterruptEpilog(
     cpu::ppc::PPCContext* context) {
@@ -1318,6 +1317,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   xenia_assert(GetKPCR(context)->prcb_data.current_thread.xlat() == guest);
 
   auto old_kpcr = GetKPCR(context);
+
   if (!object_table()->HostHandleForGuestObject(
           context->HostToGuestVirtual(guest), host_handle)) {
     // if theres no host object for this guest thread, its definitely the idle
@@ -1346,7 +1346,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
     XELOGE("Thread was switched from one HW thread to another.");
   }
   // XThread::SetCurrentThread(saved_currthread);
-
+  
  
   //r31 after the swap = our thread
 

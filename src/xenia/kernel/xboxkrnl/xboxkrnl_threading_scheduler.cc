@@ -33,7 +33,7 @@ namespace xboxkrnl {
 template <size_t fmt_len, typename... Ts>
 static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
                      Ts... args) {
-#if 1
+#if 0
 #define prefixfmt "(Context {}, Fiber {}, HW Thread {}, Guest Thread {}) "
 
   char tmpbuf[fmt_len + sizeof(prefixfmt)];
@@ -289,7 +289,7 @@ void HandleCpuThreadDisownedIPI(void* ud) {
   // xenia_assert(false);
   // this is incorrect
   //xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
- // auto context = cpu::ThreadState::GetContext();
+  auto context = cpu::ThreadState::GetContext();
   KernelState::GenericExternalInterruptEpilog(context);
 }
 
@@ -1124,6 +1124,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       xeProcessUserApcs(context);
     }
     if (v14 != X_STATUS_KERNEL_APC) {
+      context->r[1] = old_r1;
       return v14;
     }
     if (timeout) {
@@ -1136,7 +1137,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       }
     }
   LABEL_41:
-    context->CheckInterrupt();
+    //context->CheckInterrupt();
     this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
   }
   auto obj_type = object->type;

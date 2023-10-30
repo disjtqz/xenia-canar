@@ -235,7 +235,9 @@ DECLARE_XBOXKRNL_EXPORT1(VdSetDisplayModeOverride, kVideo, kStub);
 
 dword_result_t VdInitializeEngines_entry(unknown_t unk0, function_t callback,
                                          lpvoid_t arg, lpdword_t pfp_ptr,
-                                         lpdword_t me_ptr) {
+                                         lpdword_t me_ptr, const ppc_context_t& context) {
+  xboxkrnl::xeKeEnterCriticalRegion(context);
+  xboxkrnl::xeKeLeaveCriticalRegion(context);
   // r3 = 0x4F810000
   // r4 = function ptr (cleanup callback?)
   // r5 = function arg
@@ -353,9 +355,10 @@ void AppendParam(StringBuffer* string_buffer, pointer_t<BufferScaling> param) {
 }
 
 dword_result_t VdCallGraphicsNotificationRoutines_entry(
-    unknown_t unk0, pointer_t<BufferScaling> args_ptr) {
+    unknown_t unk0, pointer_t<BufferScaling> args_ptr, const ppc_context_t& context) {
   assert_true(unk0 == 1);
-
+  xboxkrnl::xeKeEnterCriticalRegion(context);
+  xboxkrnl::xeKeLeaveCriticalRegion(context);
   // TODO(benvanik): what does this mean, I forget:
   // callbacks get 0, r3, r4
   return 0;

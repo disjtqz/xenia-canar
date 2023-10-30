@@ -409,13 +409,14 @@ static void do_tls_asserts(PPCContext* context) {
   auto kthread = context->TranslateVirtual(kpcr->prcb_data.current_thread);
 
   xenia_assert(kpcr->tls_ptr == kthread->tls_address);
+  xenia_assert(kpcr->tls_ptr != 0);
 }
 
 // https://msdn.microsoft.com/en-us/library/ms686801
 dword_result_t KeTlsAlloc_entry(const ppc_context_t& context) {
   do_tls_asserts(context);
   uint32_t slot = kernel_state()->AllocateTLS();
-  XThread::GetCurrentThread()->SetTLSValue(slot, 0);
+  // XThread::GetCurrentThread()->SetTLSValue(slot, 0);
 
   return slot;
 }
@@ -453,7 +454,6 @@ dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value,
   do_tls_asserts(context);
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
-
   *(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -
     tls_index - 1) = (uint32_t)tls_value;
   return 1;
@@ -1349,7 +1349,7 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
       }
     }
   }
-  //todo: control flow is a bit weird here, not 100% sure of this
+  // todo: control flow is a bit weird here, not 100% sure of this
   if (qdpcs.size()) {
     xeDispatcherSpinlockUnlock(context, kernel->GetDispatcherLock(context),
                                IRQL_DISPATCH);
@@ -1442,6 +1442,10 @@ void xeExecuteDPCList2(
 void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
                                       unsigned int software_interrupt_mask,
                                       cpu::ppc::PPCContext* context) {
+  // need to save/restore registers, dpcs/apcs may clobber
+  // todo: might really only need to save lr
+  cpu::ppc::PPCGprSnapshot savegp;
+  context->TakeGPRSnapshot(&savegp);
   if (new_irql < software_interrupt_mask) {
     uint64_t saved_msr = context->msr;
 
@@ -1458,11 +1462,11 @@ void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
       GetKPCR(context)->current_irql = sw_state | new_irql;
       if (sw_state <= new_irql) {
         context->msr = saved_msr;
-        return;
+        goto restgplr;
       }
     } else {
       if (software_interrupt_mask <= new_irql) {
-        return;
+        goto restgplr;
       }
       GetKPCR(context)->current_irql = software_interrupt_mask;
     }
@@ -1480,6 +1484,8 @@ void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
 
     context->msr = saved_msr;
   }
+restgplr:
+  context->RestoreGPRSnapshot(&savegp);
 }
 
 uint32_t xeNtQueueApcThread(uint32_t thread_handle, uint32_t apc_routine,
@@ -1532,6 +1538,8 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 
   auto current_thread = ctx->TranslateVirtual(kpcr->prcb_data.current_thread);
 
+  cpu::ppc::PPCGprSnapshot savegplr;
+  ctx->TakeGPRSnapshot(&savegplr);
   uint32_t unlocked_irql =
       xeKeKfAcquireSpinLock(ctx, &current_thread->apc_lock);
 
@@ -1596,6 +1604,7 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
   ctx->r[1] = old_stack_pointer;
 
   xeKeKfReleaseSpinLock(ctx, &current_thread->apc_lock, unlocked_irql);
+  ctx->RestoreGPRSnapshot(&savegplr);
   return alert_status;
 }
 

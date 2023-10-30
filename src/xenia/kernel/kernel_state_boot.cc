@@ -170,9 +170,9 @@ static void IPIInterruptProc(PPCContext* context) {}
 // ues _KTHREAD list_entry field at 0x94
 // this dpc uses none of the routine args
 static void DestroyThreadDpc(PPCContext* context) {
-  context->kernel_state->LockDispatcherAtIrql(context);
+//  context->kernel_state->LockDispatcherAtIrql(context);
 
-  context->kernel_state->UnlockDispatcherAtIrql(context);
+ // context->kernel_state->UnlockDispatcherAtIrql(context);
 }
 
 static void ThreadSwitchRelatedDpc(PPCContext* context) {
