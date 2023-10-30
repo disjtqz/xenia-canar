@@ -37,6 +37,7 @@ void HandleSetThreadName(pointer_t<X_EXCEPTION_RECORD> record) {
 
   // TODO(benvanik): check record->number_parameters to make sure it's a
   // correct size.
+    #if 0
   auto thread_info =
       reinterpret_cast<X_THREADNAME_INFO*>(&record->exception_information[0]);
 
@@ -70,7 +71,7 @@ void HandleSetThreadName(pointer_t<X_EXCEPTION_RECORD> record) {
     XELOGD("SetThreadName({}, {})", thread->thread_id(), name);
     thread->set_name(name);
   }
-
+  #endif
   // TODO(benvanik): unwinding required here?
 }
 

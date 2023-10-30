@@ -452,6 +452,16 @@ void KernelState::BootInitializeStatics() {
   block->graphics_interrupt_dpc.desired_cpu_number = 3;
 }
 
+static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,
+    X_KPCR* kpcr) {
+  xboxkrnl::xeKeSetPriorityThread(context, kpcr->prcb_data.idle_thread.xlat(),
+                                  0);
+  kpcr->prcb_data.idle_thread->priority = 18;
+  if (!kpcr->prcb_data.next_thread) {
+    kpcr->prcb_data.running_idle_thread.m_ptr = 1;
+  }
+}
+
 void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   KernelGuestGlobals* block =
       memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
@@ -463,6 +473,7 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   for (unsigned i = 1; i < 6; ++i) {
     SetupKPCRPageForCPU(i);
   }
+
   xboxkrnl::xeKfLowerIrql(context, 1);
   for (unsigned i = 1; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
@@ -470,6 +481,7 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   }
   // this is deliberate, does not change the interrupt priority!
   kpcr->current_irql = 2;
+  SetupIdleThreadPriority(context, kpcr);
 }
 
 void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
@@ -477,6 +489,7 @@ void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
   // todo: sets priority here! need to fill that in
 
   xboxkrnl::xeKfLowerIrql(context, 2);
+  SetupIdleThreadPriority(context, kpcr);
 }
 
 void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,

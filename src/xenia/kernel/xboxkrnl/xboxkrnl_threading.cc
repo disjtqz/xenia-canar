@@ -328,17 +328,19 @@ dword_result_t KeSetBasePriorityThread_entry(pointer_t<X_KTHREAD> thread_ptr,
 DECLARE_XBOXKRNL_EXPORT1(KeSetBasePriorityThread, kThreading, kImplemented);
 
 dword_result_t KeSetDisableBoostThread_entry(pointer_t<X_KTHREAD> thread_ptr,
-                                             dword_t disabled) {
-  // supposed to acquire dispatcher lock + a prcb lock, all just to exchange
-  // this char there is no other special behavior going on in this function,
-  // just acquiring locks to do this exchange
-  auto old_boost_disabled =
-      reinterpret_cast<std::atomic_uint8_t*>(&thread_ptr->boost_disabled)
-          ->exchange(static_cast<uint8_t>(disabled));
-
-  return old_boost_disabled;
+                                             dword_t disabled,
+                                             const ppc_context_t& context) {
+  return xeKeSetDisableBoostThread(context, thread_ptr, disabled);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeSetDisableBoostThread, kThreading, kImplemented);
+
+dword_result_t KeSetPriorityThread_entry(pointer_t<X_KTHREAD> thread_ptr,
+                                         dword_t priority,
+                                         const ppc_context_t& context) {
+  return xeKeSetPriorityThread(context, thread_ptr, priority);
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeSetPriorityThread, kThreading, kImplemented);
 
 uint32_t xeKeGetCurrentProcessType(cpu::ppc::PPCContext* context) {
   auto pcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);

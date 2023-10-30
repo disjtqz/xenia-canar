@@ -187,6 +187,10 @@ X_STATUS xeKeWaitForMultipleObjects(
     PPCContext* context, unsigned int num_objects, X_DISPATCH_HEADER** objects,
     unsigned wait_type, unsigned reason, unsigned char mode, int alertable,
     int64_t* timeout, X_KWAIT_BLOCK* wait_blocks);
+int32_t xeKeSetDisableBoostThread(PPCContext* context, X_KTHREAD* thread,
+                                  char a2);
+int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
+                              int priority);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

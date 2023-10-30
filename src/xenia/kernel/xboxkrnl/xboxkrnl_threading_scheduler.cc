@@ -1518,14 +1518,10 @@ int32_t xeKeQueryBasePriorityThread(PPCContext* context, X_KTHREAD* thread) {
   return v5;
 }
 
-
-
-X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_objects,
-                                    X_DISPATCH_HEADER** objects,
-                                    unsigned wait_type, unsigned reason,
-                                    unsigned char mode, int alertable,
-                                    int64_t* timeout,
-                                    X_KWAIT_BLOCK* wait_blocks) {
+X_STATUS xeKeWaitForMultipleObjects(
+    PPCContext* context, unsigned int num_objects, X_DISPATCH_HEADER** objects,
+    unsigned wait_type, unsigned reason, unsigned char mode, int alertable,
+    int64_t* timeout, X_KWAIT_BLOCK* wait_blocks) {
   X_STATUS result;
   auto thread = GetKThread(context);
   if (thread->unk_A6)
@@ -1535,10 +1531,11 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
   }
   unsigned int v21;
   int64_t v43 = 0;
-  ShiftedPointer<xe::be<uint16_t>, X_KWAIT_BLOCK, 0x14> wait_blocks_shifted = nullptr;
+  ShiftedPointer<xe::be<uint16_t>, X_KWAIT_BLOCK, 0x14> wait_blocks_shifted =
+      nullptr;
 
   int64_t v16 = 0;  // v43;
-  auto v17 = context->TranslateVirtual<X_KWAIT_BLOCK*>(v43>>32);
+  auto v17 = context->TranslateVirtual<X_KWAIT_BLOCK*>(v43 >> 32);
   auto timeout2 = timeout;
   int64_t other_timer_storage;
   while (true) {
@@ -1551,7 +1548,7 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
     }
     int v20 = 1;
     thread->wait_result = 0;
-     v21 = 0;  // HIDWORD(v16);
+    v21 = 0;  // HIDWORD(v16);
     if (num_objects) {
       break;
     }
@@ -1568,13 +1565,14 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
         thread->alerted[mode] = 0;
         goto LABEL_73;
       }
-      if (mode && !util::XeIsListEmpty(&thread->apc_lists[1], context)){
+      if (mode && !util::XeIsListEmpty(&thread->apc_lists[1], context)) {
         thread->unk_8A = 1;
       LABEL_72:
         result = X_STATUS_USER_APC;
-    LABEL_73:
+      LABEL_73:
         xeDispatcherSpinlockUnlock(
-            context, context->kernel_state->GetDispatcherLock(context), thread->unk_A4);
+            context, context->kernel_state->GetDispatcherLock(context),
+            thread->unk_A4);
         goto deliver_apc_and_return;
       }
       if (thread->alerted[0]) {
@@ -1586,15 +1584,15 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
       goto LABEL_72;
     }
     if (timeout) {
-      if (!*timeout ||
-          (v17->next_wait_block = &thread->wait_timeout_block,
-           v17 = &thread->wait_timeout_block,
-           thread->wait_timeout_timer.header.wait_list.flink_ptr =
-               &thread->wait_timeout_timer.header.wait_list,
-           thread->wait_timeout_timer.header.wait_list.blink_ptr =
-               &thread->wait_timeout_timer.header.wait_list,
+      if (!*timeout || (v17->next_wait_block = &thread->wait_timeout_block,
+                        v17 = &thread->wait_timeout_block,
+                        thread->wait_timeout_timer.header.wait_list.flink_ptr =
+                            &thread->wait_timeout_timer.header.wait_list,
+                        thread->wait_timeout_timer.header.wait_list.blink_ptr =
+                            &thread->wait_timeout_timer.header.wait_list,
 
-           !XeInsertGlobalTimer(context, &thread->wait_timeout_timer, *timeout) )) {
+                        !XeInsertGlobalTimer(
+                            context, &thread->wait_timeout_timer, *timeout))) {
         result = X_STATUS_TIMEOUT;
         goto LABEL_75;
       }
@@ -1628,7 +1626,7 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
       return result;
     }
     if (timeout) {
-      if (timeout2<0 ) {
+      if (timeout2 < 0) {
         other_timer_storage =
             context->kernel_state->GetKernelInterruptTime() - *timeout;
         timeout2 = &other_timer_storage;
@@ -1644,10 +1642,10 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
   wait_blocks_shifted = &wait_blocks->wait_result_xstatus;
   int obj_type;
   int v20;
-  //not actually X_KMUTANT, but it covers all the fields we need here
+  // not actually X_KMUTANT, but it covers all the fields we need here
   X_KMUTANT* v24;
   while (1) {
-     v24 = (X_KMUTANT*)*v22;
+    v24 = (X_KMUTANT*)*v22;
 
     obj_type = v24->header.type;
     if (wait_type == 1) {
@@ -1659,8 +1657,8 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
         if (v24->header.signal_state > 0 || thread == v29.xlat()) {
           goto LABEL_31;
         }
-    LABEL_30:
-        //todo: fix!
+      LABEL_30:
+        // todo: fix!
         v20 = 0;  // HIDWORD(v16);
         goto LABEL_31;
       }
@@ -1715,7 +1713,7 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context),
         thread->unk_A4);
-   // RtlRaiseStatus(X_STATUS_MUTANT_LIMIT_EXCEEDED);
+    // RtlRaiseStatus(X_STATUS_MUTANT_LIMIT_EXCEEDED);
     xenia_assert(false);
     goto LABEL_31;
   }
@@ -1725,7 +1723,7 @@ X_STATUS xeKeWaitForMultipleObjects(PPCContext* context, unsigned int num_object
   auto object_type = v24->header.type;
   if ((object_type & 7) == 1) {
     v24->header.signal_state = 0;
-    //HIDWORD(v16);
+    // HIDWORD(v16);
   } else if (object_type == 5) {
     --v24->header.signal_state;
   }
@@ -1739,6 +1737,46 @@ deliver_apc_and_return:
   }
   return result;
 }
+
+int32_t xeKeSetDisableBoostThread(PPCContext* context, X_KTHREAD* thread,
+                                  char a2) {
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, false);
+
+  auto old_disable_boost = thread->boost_disabled;
+
+  thread->boost_disabled = a2;
+
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, 0, false);
+
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return old_disable_boost;
+}
+
+int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
+                                  int priority) {
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+  xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, false);
+
+
+
+  auto old_priority = thread->priority;
+  auto v8 = thread->process->unk_0C;
+  thread->unk_BA = 0;
+  thread->unk_B4 = v8;
+  xeKeChangeThreadPriority(context, thread, priority);
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, 0, false);
+
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return old_priority;
+}
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe
