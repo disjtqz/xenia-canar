@@ -1609,10 +1609,12 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 }
 
 X_STATUS xeProcessUserApcs(PPCContext* ctx) {
+  GetKThread(ctx)->unk_8A = 0;
   return xeProcessApcQueue<X_STATUS_USER_APC, 1>(ctx);
 }
 
 X_STATUS xeProcessKernelApcs(PPCContext* ctx) {
+  GetKThread(ctx)->deferred_apc_software_interrupt_state = 0;
   return xeProcessApcQueue<X_STATUS_USER_APC, 0>(ctx);
 }
 
