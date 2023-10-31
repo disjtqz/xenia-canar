@@ -397,6 +397,8 @@ X_STATUS XThread::Create() {
   X_STATUS create_status =
       xboxkrnl::xeObCreateObject(&guest_globals->ExThreadObjectType, nullptr,
                                  sizeof(X_KTHREAD), &created_object, context);
+  // Always retain when starting - the thread owns itself until exited.
+  RetainHandle();
   if (create_status != X_STATUS_SUCCESS) {
     return create_status;
   }
@@ -450,6 +452,18 @@ X_STATUS XThread::Create() {
   // Initialize the KTHREAD object.
   InitializeGuestObject();
 
+
+
+
+
+  xe::threading::Fiber::CreationParameters params;
+
+  params.stack_size = 16_MiB;  // Allocate a big host stack.
+
+
+  if ((creation_params_.creation_flags & XE_FLAG_THREAD_INITIALLY_SUSPENDED) != 0) {
+    this->Suspend();
+  }
   // todo: not sure about this!
   if (creation_params()->creation_flags & XE_FLAG_PRIORITY_CLASS2) {
     xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
@@ -460,19 +474,6 @@ X_STATUS XThread::Create() {
     xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
                                          guest_object<X_KTHREAD>(), true);
   }
-  uint32_t affinity_by =
-      static_cast<uint8_t>(creation_params_.creation_flags >> 24);
-  if (affinity_by) {
-    SetAffinity(affinity_by);
-  }
-
-  // Always retain when starting - the thread owns itself until exited.
-  RetainHandle();
-
-  xe::threading::Fiber::CreationParameters params;
-
-  params.stack_size = 16_MiB;  // Allocate a big host stack.
-
   fiber_ = xe::threading::Fiber::Create(params, [this]() {
   // Execute user code.
 #if !LOOKUP_XTHREAD_FROM_KTHREAD
@@ -480,6 +481,11 @@ X_STATUS XThread::Create() {
 #endif
     cpu::ThreadState::Bind(thread_state_);
     xenia_assert(GetKThread() == this->guest_object<X_KTHREAD>());
+
+    xenia_assert(static_cast<uint32_t>(thread_state_->context()->r[13]) !=
+                 thread_state_->context()
+                     ->kernel_state->GetDispatcherLock(thread_state_->context())
+                     ->pcr_of_owner);
     running_ = true;
     Execute();
     running_ = false;
@@ -489,26 +495,20 @@ X_STATUS XThread::Create() {
     // Release the self-reference to the thread.
     ReleaseHandle();
   });
+  uint32_t affinity_by =
+      static_cast<uint8_t>(creation_params_.creation_flags >> 24);
+  if (affinity_by) {
+    SetAffinity(affinity_by);
+  }
+
+
 
   if (!fiber_) {
     // TODO(benvanik): translate error?
     XELOGE("CreateThread failed");
     return X_STATUS_NO_MEMORY;
   }
-
-  // Notify processor of our creation.
-  // emulator()->processor()->OnThreadCreated(handle(), thread_state_, this);
-  runnable_entry_.fiber_ = fiber_.get();
-  runnable_entry_.thread_state_ = thread_state_;
-
-  // Start the thread now that we're all setup.
-
-  // thread_->Resume();
-  if ((creation_params_.creation_flags & XE_FLAG_THREAD_INITIALLY_SUSPENDED) != 0) {
-    this->Suspend();
-  }
   Schedule();
-
   return X_STATUS_SUCCESS;
 }
 
@@ -625,6 +625,8 @@ void XThread::Execute() {
   cpu::ppc::PPCGprSnapshot snapshot{};
   context->TakeGPRSnapshot(&snapshot);
   xboxkrnl::xeKfLowerIrql(thread_state_->context(), IRQL_PASSIVE);
+  xboxkrnl::xeProcessKernelApcs(context);
+
   assert_valid();
 
   // Let the kernel know we are starting.

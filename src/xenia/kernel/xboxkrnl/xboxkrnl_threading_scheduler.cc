@@ -984,7 +984,7 @@ int xeKeResumeThread(PPCContext* context, X_KTHREAD* thread) {
 void xeSuspendThreadApcRoutine(PPCContext* context) {
   SCHEDLOG(context, "xeSuspendThreadApcRoutine called");
   auto thrd = GetKThread(context);
-  xeKeWaitForSingleObject(&thrd->suspend_sema, 2, 0, 0, 0);
+  xeKeWaitForSingleObject(context, &thrd->suspend_sema.header, 2, 0, 0, 0);
 }
 
 X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,

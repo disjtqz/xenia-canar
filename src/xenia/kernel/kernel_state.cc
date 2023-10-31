@@ -432,8 +432,8 @@ void KernelState::CreateDispatchThread() {
                 reinterpret_cast<DispatchQueueEntry*>(dispatch_queue_.Pop());
 
             if (!entry) {
-              //xboxkrnl::xeNtYieldExecution(context);
-              int64_t interval = -100000;//10 ms
+              // xboxkrnl::xeNtYieldExecution(context);
+              int64_t interval = -100000;  // 10 ms
               xboxkrnl::xeKeDelayExecutionThread(context, 0, false, &interval);
               continue;
             } else {
@@ -1006,7 +1006,7 @@ void KernelState::SystemClockInterrupt() {
 
     auto globals =
         context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals());
-
+    context->kernel_state->LockDispatcherAtIrql(context);
     for (auto& timer : globals->running_timers.IterateForward(context)) {
       if (timer.due_time <= time_imprecise) {
         kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
@@ -1014,6 +1014,7 @@ void KernelState::SystemClockInterrupt() {
         break;
       }
     }
+    context->kernel_state->UnlockDispatcherAtIrql(context);
   }
 
   auto current_thread = kpcr->prcb_data.current_thread.xlat();
@@ -1026,7 +1027,7 @@ void KernelState::SystemClockInterrupt() {
       kpcr->generic_software_interrupt = 2;
     }
   }
- GenericExternalInterruptEpilog(context);
+  GenericExternalInterruptEpilog(context);
 }
 void KernelState::GenericExternalInterruptEpilog(
     cpu::ppc::PPCContext* context) {
@@ -1320,6 +1321,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
 
   if (!object_table()->HostHandleForGuestObject(
           context->HostToGuestVirtual(guest), host_handle)) {
+    xenia_assert(GetKPCR(context)->prcb_data.idle_thread.xlat() == guest);
     // if theres no host object for this guest thread, its definitely the idle
     // thread for this processor
     xenia_assert(guest->process_type == X_PROCTYPE_IDLE &&
@@ -1346,9 +1348,8 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
     XELOGE("Thread was switched from one HW thread to another.");
   }
   // XThread::SetCurrentThread(saved_currthread);
-  
- 
-  //r31 after the swap = our thread
+
+  // r31 after the swap = our thread
 
   X_KTHREAD* thread_to_load_from = GetKThread(context);
   xenia_assert(thread_to_load_from != guest);

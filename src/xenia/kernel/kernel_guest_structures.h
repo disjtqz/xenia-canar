@@ -227,6 +227,11 @@ static_assert_size(X_KEVENT, 0x10);
 
 struct X_KTHREAD;
 struct X_KPROCESS;
+//https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_file_object
+struct X_KFILE_OBJECT {
+  uint8_t unk_0[0x68];
+};
+static_assert_size(X_KFILE_OBJECT, 0x68);
 struct X_KPRCB {
   EZPointer<X_KTHREAD> current_thread;  // 0x0
   EZPointer<X_KTHREAD> next_thread;     // 0x4
@@ -466,7 +471,7 @@ constexpr uint32_t X_PROCTYPE_SYSTEM = 2;
 struct X_KPROCESS {
   X_KSPINLOCK thread_list_spinlock;
   // list of threads in this process, guarded by the spinlock above
-  X_LIST_ENTRY thread_list;
+  util::X_TYPED_LIST<X_KTHREAD, offsetof(X_KTHREAD,process_threads)>  thread_list;
 
   xe::be<int32_t> unk_0C;
   // kernel sets this to point to a section of size 0x2F700 called CLRDATAA,

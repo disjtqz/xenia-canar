@@ -17,7 +17,7 @@
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/xevent.h"
 #include "xenia/memory.h"
-
+#include "xenia/kernel/xboxkrnl/xboxkrnl_ob.h"
 namespace xe {
 namespace kernel {
 
@@ -27,6 +27,18 @@ XFile::XFile(KernelState* kernel_state, vfs::File* file, bool synchronous)
       is_synchronous_(synchronous) {
   async_event_ = threading::Event::CreateAutoResetEvent(false);
   assert_not_null(async_event_);
+  uint32_t guest_objptr = 0;
+  // todo: attributes
+  auto context = cpu::ThreadState::GetContext();
+  auto guest_globals = kernel_state->GetKernelGuestGlobals(context);
+  X_STATUS create_status =
+      xboxkrnl::xeObCreateObject(&guest_globals->IoFileObjectType, nullptr,
+                                 sizeof(X_KFILE_OBJECT), &guest_objptr, context);
+  xenia_assert(create_status == X_STATUS_SUCCESS);
+  xenia_assert(guest_objptr != 0);
+
+  auto guest_object = context->TranslateVirtual<X_KFILE_OBJECT*>(guest_objptr);
+  SetNativePointer(guest_objptr);
 }
 
 XFile::XFile() : XObject(kObjectType) {

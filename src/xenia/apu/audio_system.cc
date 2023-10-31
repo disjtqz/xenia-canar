@@ -22,6 +22,7 @@
 #include "xenia/base/threading.h"
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/kernel_state.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 
 // As with normal Microsoft, there are like twelve different ways to access
 // the audio APIs. Early games use XMA*() methods almost exclusively to touch
@@ -95,27 +96,55 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
 void AudioSystem::StartGuestWorkerThread() {
   guest_thread_ =
       kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
-          kernel_state_, 128 * 1024, 1,
+          kernel_state_, 128 * 1024, kernel::XE_FLAG_AFFINITY_CPU4,
           [this]() {
+            std::vector<GuestMessage*> messages_rev{};
+            messages_rev.reserve(128);
             while (true) {
-              uint64_t args[] = {client_callback_arg_in_};
-              processor_->Execute(guest_thread_->thread_state(),
-                                  client_callback_in_, args, xe::countof(args));
-              guest_received_event_->Set();
-              guest_thread_->Suspend();
+              auto callbacks = guest_worker_messages_.Flush();
+
+              if (!callbacks) {
+                kernel::xboxkrnl::xeNtYieldExecution(
+                    cpu::ThreadState::GetContext());
+                continue;
+              }
+
+              while (callbacks) {
+                messages_rev.push_back((GuestMessage*)callbacks);
+                callbacks = callbacks->next_;
+              }
+              std::reverse(messages_rev.begin(), messages_rev.end());
+
+              for (auto&& order : messages_rev) {
+                uint64_t args[] = {order->client_callback_arg_};
+                this->processor()->Execute(cpu::ThreadState::Get(),
+                                           order->client_callback_, args,
+                                           countof(args));
+                delete order;
+              }
+              messages_rev.clear();
             }
             return true;
           },
           kernel_state_->GetSystemProcess()));
-  
+  guest_thread_->Create();
 }
 void AudioSystem::GuestInterrupt(void* ud) {
+#if 0
   auto system = reinterpret_cast<AudioSystem*>(ud);
   uint64_t args[] = {system->client_callback_arg_in_};
   system->processor_->Execute(cpu::ThreadState::Get(),
                               system->client_callback_in_, args,
                               xe::countof(args));
   system->guest_received_event_->Set();
+#else
+  auto context = cpu::ThreadState::GetContext();
+  auto old_irql = kernel::xboxkrnl::xeKfRaiseIrql(context, 0x7C);
+  auto system = reinterpret_cast<AudioSystem*>(ud);
+  system->StartGuestWorkerThread();
+  system->guest_received_event_->Set();
+  kernel::xboxkrnl::xeKfLowerIrql(context, old_irql);
+#endif
 }
 
 void AudioSystem::WorkerThreadMain() {
@@ -157,23 +186,33 @@ void AudioSystem::WorkerThreadMain() {
       client_callback_arg_in_ = client_callback_arg;
       client_callback_in_ = client_callback;
 
-      // auto msg = new GuestMessage();
-      //  msg->client_callback_ = client_callback_in_;
-      // msg->client_callback_arg_ = client_callback_arg_in_;
-      // guest_worker_messages_.Push(&msg->list_entry);
+      auto msg = new GuestMessage();
+      msg->client_callback_ = client_callback_in_;
+      msg->client_callback_arg_ = client_callback_arg_in_;
+      guest_worker_messages_.Push(&msg->list_entry);
 
-     // processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
-       //                                         this);
+      if (!guest_thread_) {
+        processor()->GetCPUThread(2)->SendGuestIPI(&AudioSystem::GuestInterrupt,
+                                                   this);
+        threading::Wait(guest_received_event_.get(), false);
+        // StartGuestWorkerThread();
+      }
 
-      //threading::Wait(guest_received_event_.get(), false);
+      //  processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
+      //   this);
+
       //  guest_thread_->Resume();
-      //  threading::Wait(guest_received_event_.get(), false);
+      //  threading::Wait(guest_received_event_.get(),
+      //  false);
 #endif
       /* if (client_callback) {
-        SCOPE_profile_cpu_i("apu", "xe::apu::AudioSystem->client_callback");
-        uint64_t args[] = {client_callback_arg};
-        processor_->Execute(worker_thread_->thread_state(), client_callback,
-                            args, xe::countof(args));
+        SCOPE_profile_cpu_i("apu",
+      "xe::apu::AudioSystem->client_callback");
+        uint64_t args[] =
+      {client_callback_arg};
+        processor_->Execute(worker_thread_->thread_state(),
+      client_callback, args,
+      xe::countof(args));
       }*/
 
       pumped = true;
@@ -334,7 +373,9 @@ bool AudioSystem::Restore(ByteStream* stream) {
     auto status = CreateDriver(id, client_semaphore, &driver);
     if (XFAILED(status)) {
       XELOGE(
-          "AudioSystem::Restore - Call to CreateDriver failed with status "
+          "AudioSystem::Restore - "
+          "Call to CreateDriver "
+          "failed with status "
           "{:08X}",
           status);
       return false;

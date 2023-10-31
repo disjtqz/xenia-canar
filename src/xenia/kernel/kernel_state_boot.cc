@@ -170,16 +170,36 @@ static void IPIInterruptProc(PPCContext* context) {}
 // ues _KTHREAD list_entry field at 0x94
 // this dpc uses none of the routine args
 static void DestroyThreadDpc(PPCContext* context) {
-//  context->kernel_state->LockDispatcherAtIrql(context);
+  //  context->kernel_state->LockDispatcherAtIrql(context);
 
- // context->kernel_state->UnlockDispatcherAtIrql(context);
+  // context->kernel_state->UnlockDispatcherAtIrql(context);
+}
+
+static void ThreadSwitchHelper(PPCContext* context, X_KPROCESS* process) {
+  xboxkrnl::xeKeKfAcquireSpinLock(context, &process->thread_list_spinlock,
+                                  false);
+
+  context->kernel_state->LockDispatcherAtIrql(context);
+
+  auto v3 = &GetKPCR(context)->prcb_data;
+  for (auto&& i : process->thread_list.IterateForward(context)) {
+    if (i.a_prcb_ptr.xlat() == v3 && i.another_prcb_ptr.xlat() != v3 &&
+        i.thread_state != 6) {
+      xboxkrnl::xeHandleReadyThreadOnDifferentProcessor(context, &i);
+    }
+  }
+  context->kernel_state->UnlockDispatcherAtIrql(context);
+
+  xboxkrnl::xeKeKfReleaseSpinLock(context, &process->thread_list_spinlock, 0,
+                                  false);
 }
 
 static void ThreadSwitchRelatedDpc(PPCContext* context) {
-  context->kernel_state->LockDispatcherAtIrql(context);
   // iterates over threads in the game process + threads in the system process
+  auto kgg = context->kernel_state->GetKernelGuestGlobals(context);
 
-  context->kernel_state->UnlockDispatcherAtIrql(context);
+  ThreadSwitchHelper(context, &kgg->title_process);
+  ThreadSwitchHelper(context, &kgg->system_process);
 }
 
 void KernelState::InitProcessorStack(X_KPCR* pcr) {
@@ -453,7 +473,7 @@ void KernelState::BootInitializeStatics() {
 }
 
 static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,
-    X_KPCR* kpcr) {
+                                    X_KPCR* kpcr) {
   xboxkrnl::xeKeSetPriorityThread(context, kpcr->prcb_data.idle_thread.xlat(),
                                   0);
   kpcr->prcb_data.idle_thread->priority = 18;
