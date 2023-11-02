@@ -132,7 +132,8 @@ void HWThread::GuestIPIWorkerThreadFunc() {
   reversed_order.reserve(128);
   while (true) {
     // todo: add another event that signals that its time to terminate
-    threading::Wait(guest_ipi_dispatch_event_.get(), false);
+    //threading::Wait(guest_ipi_dispatch_event_.get(), false);
+
 #if 0
     auto list_entry = reinterpret_cast<GuestIPI*>(guest_ipi_list_.Pop());
     if (!list_entry) {

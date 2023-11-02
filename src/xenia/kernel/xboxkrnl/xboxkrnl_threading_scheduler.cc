@@ -292,6 +292,8 @@ void HandleCpuThreadDisownedIPI(void* ud) {
   // this is incorrect
   // xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
   auto context = cpu::ThreadState::GetContext();
+  //hack!!! don't know what the ipi that the kernel sends actually does
+  GetKPCR(context)->generic_software_interrupt = 2;
   KernelState::GenericExternalInterruptEpilog(context);
 }
 
@@ -1582,6 +1584,7 @@ X_STATUS xeKeWaitForMultipleObjects(
   int64_t v16 = 0;  // v43;
   auto v17 = context->TranslateVirtual<X_KWAIT_BLOCK*>(v43 >> 32);
   auto timeout2 = timeout;
+  int v20;
   int64_t other_timer_storage;
   while (true) {
     auto v19 = thread->deferred_apc_software_interrupt_state;
@@ -1591,7 +1594,7 @@ X_STATUS xeKeWaitForMultipleObjects(
           context, context->kernel_state->GetDispatcherLock(context), 0);
       goto LABEL_60;
     }
-    int v20 = 1;
+    v20 = 1;
     thread->wait_result = 0;
     v21 = 0;  // HIDWORD(v16);
     if (num_objects) {
@@ -1686,7 +1689,6 @@ X_STATUS xeKeWaitForMultipleObjects(
   auto v22 = objects;
   wait_blocks_shifted = &wait_blocks->wait_result_xstatus;
   int obj_type;
-  int v20;
   // not actually X_KMUTANT, but it covers all the fields we need here
   X_KMUTANT* v24;
   while (1) {
