@@ -686,6 +686,10 @@ dword_result_t NtReleaseSemaphore_entry(dword_t sem_handle,
   if (sem) {
     previous_count = xeKeReleaseSemaphore(
         context, sem->guest_object<X_KSEMAPHORE>(), 1, release_count, 0);
+    X_STATUS caught_status = context->CatchStatus();
+    if (caught_status) {
+      return caught_status;
+    }
   } else {
     result = X_STATUS_INVALID_HANDLE;
   }
@@ -750,12 +754,19 @@ dword_result_t NtReleaseMutant_entry(dword_t mutant_handle,
 
   auto prev_count = xeKeReleaseMutant(context, mutant, 1, 0, 0);
 
-  kernel->DereferenceObject(context, object);
+  X_STATUS caught_status = context->CatchStatus();
+  if (!caught_status) {
+    kernel->DereferenceObject(context, object);
 
-  if (previous_count) {
-    *previous_count = prev_count;
+    if (previous_count) {
+      *previous_count = prev_count;
+    }
+    return 0;
+  } else {
+    kernel->DereferenceObject(context, object);
+    return caught_status;
   }
-  return 0;
+  
 }
 DECLARE_XBOXKRNL_EXPORT1(NtReleaseMutant, kThreading, kImplemented);
 
@@ -930,7 +941,7 @@ uint32_t NtWaitForSingleObjectEx(uint32_t object_handle, uint32_t wait_mode,
 
     return xeKeWaitForSingleObjectEx(cpu::ThreadState::GetContext(),
                                      object->guest_object<X_DISPATCH_HEADER>(),
-                                     wait_mode, alertable, (int64_t*)&timeout);
+                                     wait_mode, alertable, (int64_t*)timeout_ptr);
 
   } else {
     result = X_STATUS_INVALID_HANDLE;

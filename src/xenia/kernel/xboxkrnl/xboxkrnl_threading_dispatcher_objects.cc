@@ -121,7 +121,9 @@ int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
       X_STATUS stat = mutant->abandoned ? X_STATUS_ABANDONED_WAIT_0
                                         : X_STATUS_MUTANT_NOT_OWNED;
       //should RtlRaiseStatus! NtReleaseMutant catches the status i think, ida indicates a try handler
-      return stat;
+
+      context->RaiseStatus(stat);
+      return 0;
     }
     new_signal_state = old_signal_state + 1;
   } else {
@@ -164,8 +166,9 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context), old_irql);
     // should RtlRaiseStatus
-    xenia_assert(false);
-    return -1;
+    //xenia_assert(false);
+    context->RaiseStatus(X_STATUS_SEMAPHORE_LIMIT_EXCEEDED);
+    return 0;
   }
 
   semaphore->header.signal_state = new_signal_state;

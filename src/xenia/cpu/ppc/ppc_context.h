@@ -267,7 +267,7 @@ typedef struct alignas(64) PPCContext_s {
   // Shared kernel state, for easy access from kernel exports.
   xe::kernel::KernelState* kernel_state;
   unsigned char membase_bit;
-
+  bool status_raised;
   ThreadState* thread_state() { return reinterpret_cast<ThreadState*>(this); }
   union {
     uint32_t value;
@@ -397,16 +397,16 @@ typedef struct alignas(64) PPCContext_s {
   // Most frequently used registers first.
   union {
     uint64_t r[32];  // 0x20 General purpose registers
-    #if XE_COMPARISON_BUILD
+#if XE_COMPARISON_BUILD
     struct {
       uint64_t rpad[12];
       uint64_t kpcr;
       uint64_t rpad2[19];
     };
-    #endif
+#endif
   };
-  uint64_t ctr;    // 0x18 Count register
-  uint64_t lr;     // 0x10 Link register
+  uint64_t ctr;  // 0x18 Count register
+  uint64_t lr;   // 0x10 Link register
 
   uint64_t msr;  // machine state register
 
@@ -450,6 +450,7 @@ typedef struct alignas(64) PPCContext_s {
   // Value of last reserved load
   uint64_t reserved_val;
   uint8_t* virtual_membase;
+  uint32_t raised_status;
   template <typename T = uint8_t*>
   inline T TranslateVirtual(uint32_t guest_address) XE_RESTRICT const {
     static_assert(std::is_pointer_v<T>);
@@ -541,14 +542,24 @@ typedef struct alignas(64) PPCContext_s {
   void TakeGPRSnapshot(PPCGprSnapshot* out);
   void RestoreGPRSnapshot(const PPCGprSnapshot* in);
 
-  //assert that the current ppccontext for this thread is this
+  // assert that the current ppccontext for this thread is this
   void AssertCurrent();
 
-  void AssertInterruptsOff() { 
-      xenia_assert(!ExternalInterruptsEnabled());
+  void AssertInterruptsOff() { xenia_assert(!ExternalInterruptsEnabled()); }
+  void AssertInterruptsOn() { xenia_assert(ExternalInterruptsEnabled()); }
+
+  //for a very weak emulation of RtlRaiseStatus
+  void RaiseStatus(uint32_t stat) {
+    status_raised = true;
+    raised_status = stat;
   }
-  void AssertInterruptsOn() { 
-      xenia_assert(ExternalInterruptsEnabled());
+  uint32_t CatchStatus() {
+    if (!status_raised) {
+      return 0U;
+    } else {
+      status_raised = false;
+      return raised_status;
+    }
   }
 
 } PPCContext;
