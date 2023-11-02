@@ -581,6 +581,9 @@ X_STATUS XThread::Exit(int exit_code) {
   // unsure about these args
   xboxkrnl::xeKeInsertQueueDpc(&GetKPCR(cpu_context)->prcb_data.thread_exit_dpc,
                                0, 0, cpu_context);
+
+  xenia_assert(kthread->mutants_list.empty(cpu_context));
+
   return xboxkrnl::xeSchedulerSwitchThread2(cpu_context);
 }
 

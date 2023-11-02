@@ -112,10 +112,16 @@ int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
 
   if (!abandoned) {
     if (context->TranslateVirtual(mutant->owner) != current_thread) {
+
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), old_irql);
-      xe::FatalError("We don't own the mutant, but we're releasing it!");
-      return -1;
+      //xe::FatalError("We don't own the mutant, but we're releasing it!");
+     // return -1;
+      //xenia_assert(false);
+      X_STATUS stat = mutant->abandoned ? X_STATUS_ABANDONED_WAIT_0
+                                        : X_STATUS_MUTANT_NOT_OWNED;
+      //should RtlRaiseStatus! NtReleaseMutant catches the status i think, ida indicates a try handler
+      return stat;
     }
     new_signal_state = old_signal_state + 1;
   } else {

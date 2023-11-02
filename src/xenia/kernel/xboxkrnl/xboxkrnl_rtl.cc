@@ -623,11 +623,9 @@ void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const p
   }
 
   if (xe::atomic_inc(&cs->lock_count) != 0) {
-    XELOGE("RtlEnterCriticalSection entering wait");
     // Create a full waiter.
     uint32_t v = xeKeWaitForSingleObject(reinterpret_cast<void*>(cs.host_address()), 8, 0, 0,
                             nullptr);
-    XELOGE("RtlEnterCriticalSection leave wait {:04X}", v);
   }
 
   assert_true(cs->owning_thread == 0);

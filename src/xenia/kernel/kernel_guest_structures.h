@@ -366,7 +366,7 @@ static_assert_size(X_EXTIMER, 0x80);
 
 struct X_KTHREAD {
   X_DISPATCH_HEADER header;          // 0x0
-  X_LIST_ENTRY mutants_list;         // 0x10
+  util::X_TYPED_LIST<X_KMUTANT, offsetof(X_KMUTANT, unk_list)> mutants_list;         // 0x10
   X_KTIMER wait_timeout_timer;       // 0x18
   X_KWAIT_BLOCK wait_timeout_block;  // 0x40
   uint8_t unk_58[0x4];               // 0x58
