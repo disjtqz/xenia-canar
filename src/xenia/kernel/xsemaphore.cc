@@ -44,13 +44,6 @@ bool XSemaphore::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
   return true;
 }
 
-int32_t XSemaphore::ReleaseSemaphore(int32_t release_count) {
-  
-    return xboxkrnl::xeKeReleaseSemaphore(cpu::ThreadState::GetContext(),
-                                 guest_object<X_KSEMAPHORE>(), 1, release_count,
-                                 0);
-}
-
 bool XSemaphore::Save(ByteStream* stream) {
 
   return true;

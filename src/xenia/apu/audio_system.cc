@@ -94,9 +94,10 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
   return X_STATUS_SUCCESS;
 }
 void AudioSystem::StartGuestWorkerThread() {
+  auto context = cpu::ThreadState::GetContext();
   guest_thread_ =
       kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
-          kernel_state_, 128 * 1024, kernel::XE_FLAG_AFFINITY_CPU4,
+          kernel_state_, 65536U, 0x10000083u,
           [this]() {
             std::vector<GuestMessage*> messages_rev{};
             messages_rev.reserve(128);
@@ -121,13 +122,17 @@ void AudioSystem::StartGuestWorkerThread() {
                                            order->client_callback_, args,
                                            countof(args));
                 delete order;
+                guest_received_event_->Set();
               }
               messages_rev.clear();
             }
             return true;
-          },
-          kernel_state_->GetSystemProcess()));
+          }, kernel_state_->GetSystemProcess()));
   guest_thread_->Create();
+  kernel::xboxkrnl::xeKeSetPriorityThread(
+      context, guest_thread_->guest_object<kernel::X_KTHREAD>(), 25);
+  kernel::xboxkrnl::xeKeResumeThread(context,
+                                     guest_thread_->guest_object<kernel::X_KTHREAD>());
 }
 void AudioSystem::GuestInterrupt(void* ud) {
 #if 0
@@ -139,11 +144,12 @@ void AudioSystem::GuestInterrupt(void* ud) {
   system->guest_received_event_->Set();
 #else
   auto context = cpu::ThreadState::GetContext();
-  auto old_irql = kernel::xboxkrnl::xeKfRaiseIrql(context, 0x7C);
+  
+  auto we = kernel::xboxkrnl::xeKfRaiseIrql(context, 0);
   auto system = reinterpret_cast<AudioSystem*>(ud);
   system->StartGuestWorkerThread();
   system->guest_received_event_->Set();
-  kernel::xboxkrnl::xeKfLowerIrql(context, old_irql);
+  kernel::xboxkrnl::xeKfRaiseIrql(context, we);
 #endif
 }
 
@@ -192,12 +198,12 @@ void AudioSystem::WorkerThreadMain() {
       guest_worker_messages_.Push(&msg->list_entry);
 
       if (!guest_thread_) {
-        processor()->GetCPUThread(2)->SendGuestIPI(&AudioSystem::GuestInterrupt,
+        processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
                                                    this);
         threading::Wait(guest_received_event_.get(), false);
         // StartGuestWorkerThread();
       }
-
+      threading::Wait(guest_received_event_.get(), false);
       //  processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
       //   this);
 

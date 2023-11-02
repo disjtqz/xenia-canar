@@ -68,20 +68,6 @@ object_ref<XMutant> XMutant::Restore(KernelState* kernel_state,
 }
 xe::threading::WaitHandle* XMutant::GetWaitHandle() { return nullptr; }
 void XMutant::WaitCallback() {
-  auto context = cpu::ThreadState::Get()->context();
-
-  auto v4 = context->TranslateVirtual(
-      context->TranslateVirtualGPR<X_KPCR*>(context->r[13])
-          ->prcb_data.current_thread);
-
-  auto mutant = guest_object<X_KMUTANT>();
-
-  uint32_t v20 = --mutant->header.signal_state;
-  if (!v20) {
-    mutant->owner = context->HostToGuestVirtual(v4);
-    util::XeInsertHeadList(v4->mutants_list.blink_ptr, &mutant->unk_list,
-                           context);
-  }
 }
 
 }  // namespace kernel

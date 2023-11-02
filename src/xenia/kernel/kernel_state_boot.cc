@@ -51,7 +51,7 @@ void KernelState::InitializeProcess(X_KPROCESS* process, uint32_t type,
   process->clrdataa_masked_ptr = 0;
   // clrdataa_ & ~(1U << 31);
   process->thread_count = 0;
-  process->unk_1B = 0x06;
+ // process->unk_1B = 0x06;
   process->kernel_stack_size = 16 * 1024;
   process->tls_slot_size = 0x80;
 

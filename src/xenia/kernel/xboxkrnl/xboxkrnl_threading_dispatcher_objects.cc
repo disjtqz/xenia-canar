@@ -150,8 +150,6 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
   auto old_irql = context->kernel_state->LockDispatcher(context);
   int32_t old_signal_state = semaphore->header.signal_state;
 
-  auto current_thread =
-      context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
 
   int32_t new_signal_state = old_signal_state + adjustment;
 
@@ -172,8 +170,8 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
   }
 
   if (wait) {
-    current_thread->unk_A6 = wait;
-    current_thread->unk_A4 = old_irql;
+    GetKThread(context)->unk_A6 = wait;
+    GetKThread(context)->unk_A4 = old_irql;
 
   } else {
     xeDispatcherSpinlockUnlock(
@@ -346,6 +344,24 @@ int xeKeCancelExTimer(PPCContext* context, X_EXTIMER* timer) {
   int old_signalstate = timer->ktimer.header.signal_state;
   
   return old_signalstate;
+}
+
+X_DISPATCH_HEADER* xeGetOBJECTDispatch(PPCContext* context, void* object) {
+  auto wait_object_type = context->TranslateVirtual<X_OBJECT_TYPE*>(
+      reinterpret_cast<X_OBJECT_HEADER*>(object)[-1].object_type_ptr);
+
+  // either encodes an offset from the object base to the object to wait on,
+  // or a default object to wait on?
+  uint32_t unk = wait_object_type->unknown_size_or_object_;
+  X_DISPATCH_HEADER* waiter =
+      context->TranslateVirtual<X_DISPATCH_HEADER*>(unk);
+  if (!((unsigned int)unk >> 16)) {
+    waiter = reinterpret_cast<X_DISPATCH_HEADER*>(
+        reinterpret_cast<char*>(object) + unk);
+  } else {
+    __debugbreak();
+  }
+  return waiter;
 }
 }  // namespace xboxkrnl
 }  // namespace kernel

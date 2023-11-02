@@ -110,8 +110,8 @@ reenter:
 
       context->kernel_state->ContextSwitch(context, next_thread.xlat());
 
-      //this is all already done in ContextSwitch!
-      #if 0
+// this is all already done in ContextSwitch!
+#if 0
       // at this point we're supposed to load a bunch of fields from r31 and do
       // shit
 
@@ -125,7 +125,7 @@ reenter:
       if (r3 < r4) {
         xeDispatchProcedureCallInterrupt(r3, r4, context);
       }
-      #endif
+#endif
     }
   } else if (irql <= IRQL_APC) {
     kpcr->current_irql = irql;
@@ -154,7 +154,7 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
   }
   // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/ntos/ke/kthread_state.htm
 
-  xenia_assert(kthread->a_prcb_ptr. xlat() == v3);
+  xenia_assert(kthread->a_prcb_ptr.xlat() == v3);
   switch (kthread->thread_state) {
     case 1: {  // ready
       auto v23 = kthread->ready_prcb_entry.flink_ptr;
@@ -249,8 +249,10 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
   } else {
     thread->thread_state = 6;
     auto kpcr = GetKPCR(context);
+
     thread->ready_prcb_entry.flink_ptr =
         kpcr->prcb_data.enqueued_threads_list.next;
+
     kpcr->prcb_data.enqueued_threads_list.next =
         context->HostToGuestVirtual(&thread->ready_prcb_entry);
     kpcr->generic_software_interrupt = 2;
@@ -265,12 +267,12 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority) {
   SCHEDLOG(context, "xeScanForReadyThread - prcb = {}, priority = {}",
            (void*)prcb, priority);
-  auto v3 = prcb->has_ready_thread_by_priority;
+  unsigned v3 = prcb->has_ready_thread_by_priority;
   if ((prcb->unk_mask_64 & ~((1 << priority) - 1) & v3) == 0) {
     return nullptr;
   }
-  auto v4 = xe::lzcnt(prcb->unk_mask_64 & ~((1 << priority) - 1) & v3);
-  auto v5 = 31 - v4;
+  unsigned int v4 = xe::lzcnt(prcb->unk_mask_64 & ~((1 << priority) - 1) & v3);
+  char v5 = 31 - v4;
 
   auto result = prcb->ready_threads_by_priority[31 - v4].HeadObject(context);
 
@@ -288,7 +290,7 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
 void HandleCpuThreadDisownedIPI(void* ud) {
   // xenia_assert(false);
   // this is incorrect
-  //xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
+  // xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
   auto context = cpu::ThreadState::GetContext();
   KernelState::GenericExternalInterruptEpilog(context);
 }
@@ -328,7 +330,7 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
          this thread belonged to has given it up before we continue
       */
       context->processor->GetCPUThread(old_cpu_for_thread)
-         ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
+        ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
     }
     return;
   }
@@ -561,6 +563,14 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context, bool from_idle_loop) {
 
     uint32_t thrd_u = GetKPCR(context)->prcb_data.next_thread.m_ptr;
 
+    if (from_idle_loop && thrd_u == GetKPCR(context)->prcb_data.idle_thread) {
+      GetKPCR(context)->prcb_data.next_thread = 0U;
+      xboxkrnl::xeKeKfReleaseSpinLock(
+          context, &GetKPCR(context)->prcb_data.enqueued_processor_threads_lock,
+          0, false);
+      return;
+    }
+
     if (!thrd_u) {
       next_thread = nullptr;
     } else {
@@ -579,7 +589,7 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context, bool from_idle_loop) {
   if (!from_idle_loop) {
     insert_8009D048(context, ble);
   }
-  context->kernel_state->ContextSwitch(context, next_thread);
+  context->kernel_state->ContextSwitch(context, next_thread, from_idle_loop);
 }
 
 void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
@@ -782,7 +792,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   }
   if (v2->next_thread) {
     v1->unk_B4 = v1->process->unk_0C;
-    auto v4 = v1->priority;
+    int v4 = v1->priority;
     if ((unsigned int)v4 < 0x12) {
       v4 = v4 - v1->unk_BA - 1;
       if (v4 < v1->unk_B9) {
@@ -811,15 +821,15 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
   xboxkrnl::xeKeKfAcquireSpinLock(
       context, &pcrb->enqueued_processor_threads_lock, false);
 
-  auto priority = thread->priority;
+  unsigned int priority = thread->priority;
   if (priority < 0x12) {
-    auto v6 = thread->unk_B9;
+    unsigned int v6 = thread->unk_B9;
     if (v6 < thread->unk_CA) {
-      auto v7 = thread->unk_B4 - 10;
+      int v7 = thread->unk_B4 - 10;
       thread->unk_B4 = v7;
       if (v7 <= 0) {
         thread->unk_B4 = thread->process->unk_0C;
-        auto v8 = priority - thread->unk_BA - 1;
+        int v8 = priority - thread->unk_BA - 1;
         if (v8 < (int)v6) {
           v8 = v6;
         }
@@ -828,7 +838,7 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
         if (pcrb->next_thread) {
           thread->unk_BD = 0;
         } else {
-          auto v9 = xeScanForReadyThread(context, pcrb, v8);
+          X_KTHREAD* v9 = xeScanForReadyThread(context, pcrb, v8);
           if (v9) {
             v9->thread_state = 3;
             pcrb->next_thread = v9;
@@ -851,22 +861,30 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
 
   if (next_thread) {
   } else {
-    auto ready_by_prio = prcb->has_ready_thread_by_priority;
-    auto has_ready = ready_by_prio & prcb->unk_mask_64;
+    unsigned int ready_by_prio = prcb->has_ready_thread_by_priority;
+    int has_ready = ready_by_prio & prcb->unk_mask_64;
     if (has_ready) {
-      auto v5 = 31 - xe::lzcnt(has_ready);
+      unsigned int v5 = 31 - xe::lzcnt(has_ready);
       auto v6 = &prcb->ready_threads_by_priority[v5];
 
       // if the list has a bit set in the mask, it definitely should have an
       // entry
       xenia_assert(!v6->empty(context));
 
-      auto v8 = ready_by_prio ^ (1 << v5);
+      int v8 = ready_by_prio ^ (1 << v5);
       next_thread = v6->UnlinkHeadObject(context);
 
       if (v6->empty(context)) {
         // list is empty now, update mask
         prcb->has_ready_thread_by_priority = v8;
+      }
+    } else {
+      unsigned i = 0;
+      for (auto&& thrdlist : prcb->ready_threads_by_priority) {
+        if (prcb->unk_mask_64 & (1U << i)) {
+          xenia_assert(thrdlist.empty(context));
+        }
+        ++i;
       }
     }
   }
@@ -882,8 +900,9 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
   }
 
   prcb->current_thread = next_thread;
-  context->kernel_state->ContextSwitch(context, next_thread);
+  auto result = context->kernel_state->ContextSwitch(context, next_thread);
   pcr = GetKPCR(context);
+  #if 0
   auto v9 = next_thread->unk_A4;
   auto result = next_thread->wait_result;
   pcr->current_irql = v9;
@@ -892,6 +911,7 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
   if (v9 < v11) {
     xeDispatchProcedureCallInterrupt(v9, v11, context);
   }
+  #endif
   return result;
 }
 
@@ -924,8 +944,10 @@ reenter:
     xeKeKfAcquireSpinLock(context, &prcb->enqueued_processor_threads_lock,
                           false);
   }
+  auto disp = context->kernel_state->GetDispatcherLock(context);
+  xenia_assert(disp->pcr_of_owner == static_cast<uint32_t>(context->r[13]));
 
-  context->kernel_state->GetDispatcherLock(context)->pcr_of_owner = 0;
+  disp->pcr_of_owner = 0;
   return xeSchedulerSwitchThread(context);
 }
 
@@ -945,11 +967,13 @@ int xeKeSuspendThread(PPCContext* context, X_KTHREAD* thread) {
       thread->suspend_count = result + 1;
       if (!result) {
         if (thread->on_suspend.enqueued) {
+          XELOGE("Just using suspend signal state decrement");
           context->kernel_state->LockDispatcherAtIrql(context);
           thread->suspend_sema.header.signal_state--;
           context->kernel_state->UnlockDispatcherAtIrql(context);
 
         } else {
+          XELOGE("Enqueuing suspendthread apc");
           thread->on_suspend.enqueued = 1;
           xeKeInsertQueueApcHelper(context, &thread->on_suspend, 0);
         }
@@ -968,8 +992,11 @@ int xeKeResumeThread(PPCContext* context, X_KTHREAD* thread) {
   char suspendcount = thread->suspend_count;
   result = suspendcount;
   if (suspendcount) {
+
     thread->suspend_count = suspendcount - 1;
+    XELOGE("New suspendcount {}", (int)suspendcount - 1);
     if (suspendcount == 1) {
+      XELOGE("Awaking for suspendcount");
       context->kernel_state->LockDispatcherAtIrql(context);
       thread->suspend_sema.header.signal_state++;
       xeDispatchSignalStateChange(context, &thread->suspend_sema.header, 0);
@@ -982,9 +1009,10 @@ int xeKeResumeThread(PPCContext* context, X_KTHREAD* thread) {
 }
 
 void xeSuspendThreadApcRoutine(PPCContext* context) {
-  SCHEDLOG(context, "xeSuspendThreadApcRoutine called");
+  XELOGE("xeSuspendThreadApcRoutine called");
   auto thrd = GetKThread(context);
   xeKeWaitForSingleObject(context, &thrd->suspend_sema.header, 2, 0, 0, 0);
+  XELOGE("xeSuspendThreadApcRoutine awoken");
 }
 
 X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
@@ -1137,7 +1165,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       }
     }
   LABEL_41:
-    //context->CheckInterrupt();
+    // context->CheckInterrupt();
     this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
   }
   auto obj_type = object->type;
@@ -1222,7 +1250,7 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
                               int priority) {
   SCHEDLOG(context, "xeKeChangeThreadPriority - thread {}, a2 {}",
            (void*)thread, priority);
-  auto prio = thread->priority;
+  int prio = thread->priority;
   auto thread_prcb = thread->a_prcb_ptr;
 
   if (prio == priority) {
@@ -1233,7 +1261,7 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
   thread->priority = priority;
 
   // todo: lzcnt & 0x20 is just a zero test
-  auto v7 = (xe::lzcnt(thread_prcb->unk_mask_64 & (1 << priority)) & 0x20) == 0;
+  bool v7 = (xe::lzcnt(thread_prcb->unk_mask_64 & (1 << priority)) & 0x20) == 0;
   X_KTHREAD* new_next_thread;
   switch (thread_state) {
     case 1: {
@@ -1297,10 +1325,10 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
         if (v11) {
           v11->thread_state = 3;
           thread_prcb->next_thread = v11;
-          auto v12 = thread->priority;
+          int v12 = thread->priority;
           auto v13 = thread->a_prcb_ptr;
           thread->thread_state = 1;
-          auto v14 = 1 << v12;
+          int v14 = 1 << v12;
           auto v15 = &v13->ready_threads_by_priority[v12];
           auto v16 = v15->flink_ptr;
           thread->ready_prcb_entry.blink_ptr = v15;
@@ -1477,23 +1505,23 @@ int32_t xeKeSetBasePriorityThread(PPCContext* context, X_KTHREAD* thread,
       context, context->kernel_state->GetDispatcherLock(context), old_irql);
   return result;
 }
+uint32_t xeKeWaitForSingleObjectEx(
+    PPCContext* context,
+    ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
+    unsigned char waitmode, bool alertable, int64_t* timeout) {
+  return xeKeWaitForSingleObject(context, xeGetOBJECTDispatch(context, wait.m_base), 3, waitmode,
+                                 alertable,
+                                 timeout);
+}
 
 X_STATUS xeKeSignalAndWaitForSingleObjectEx(
     PPCContext* context,
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> signal,
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
     unsigned char mode, bool alertable, int64_t* timeout) {
-  auto wait_object_type = context->TranslateVirtual<X_OBJECT_TYPE*>(
-      wait.GetAdjacent()->object_type_ptr);
-  // either encodes an offset from the object base to the object to wait on,
-  // or a default object to wait on?
-  uint32_t unk = wait_object_type->unknown_size_or_object_;
-  X_DISPATCH_HEADER* waiter =
-      context->TranslateVirtual<X_DISPATCH_HEADER*>(unk);
-  if (!((unsigned int)unk >> 16)) {
-    waiter = reinterpret_cast<X_DISPATCH_HEADER*>(
-        reinterpret_cast<char*>(wait.m_base) + unk);
-  }
+
+  X_DISPATCH_HEADER* waiter = xeGetOBJECTDispatch(context, wait.m_base);
+
   X_STATUS result = X_STATUS_SUCCESS;
   auto signal_type_ptr = signal.GetAdjacent()->object_type_ptr;
   auto globals = context->kernel_state->GetKernelGuestGlobals();

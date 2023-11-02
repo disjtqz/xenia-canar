@@ -233,6 +233,10 @@ void PPCContext::CheckInterrupt() {
     }
   }
 }
+void PPCContext::AssertCurrent() {
+  xenia_assert(this == cpu::ThreadState::GetContext());
+}
+
 void PPCContext::TakeGPRSnapshot(PPCGprSnapshot* out) {
   unsigned i;
   for (i = 0; i < 13; ++i) {

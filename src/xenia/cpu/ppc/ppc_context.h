@@ -540,6 +540,17 @@ typedef struct alignas(64) PPCContext_s {
   void CheckInterrupt();
   void TakeGPRSnapshot(PPCGprSnapshot* out);
   void RestoreGPRSnapshot(const PPCGprSnapshot* in);
+
+  //assert that the current ppccontext for this thread is this
+  void AssertCurrent();
+
+  void AssertInterruptsOff() { 
+      xenia_assert(!ExternalInterruptsEnabled());
+  }
+  void AssertInterruptsOn() { 
+      xenia_assert(ExternalInterruptsEnabled());
+  }
+
 } PPCContext;
 #pragma pack(pop)
 constexpr size_t ppcctx_size = sizeof(PPCContext);

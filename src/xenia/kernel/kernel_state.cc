@@ -148,12 +148,13 @@ uint32_t KernelState::AllocateTLS() { return uint32_t(tls_bitmap_.Acquire()); }
 void KernelState::FreeTLS(uint32_t slot) {
   const std::vector<object_ref<XThread>> threads =
       object_table()->GetObjectsByType<XThread>();
-
+#if 0
   for (const object_ref<XThread>& thread : threads) {
     if (thread->is_guest_thread()) {
       thread->SetTLSValue(slot, 0);
     }
   }
+#endif
   tls_bitmap_.Release(slot);
 }
 
@@ -1006,7 +1007,20 @@ void KernelState::SystemClockInterrupt() {
 
     auto globals =
         context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals());
-    context->kernel_state->LockDispatcherAtIrql(context);
+
+    auto old_msr = context->msr;
+
+    context->DisableEI();
+
+    auto dispatcher = context->kernel_state->GetDispatcherLock(context);
+
+    bool dispatcher_held = false;
+    if (dispatcher->pcr_of_owner == (uint32_t)context->r[13]) {
+      dispatcher_held = true;
+    }
+    if (!dispatcher_held) {
+      context->kernel_state->LockDispatcherAtIrql(context);
+    }
     for (auto& timer : globals->running_timers.IterateForward(context)) {
       if (timer.due_time <= time_imprecise) {
         kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
@@ -1014,7 +1028,10 @@ void KernelState::SystemClockInterrupt() {
         break;
       }
     }
-    context->kernel_state->UnlockDispatcherAtIrql(context);
+    if (!dispatcher_held) {
+      context->kernel_state->UnlockDispatcherAtIrql(context);
+    }
+    context->msr = old_msr;
   }
 
   auto current_thread = kpcr->prcb_data.current_thread.xlat();
@@ -1283,7 +1300,8 @@ X_KPCR_PAGE* KernelState::KPCRPageForCpuNumber(uint32_t i) {
   return memory()->TranslateVirtual<X_KPCR_PAGE*>(processor()->GetPCRForCPU(i));
 }
 
-X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
+X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
+                                    bool from_idle_loop) {
   // todo: disable interrupts here!
   // this is incomplete
   auto pre_swap = [this, context, guest]() {
@@ -1350,17 +1368,20 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest) {
   // XThread::SetCurrentThread(saved_currthread);
 
   // r31 after the swap = our thread
-
-  X_KTHREAD* thread_to_load_from = GetKThread(context);
-  xenia_assert(thread_to_load_from != guest);
-  auto r3 = thread_to_load_from->unk_A4;
-  auto wait_result = thread_to_load_from->wait_result;
-  GetKPCR(context)->current_irql = r3;
-  auto intstate = GetKPCR(context)->software_interrupt_state;
-  if (r3 < intstate) {
-    xboxkrnl::xeDispatchProcedureCallInterrupt(r3, intstate, context);
+  if (!from_idle_loop) {
+    X_KTHREAD* thread_to_load_from = GetKThread(context);
+    xenia_assert(thread_to_load_from != guest);
+    auto r3 = thread_to_load_from->unk_A4;
+    auto wait_result = thread_to_load_from->wait_result;
+    GetKPCR(context)->current_irql = r3;
+    auto intstate = GetKPCR(context)->software_interrupt_state;
+    if (r3 < intstate) {
+      xboxkrnl::xeDispatchProcedureCallInterrupt(r3, intstate, context);
+    }
+    return wait_result;
   }
-  return wait_result;
+  return 0;
+  
 }
 cpu::XenonInterruptController* KernelState::InterruptControllerFromPCR(
     cpu::ppc::PPCContext* context, X_KPCR* pcr) {

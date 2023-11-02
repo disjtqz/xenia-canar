@@ -33,6 +33,11 @@ uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
                                  uint32_t processor_mode, uint32_t alertable,
                                  uint64_t* timeout_ptr);
 
+uint32_t xeKeWaitForSingleObjectEx(
+    PPCContext* context,
+    ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
+    unsigned char waitmode, bool alertable, int64_t* timeout);
+
 uint32_t NtWaitForSingleObjectEx(uint32_t object_handle, uint32_t wait_mode,
                                  uint32_t alertable, uint64_t* timeout_ptr);
 
@@ -191,6 +196,8 @@ int32_t xeKeSetDisableBoostThread(PPCContext* context, X_KTHREAD* thread,
                                   char a2);
 int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
                               int priority);
+
+X_DISPATCH_HEADER* xeGetOBJECTDispatch(PPCContext* context, void* object);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

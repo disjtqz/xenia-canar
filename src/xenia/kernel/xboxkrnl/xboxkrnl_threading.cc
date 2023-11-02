@@ -928,8 +928,9 @@ uint32_t NtWaitForSingleObjectEx(uint32_t object_handle, uint32_t wait_mode,
   if (object) {
     uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
 
-    return xeKeWaitForSingleObject(object->guest_object<X_DISPATCH_HEADER>(), 3,
-                                   wait_mode, alertable, &timeout);
+    return xeKeWaitForSingleObjectEx(cpu::ThreadState::GetContext(),
+                                     object->guest_object<X_DISPATCH_HEADER>(),
+                                     wait_mode, alertable, (int64_t*)&timeout);
 
   } else {
     result = X_STATUS_INVALID_HANDLE;
@@ -986,7 +987,8 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
     objects[n] = std::move(object);
   }
   for (uint32_t n = 0; n < count; ++n) {
-    objects_tmp[n] = objects[n]->guest_object<X_DISPATCH_HEADER>();
+    objects_tmp[n] =
+        xeGetOBJECTDispatch(context, objects[n]->guest_object<void>());
   }
 
   // return 0;
@@ -1064,7 +1066,10 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
   // Lock.
   while (!xe::atomic_cas(0, xe::byte_swap(static_cast<uint32_t>(ctx->r[13])),
                          &lock->pcr_of_owner.value)) {
-    ctx->CheckInterrupt();
+    // bad hack. always check once reworked interrupt controller
+    if (change_irql) {
+      ctx->CheckInterrupt();
+    }
   }
 
   return old_irql;
@@ -1093,7 +1098,7 @@ void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
 
     kpcr->current_irql = old_irql;
 
-    uint16_t swint = GetKPCR(ctx)->software_interrupt_state;
+    unsigned int swint = GetKPCR(ctx)->software_interrupt_state;
     if (old_irql < swint) {
       xeDispatchProcedureCallInterrupt(old_irql, swint, ctx);
     }
@@ -1608,14 +1613,97 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
   return alert_status;
 }
 
+X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
+  if (!ctx) {
+    ctx = cpu::ThreadState::Get()->context();
+  }
+  auto kthread = GetKThread(ctx);
+
+  xeKeKfAcquireSpinLock(ctx, &kthread->apc_lock);
+  cpu::ppc::PPCGprSnapshot savegplr;
+  ctx->TakeGPRSnapshot(&savegplr);
+
+  auto v2 = &kthread->apc_lists[0];
+  kthread->deferred_apc_software_interrupt_state = 0;
+
+  // use guest stack for temporaries
+  uint32_t old_stack_pointer = static_cast<uint32_t>(ctx->r[1]);
+
+  uint32_t scratch_address = old_stack_pointer - 32;
+  ctx->r[1] = old_stack_pointer - 64;
+
+  while (v2->flink_ptr.xlat() != v2) {
+    auto v3 = v2->flink_ptr;
+    auto apc = kthread->apc_lists[0].ListEntryObject(v3.xlat());
+
+    uint8_t* scratch_ptr = ctx->TranslateVirtual(scratch_address);
+    xe::store_and_swap<uint32_t>(scratch_ptr + 0, apc->normal_routine);
+    xe::store_and_swap<uint32_t>(scratch_ptr + 4, apc->normal_context);
+    xe::store_and_swap<uint32_t>(scratch_ptr + 8, apc->arg1);
+    xe::store_and_swap<uint32_t>(scratch_ptr + 12, apc->arg2);
+    xe::store_and_swap<uint32_t>(scratch_ptr + 12, apc->kernel_routine);
+    if (apc->normal_routine == 0) {
+      auto v7 = v3->flink_ptr;
+      auto v8 = v3->blink_ptr;
+      v8->flink_ptr = v7;
+      v7->blink_ptr = v8;
+      apc->enqueued = 0;
+      xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, 1);
+      uint64_t kernel_args[] = {
+          ctx->HostToGuestVirtual(apc), scratch_address + 0,
+          scratch_address + 4,          scratch_address + 8,
+          scratch_address + 12,
+      };
+      ctx->processor->Execute(ctx->thread_state(), apc->kernel_routine,
+                              kernel_args, xe::countof(kernel_args));
+      xeKeKfAcquireSpinLock(ctx, &kthread->apc_lock);
+    } else {
+      if (kthread->unk_88 || kthread->apc_disable_count) {
+        break;
+      }
+      auto v10 = v3->flink_ptr;
+      auto v11 = v3->blink_ptr;
+      v11->flink_ptr = v10;
+      v10->blink_ptr = v11;
+      apc->enqueued = 0;
+      xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, 1);
+      uint64_t kernel_args[] = {
+          ctx->HostToGuestVirtual(apc), scratch_address + 0,
+          scratch_address + 4,          scratch_address + 8,
+          scratch_address + 12,
+      };
+      ctx->processor->Execute(ctx->thread_state(), apc->kernel_routine,
+                              kernel_args, xe::countof(kernel_args));
+      uint32_t normal_routine = xe::load_and_swap<uint32_t>(scratch_ptr + 0);
+      uint32_t normal_context = xe::load_and_swap<uint32_t>(scratch_ptr + 4);
+      uint32_t arg1 = xe::load_and_swap<uint32_t>(scratch_ptr + 8);
+      uint32_t arg2 = xe::load_and_swap<uint32_t>(scratch_ptr + 12);
+      if (normal_routine) {
+        kthread->unk_88 = 1;
+        xeKfLowerIrql(ctx, 0);
+        uint64_t normal_args[] = {normal_context, arg1, arg2};
+        ctx->processor->Execute(ctx->thread_state(), normal_routine,
+                                normal_args, xe::countof(normal_args));
+        xeKfRaiseIrql(ctx, 1);
+      }
+      xeKeKfAcquireSpinLock(ctx, &kthread->apc_lock);
+      kthread->unk_88 = 0;
+    }
+  }
+  ctx->r[1] = old_stack_pointer;
+
+  xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, 1);
+  ctx->RestoreGPRSnapshot(&savegplr);
+  return 0;
+}
+
 X_STATUS xeProcessUserApcs(PPCContext* ctx) {
   GetKThread(ctx)->unk_8A = 0;
   return xeProcessApcQueue<X_STATUS_USER_APC, 1>(ctx);
 }
 
 X_STATUS xeProcessKernelApcs(PPCContext* ctx) {
-  GetKThread(ctx)->deferred_apc_software_interrupt_state = 0;
-  return xeProcessApcQueue<X_STATUS_USER_APC, 0>(ctx);
+  return xeProcessKernelApcQueue(ctx);
 }
 
 static void YankApcList(PPCContext* ctx, X_KTHREAD* current_thread,
@@ -1736,23 +1824,25 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
   auto& which_list = apc_thread->apc_lists[apc->apc_mode];
 
   if (apc->normal_routine) {
-    which_list.InsertTail(apc, context);
+    auto v6 = &which_list;
+    auto v7 = which_list.blink_ptr;
+    apc->list_entry.flink_ptr = v6;
+    apc->list_entry.blink_ptr = v7;
+    v7->flink_ptr = &apc->list_entry;
+    v6->blink_ptr = &apc->list_entry;
   } else {
-    XAPC* insertion_pos = nullptr;
-    for (auto&& sub_apc : which_list.IterateForward(context)) {
-      insertion_pos = &sub_apc;
-      if (sub_apc.normal_routine) {
-        break;
-      }
-    }
-    if (!insertion_pos) {
-      which_list.InsertHead(apc, context);
-    } else {
-      util::XeInsertHeadList(insertion_pos->list_entry.blink_ptr,
-                             &apc->list_entry, context);
-    }
+    auto v8 = &which_list;
+    ShiftedPointer<X_LIST_ENTRY, XAPC, 8> i = nullptr;
+    for (i = v8->flink_ptr.xlat(); i.m_base != v8 && !ADJ(i)->normal_routine;
+         i = ADJ(i)->list_entry.flink_ptr.xlat())
+      ;
+    auto v10 = ADJ(i)->list_entry.blink_ptr;
+    auto v11 = v10->flink_ptr;
+    apc->list_entry.blink_ptr = v10;
+    apc->list_entry.flink_ptr = v11;
+    v11->blink_ptr = &apc->list_entry;
+    v10->flink_ptr = &apc->list_entry;
   }
-
   context->kernel_state->LockDispatcherAtIrql(context);
   {
     X_STATUS wait_status;

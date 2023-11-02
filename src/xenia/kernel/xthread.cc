@@ -464,6 +464,11 @@ X_STATUS XThread::Create() {
   if ((creation_params_.creation_flags & XE_FLAG_THREAD_INITIALLY_SUSPENDED) != 0) {
     this->Suspend();
   }
+  uint32_t affinity_by =
+      static_cast<uint8_t>(creation_params_.creation_flags >> 24);
+  if (affinity_by) {
+    SetAffinity(affinity_by);
+  }
   // todo: not sure about this!
   if (creation_params()->creation_flags & XE_FLAG_PRIORITY_CLASS2) {
     xboxkrnl::xeKeSetPriorityClassThread(cpu::ThreadState::GetContext(),
@@ -495,11 +500,7 @@ X_STATUS XThread::Create() {
     // Release the self-reference to the thread.
     ReleaseHandle();
   });
-  uint32_t affinity_by =
-      static_cast<uint8_t>(creation_params_.creation_flags >> 24);
-  if (affinity_by) {
-    SetAffinity(affinity_by);
-  }
+
 
 
 
@@ -625,7 +626,6 @@ void XThread::Execute() {
   cpu::ppc::PPCGprSnapshot snapshot{};
   context->TakeGPRSnapshot(&snapshot);
   xboxkrnl::xeKfLowerIrql(thread_state_->context(), IRQL_PASSIVE);
-  xboxkrnl::xeProcessKernelApcs(context);
 
   assert_valid();
 
@@ -841,7 +841,7 @@ void XHostThread::XHostThreadForwarder(cpu::ppc::PPCContext* context, void* ud1,
 XHostThread::XHostThread(KernelState* kernel_state, uint32_t stack_size,
                          uint32_t creation_flags, std::function<int()> host_fn,
                          uint32_t guest_process)
-    : XThread(kernel_state, stack_size, 0, 0, 0, creation_flags, true, false,
+    : XThread(kernel_state, stack_size, 0, 0, 0, creation_flags, false, false,
               guest_process),
       host_fn_(host_fn) {
   host_trampoline = kernel_state->processor()->backend()->CreateGuestTrampoline(

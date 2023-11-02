@@ -38,7 +38,7 @@ void XEvent::Initialize(bool manual_reset, bool initial_state) {
 
   auto guest_object = context->TranslateVirtual<X_KEVENT*>(guest_objptr);
 
-  guest_object->header.type = manual_reset;
+  guest_object->header.type = !manual_reset;
   guest_object->header.signal_state = initial_state;
   util::XeInitializeListHead(&guest_object->header.wait_list, context);
   SetNativePointer(guest_objptr);

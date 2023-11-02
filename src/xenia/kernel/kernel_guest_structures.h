@@ -407,7 +407,7 @@ struct X_KTHREAD {
   uint8_t wait_reason;                            // 0xA7
   EZPointer<X_KWAIT_BLOCK> wait_blocks;           // 0xA8
   uint8_t unk_AC[4];                              // 0xAC
-  int32_t apc_disable_count;                      // 0xB0
+  xe::be<int32_t> apc_disable_count;                      // 0xB0
   xe::be<int32_t> unk_B4;                         // 0xB4
   uint8_t unk_B8;                                 // 0xB8
   uint8_t unk_B9;                                 // 0xB9
