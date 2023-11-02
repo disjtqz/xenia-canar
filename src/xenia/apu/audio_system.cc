@@ -105,8 +105,13 @@ void AudioSystem::StartGuestWorkerThread() {
               auto callbacks = guest_worker_messages_.Flush();
 
               if (!callbacks) {
-                kernel::xboxkrnl::xeNtYieldExecution(
+                auto status = kernel::xboxkrnl::xeNtYieldExecution(
                     cpu::ThreadState::GetContext());
+                if (status == X_STATUS_NO_YIELD_PERFORMED) {
+                  int64_t wait_time = -10000 * 2; //2 ms
+                  kernel::xboxkrnl::xeKeDelayExecutionThread(
+                      cpu::ThreadState::GetContext(), 1, true, &wait_time);
+                }
                 continue;
               }
 
