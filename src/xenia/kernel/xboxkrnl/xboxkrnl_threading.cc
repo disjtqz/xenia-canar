@@ -769,6 +769,15 @@ dword_result_t NtReleaseMutant_entry(dword_t mutant_handle,
 }
 DECLARE_XBOXKRNL_EXPORT1(NtReleaseMutant, kThreading, kImplemented);
 
+dword_result_t KeReleaseMutant_entry(pointer_t<X_KMUTANT> mutant,
+                                     dword_t increment, dword_t abandoned,
+                                     dword_t wait,
+                                     const ppc_context_t& context) {
+  return xeKeReleaseMutant(context, mutant, increment, abandoned & 0xff,
+                           wait & 0xff);
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeReleaseMutant, kThreading, kImplemented);
 void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
                           xe::cpu::ppc::PPCContext* context) {
   mutant->header.type = 2;
@@ -823,6 +832,25 @@ void KeInitializeTimerEx_entry(pointer_t<X_KTIMER> timer, dword_t type,
   xeKeInitializeTimerEx(timer, type, proctype & 0xFF, context);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeInitializeTimerEx, kThreading, kImplemented);
+
+dword_result_t KeSetTimerEx_entry(pointer_t<X_KTIMER> timer, qword_t due_time,
+                           dword_t period, pointer_t<XDPC> dpc,
+                           const ppc_context_t& context) {
+  return xeKeSetTimerEx(context, timer, due_time, period, dpc);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeSetTimerEx, kThreading, kImplemented);
+
+dword_result_t KeSetTimer_entry(pointer_t<X_KTIMER> timer, qword_t due_time,
+                         pointer_t<XDPC> dpc, const ppc_context_t& context) {
+  return xeKeSetTimerEx(context, timer, due_time, 0, dpc);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeSetTimer, kThreading, kImplemented);
+
+dword_result_t KeCancelTimer_entry(pointer_t<X_KTIMER> timer,
+                            const ppc_context_t& context) {
+  return xeKeCancelTimer(context, timer);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeCancelTimer, kThreading, kImplemented);
 
 dword_result_t NtCreateTimer_entry(lpdword_t handle_ptr,
                                    lpvoid_t obj_attributes_ptr,

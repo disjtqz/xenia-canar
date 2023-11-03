@@ -102,8 +102,8 @@ int32_t xeKeResetEvent(PPCContext* context, X_KEVENT* event) {
   return old_signal_state;
 }
 
-int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
-                          bool abandoned, unsigned char unk2) {
+int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int increment,
+                          bool abandoned, unsigned char wait) {
   auto old_irql = context->kernel_state->LockDispatcher(context);
   int32_t old_signal_state = mutant->header.signal_state;
   int32_t new_signal_state;
@@ -138,12 +138,12 @@ int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int unk,
     }
     mutant->owner = 0U;
     if (!util::XeIsListEmpty(&mutant->header.wait_list, context)) {
-      xeDispatchSignalStateChange(context, &mutant->header, unk);
+      xeDispatchSignalStateChange(context, &mutant->header, increment);
     }
   }
 
-  if (unk2) {
-    current_thread->unk_A6 = unk2;
+  if (wait) {
+    current_thread->unk_A6 = wait;
     current_thread->unk_A4 = old_irql;
 
   } else {
