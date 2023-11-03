@@ -1465,7 +1465,7 @@ Value* HIRBuilder::IsTrue(Value* value) {
     // opcode or special code path but this could be optimized to not require as
     // many extracts, we can shuffle and or v128 and then extract the low
 
-    return CompareEQ(OrLanes32(*this, value), LoadZeroInt32());
+    return CompareNE(OrLanes32(*this, value), LoadZeroInt32());
   }
 
   if (value->IsConstant()) {

@@ -13,6 +13,7 @@
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/kernel/xthread.h"
 #include "xenia/xbox.h"
 namespace xe {
@@ -26,9 +27,12 @@ void KeEnableFpuExceptions_entry(
   // has to be saved to kthread, the irql changes, the machine state register is
   // changed to enable exceptions
 
-  X_KTHREAD* kthread = ctx->TranslateVirtual(
-      ctx->TranslateVirtualGPR<X_KPCR*>(ctx->r[13])->prcb_data.current_thread);
-  kthread->fpu_exceptions_on = static_cast<uint32_t>(ctx->r[3]) != 0;
+  auto old_irql = GetKPCR(ctx)->current_irql;
+  GetKPCR(ctx)->current_irql = 2;
+
+  GetKThread(ctx)->fpu_exceptions_on = static_cast<uint32_t>(ctx->r[3]) != 0;
+
+  xboxkrnl::xeKfLowerIrql(ctx, old_irql);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeEnableFpuExceptions, kNone, kStub);
 #if 0
@@ -125,7 +129,7 @@ static qword_result_t KeQueryInterruptTime_entry(const ppc_context_t& ctx) {
   X_TIME_STAMP_BUNDLE* bundle =
       ctx->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(ts_bundle);
 
-  uint64_t int_time= bundle->interrupt_time;
+  uint64_t int_time = bundle->interrupt_time;
   return int_time;
 }
 DECLARE_XBOXKRNL_EXPORT1(KeQueryInterruptTime, kNone, kImplemented);

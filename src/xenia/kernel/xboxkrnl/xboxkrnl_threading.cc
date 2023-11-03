@@ -383,9 +383,9 @@ dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
                                             dword_t alertable,
                                             lpqword_t interval_ptr,
                                             const ppc_context_t& context) {
-  uint64_t interval = interval_ptr ? static_cast<uint64_t>(*interval_ptr) : 0u;
+  uint64_t interval = *interval_ptr;
   return KeDelayExecutionThread(processor_mode, alertable,
-                                interval_ptr ? &interval : nullptr, context);
+                               &interval, context);
 }
 DECLARE_XBOXKRNL_EXPORT3(KeDelayExecutionThread, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
@@ -1001,7 +1001,6 @@ dword_result_t KeWaitForMultipleObjects_entry(
         context->TranslateVirtual<X_DISPATCH_HEADER*>(objects_ptr[i]);
   }
 
-  // return 0;
   int64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
   return xeKeWaitForMultipleObjects(
       context, count, objects_tmp, wait_type, wait_reason, processor_mode,

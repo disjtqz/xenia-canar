@@ -25,7 +25,12 @@ XMutant::XMutant(KernelState* kernel_state)
 
 XMutant::XMutant() : XObject(kObjectType) {}
 
-XMutant::~XMutant() { __debugbreak(); }
+XMutant::~XMutant() {
+  // mutant object type delete proc.
+
+  xboxkrnl::xeKeReleaseMutant(cpu::ThreadState::GetContext(),
+                              guest_object<X_KMUTANT>(), 1, 1, 0);
+}
 
 void XMutant::Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes) {
   auto context = cpu::ThreadState::Get()->context();
@@ -48,7 +53,6 @@ void XMutant::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
   xe::FatalError("Unimplemented XMutant::InitializeNative");
 }
 
-
 X_STATUS XMutant::GetSignaledStatus(X_STATUS success_in) {
   if (success_in <= 63U) {
     auto km = guest_object<X_KMUTANT>();
@@ -67,8 +71,7 @@ object_ref<XMutant> XMutant::Restore(KernelState* kernel_state,
   return object_ref<XMutant>(mutant);
 }
 xe::threading::WaitHandle* XMutant::GetWaitHandle() { return nullptr; }
-void XMutant::WaitCallback() {
-}
+void XMutant::WaitCallback() {}
 
 }  // namespace kernel
 }  // namespace xe

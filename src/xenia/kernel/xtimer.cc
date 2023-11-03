@@ -22,7 +22,11 @@ namespace kernel {
 XTimer::XTimer(KernelState* kernel_state)
     : XObject(kernel_state, kObjectType) {}
 
-XTimer::~XTimer() = default;
+XTimer::~XTimer() {
+    //delete_proc for X_KTIMER object type
+  xboxkrnl::xeKeCancelTimer(cpu::ThreadState::GetContext(),
+                            guest_object<X_KTIMER>());
+}
 
 void XTimer::Initialize(uint32_t timer_type) {
   auto context = cpu::ThreadState::Get()->context();

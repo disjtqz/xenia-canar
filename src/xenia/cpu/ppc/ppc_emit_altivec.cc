@@ -1393,12 +1393,10 @@ int InstrEmit_vsel128(PPCHIRBuilder& f, const InstrData& i) {
 // chrispy: this is test code for checking whether a game takes advantage of the
 // VSR/VSL undocumented/undefined variable shift behavior
 static void AssertShiftElementsOk(PPCHIRBuilder& f, Value* v) {
-#if 0
   Value* splatted = f.Splat(f.Extract(v, (uint8_t)0, INT8_TYPE), VEC128_TYPE);
 
   Value* checkequal = f.Xor(splatted, v);
   f.DebugBreakTrue(f.IsTrue(checkequal));
-#endif
 }
 int InstrEmit_vsl(PPCHIRBuilder& f, const InstrData& i) {
   Value* va = f.LoadVR(i.VX.VA);
