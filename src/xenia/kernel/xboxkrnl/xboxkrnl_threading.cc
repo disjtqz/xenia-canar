@@ -439,6 +439,7 @@ DECLARE_XBOXKRNL_EXPORT1(KeTlsFree, kThreading, kImplemented);
 dword_result_t KeTlsGetValue_entry(dword_t tls_index,
                                    const ppc_context_t& context) {
   do_tls_asserts(context);
+  context->AssertCurrent();
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
   return static_cast<uint32_t>(
@@ -452,6 +453,7 @@ DECLARE_XBOXKRNL_EXPORT2(KeTlsGetValue, kThreading, kImplemented,
 dword_result_t KeTlsSetValue_entry(dword_t tls_index, dword_t tls_value,
                                    const ppc_context_t& context) {
   do_tls_asserts(context);
+  context->AssertCurrent();
   // xboxkrnl doesn't actually have an error branch - it always succeeds, even
   // if it overflows the TLS.
   *(context->TranslateVirtualBE<uint32_t>(GetKPCR(context)->tls_ptr) -

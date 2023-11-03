@@ -283,7 +283,7 @@ void XThread::InitializeGuestObject() {
   guest_thread->stack_base = (this->stack_base_);
   guest_thread->stack_limit = (this->stack_limit_);
   guest_thread->stack_kernel = (this->stack_base_ - 240);
-  guest_thread->tls_address = (this->tls_static_address_);
+  guest_thread->tls_address = this->tls_dynamic_address_;
   guest_thread->thread_state = 0;
 
   guest_thread->process_type_dup = process_type;

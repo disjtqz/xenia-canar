@@ -196,8 +196,6 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
       processor_mode, alertable, (int64_t*)opt_timeout);
 }
 uint8_t* XObject::CreateNative(uint32_t size) {
-  auto global_lock = xe::global_critical_region::AcquireDirect();
-
   uint32_t total_size = size + sizeof(X_OBJECT_HEADER);
 
   auto mem = memory()->SystemHeapAlloc(total_size);
@@ -221,8 +219,6 @@ uint8_t* XObject::CreateNative(uint32_t size) {
 }
 
 void XObject::SetNativePointer(uint32_t native_ptr, bool uninitialized) {
-  auto global_lock = xe::global_critical_region::AcquireDirect();
-
   // If hit: We've already setup the native ptr with CreateNative!
   assert_zero(guest_object_ptr_);
 

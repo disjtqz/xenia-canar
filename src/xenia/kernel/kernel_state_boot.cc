@@ -76,7 +76,8 @@ void KernelState::SetProcessTLSVars(X_KPROCESS* process, int num_slots,
 
   // set remainder of bitset
   if (((num_slots + 3) & 0x1C) != 0)
-    process->tls_slot_bitmap[count_div32] = -1 << (32 - ((num_slots + 3) & 0x1C));
+    process->tls_slot_bitmap[count_div32] = -1
+                                            << (32 - ((num_slots + 3) & 0x1C));
 }
 void AllocateThread(PPCContext* context) {
   uint32_t thread_mem_size = static_cast<uint32_t>(context->r[3]);
@@ -341,7 +342,8 @@ void KernelState::BootInitializeStatics() {
 
   block->running_timers.Initialize(memory());
   uint32_t oddobject_offset =
-      kernel_guest_globals_ + offsetof(KernelGuestGlobals, XboxKernelDefaultObject);
+      kernel_guest_globals_ +
+      offsetof(KernelGuestGlobals, XboxKernelDefaultObject);
 
   // init unknown object
 
@@ -539,7 +541,7 @@ void KernelState::BootInitializeXam(cpu::ppc::PPCContext* context) {
           XamNotifyListenerDeleteProc);
   globals->XamNotifyListenerObjectType.unknown_size_or_object_ = 0xC;
   globals->XamNotifyListenerObjectType.pool_tag = 0x66746F4E;
-  //todo: Enumerator!
+  // todo: Enumerator!
 }
 
 void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
@@ -605,6 +607,14 @@ void KernelState::BootKernel() {
   }
   processor()->GetHWClock()->SetInterruptCallback(HWClockCallback);
 
+  auto bundle =
+      memory()->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
+  uint32_t initial_ms = static_cast<uint32_t>(Clock::QueryHostTickCount());
+  uint64_t initial_systemtime = Clock::QueryGuestSystemTime();
+
+  bundle->interrupt_time = initial_systemtime;
+  bundle->system_time = initial_systemtime;
+  bundle->tick_count = initial_ms;
   processor()->GetHWClock()->Start();
 }
 
