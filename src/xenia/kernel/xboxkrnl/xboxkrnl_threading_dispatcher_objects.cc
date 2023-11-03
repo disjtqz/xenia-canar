@@ -364,9 +364,9 @@ X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object) {
   uint32_t unk = wait_object_type->unknown_size_or_object_;
   X_DISPATCH_HEADER* waiter =
       context->TranslateVirtual<X_DISPATCH_HEADER*>(unk);
-  if (unk) {
-    __debugbreak();
-  }
+  //if (unk) {
+ //   __debugbreak();
+ // }
   if (!((unsigned int)unk >> 16)) {
     waiter = reinterpret_cast<X_DISPATCH_HEADER*>(
         reinterpret_cast<char*>(object) + unk);

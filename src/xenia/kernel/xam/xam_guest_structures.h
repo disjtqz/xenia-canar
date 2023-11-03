@@ -15,7 +15,7 @@ namespace kernel {
 struct X_XAMNOTIFY {
   char field_0[12];
   X_KEVENT event;
-  char field_1C[4];
+  X_KSPINLOCK spinlock;
   char an_irql;
   char field_21[3];
   int a_pointer;

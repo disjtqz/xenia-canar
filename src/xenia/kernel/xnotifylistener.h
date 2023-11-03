@@ -21,7 +21,7 @@
 
 namespace xe {
 namespace kernel {
-
+struct X_XAMNOTIFY;
 union XNotificationKey {
   XNotificationID id;
   struct {
@@ -61,16 +61,16 @@ class XNotifyListener : public XObject {
                                              ByteStream* stream);
 
  protected:
-  xe::threading::WaitHandle* GetWaitHandle() override {
-    return wait_handle_.get();
+  xe::threading::WaitHandle* GetWaitHandle() override { return nullptr;
   }
 
+  
+
  private:
-  std::unique_ptr<xe::threading::Event> wait_handle_;
-  xe::global_critical_region global_critical_region_;
   std::vector<std::pair<XNotificationID, uint32_t>> notifications_;
   uint64_t mask_ = 0;
   uint32_t max_version_ = 0;
+  X_XAMNOTIFY* Get();
 };
 
 }  // namespace kernel

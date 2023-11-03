@@ -6,8 +6,8 @@
  * Released under the BSD license - see LICENSE in the root for more details. *
  ******************************************************************************
  */
-
 #include "xenia/kernel/xnotifylistener.h"
+#include "xenia/kernel/xam/xam_guest_structures.h"
 
 #include "xenia/base/assert.h"
 #include "xenia/base/byte_stream.h"
@@ -22,12 +22,29 @@ XNotifyListener::XNotifyListener(KernelState* kernel_state)
     : XObject(kernel_state, kObjectType) {}
 
 XNotifyListener::~XNotifyListener() {}
-
+X_XAMNOTIFY* XNotifyListener::Get() { return guest_object<X_XAMNOTIFY>(); }
 void XNotifyListener::Initialize(uint64_t mask, uint32_t max_version) {
-  assert_false(wait_handle_);
+  auto context = cpu::ThreadState::Get()->context();
+  uint32_t guest_objptr = 0;
+  auto guest_globals = context->TranslateVirtual<KernelGuestGlobals*>(
+      kernel_state()->GetKernelGuestGlobals());
+  X_STATUS create_status = xboxkrnl::xeObCreateObject(
+      &guest_globals->XamNotifyListenerObjectType, nullptr, sizeof(X_XAMNOTIFY),
+      &guest_objptr, context);
 
-  wait_handle_ = xe::threading::Event::CreateManualResetEvent(false);
-  assert_not_null(wait_handle_);
+  xenia_assert(create_status == X_STATUS_SUCCESS);
+  xenia_assert(guest_objptr != 0);
+
+  auto ksem = context->TranslateVirtual<X_XAMNOTIFY*>(guest_objptr);
+
+  ksem->event.header.type = 1;
+  ksem->event.header.signal_state = 0;
+  util::XeInitializeListHead(&ksem->event.header.wait_list, context);
+  ksem->process_type_related =
+      -2 - ((xboxkrnl::xeKeGetCurrentProcessType(context) == 2) - 3);
+  ksem->spinlock.pcr_of_owner = 0;
+
+  SetNativePointer(guest_objptr);
   mask_ = mask;
   max_version_ = max_version;
 
@@ -44,14 +61,23 @@ void XNotifyListener::EnqueueNotification(XNotificationID id, uint32_t data) {
   if (key.version > max_version_) {
     return;
   }
-  auto global_lock = global_critical_region_.Acquire();
+  auto thiz = Get();
+  auto context = cpu::ThreadState::GetContext();
+
+  thiz->an_irql = xboxkrnl::xeKeKfAcquireSpinLock(context, &thiz->spinlock);
+
   notifications_.push_back(std::pair<XNotificationID, uint32_t>(id, data));
-  wait_handle_->Set();
+
+  xboxkrnl::xeKeSetEvent(context, &thiz->event, 1, 0);
+  xboxkrnl::xeKeKfReleaseSpinLock(context, &thiz->spinlock, thiz->an_irql);
 }
 
 bool XNotifyListener::DequeueNotification(XNotificationID* out_id,
                                           uint32_t* out_data) {
-  auto global_lock = global_critical_region_.Acquire();
+  auto thiz = Get();
+  auto context = cpu::ThreadState::GetContext();
+  thiz->an_irql = xboxkrnl::xeKeKfAcquireSpinLock(context, &thiz->spinlock);
+
   bool dequeued = false;
   if (notifications_.size()) {
     dequeued = true;
@@ -60,16 +86,22 @@ bool XNotifyListener::DequeueNotification(XNotificationID* out_id,
     *out_data = it->second;
     notifications_.erase(it);
     if (!notifications_.size()) {
-      wait_handle_->Reset();
+      // inlined clearevent? original XNotifyGetNext does this
+      thiz->event.header.signal_state = 0;
     }
   }
+
+  xboxkrnl::xeKeKfReleaseSpinLock(context, &thiz->spinlock, thiz->an_irql);
   return dequeued;
 }
 
 bool XNotifyListener::DequeueNotification(XNotificationID id,
                                           uint32_t* out_data) {
-  auto global_lock = global_critical_region_.Acquire();
+  auto thiz = Get();
+  auto context = cpu::ThreadState::GetContext();
+  thiz->an_irql = xboxkrnl::xeKeKfAcquireSpinLock(context, &thiz->spinlock);
   if (!notifications_.size()) {
+    xboxkrnl::xeKeKfReleaseSpinLock(context, &thiz->spinlock, thiz->an_irql);
     return false;
   }
   bool dequeued = false;
@@ -81,10 +113,11 @@ bool XNotifyListener::DequeueNotification(XNotificationID id,
     *out_data = it->second;
     notifications_.erase(it);
     if (!notifications_.size()) {
-      wait_handle_->Reset();
+      thiz->event.header.signal_state = 0;
     }
     break;
   }
+  xboxkrnl::xeKeKfReleaseSpinLock(context, &thiz->spinlock, thiz->an_irql);
   return dequeued;
 }
 
