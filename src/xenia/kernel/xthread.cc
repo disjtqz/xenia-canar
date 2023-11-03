@@ -514,40 +514,24 @@ X_STATUS XThread::Create() {
 }
 
 X_STATUS XThread::Exit(int exit_code) {
-  auto cpu_context = thread_state_->context();
-  xboxkrnl::xeKfLowerIrql(cpu_context, IRQL_PASSIVE);
   // This may only be called on the thread itself.
   assert_true(XThread::GetCurrentThread() == this);
-  // TODO(chrispy): not sure if this order is correct, should it come after
-  // apcs?
-  auto kthread = guest_object<X_KTHREAD>();
-
-  kthread->terminated = 1;
-
-  // TODO(benvanik): dispatch events? waiters? etc?
-  RundownAPCs();
-
-  // Set exit code.
-  kthread->header.signal_state = 1;
-  kthread->exit_status = exit_code;
-
-  auto kprocess = cpu_context->TranslateVirtual(kthread->process);
-
-  uint32_t old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
-      cpu_context, &kprocess->thread_list_spinlock);
-
-  xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kprocess->thread_list_spinlock,
-                                  old_irql);
+  auto cpu_context = thread_state_->context();
+  xboxkrnl::xeKfLowerIrql(cpu_context, IRQL_PASSIVE);
 
   kernel_state()->OnThreadExit(this);
 
   // Notify processor of our exit.
   emulator()->processor()->OnThreadExit(thread_id());
-
-  // NOTE: unless PlatformExit fails, expect it to never return!
-
   running_ = false;
   ReleaseHandle();
+
+
+  // TODO(chrispy): not sure if this order is correct, should it come after
+  // apcs?
+  auto kthread = guest_object<X_KTHREAD>();
+
+  kthread->terminated = 1;
 
   xboxkrnl::xeKeEnterCriticalRegion(cpu_context);
   uint32_t old_irql2 =
@@ -558,12 +542,28 @@ X_STATUS XThread::Exit(int exit_code) {
   // sense to me the thread is already running
 
   xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kthread->apc_lock, old_irql2);
+  xboxkrnl::xeKeLeaveCriticalRegion(cpu_context);
+
+  // TODO(benvanik): dispatch events? waiters? etc?
+  RundownAPCs();
+
+ 
+
+  auto kprocess = cpu_context->TranslateVirtual(kthread->process);
+
+  uint32_t old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
+      cpu_context, &kprocess->thread_list_spinlock);
+
+
   // xe::FatalError("Brokey!");
   //  NOTE: this does not return!
   // xe::threading::Thread::Exit(exit_code);
   // return X_STATUS_SUCCESS;
   kernel_state()->LockDispatcherAtIrql(cpu_context);
 
+   // Set exit code.
+  kthread->header.signal_state = 1;
+  kthread->exit_status = exit_code;
   kthread->header.signal_state = 1;
 
   if (!util::XeIsListEmpty(&kthread->header.wait_list, cpu_context)) {
@@ -572,6 +572,11 @@ X_STATUS XThread::Exit(int exit_code) {
   util::XeRemoveEntryList(&kthread->process_threads, cpu_context);
 
   kprocess->thread_count = kprocess->thread_count - 1;
+  
+
+  
+  xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kprocess->thread_list_spinlock,
+                                  0, false);
   kthread->thread_state = 4;
 
   util::XeInsertHeadList(

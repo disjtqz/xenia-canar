@@ -16,6 +16,7 @@
 #include "xenia/cpu/ppc/ppc_context.h"
 #include "xenia/cpu/xenon_interrupt_controller.h"
 DECLARE_bool(emulate_guest_interrupts_in_software);
+DECLARE_bool(threads_aint_cheap);
 namespace xe {
 namespace cpu {
 class ThreadState;
@@ -82,7 +83,8 @@ class HWThread;
 
 
 */
-//this figure comes courtesy of libxenon. turns out 50mhz was not the real frequency, so i wonder where we got that figure from
+// this figure comes courtesy of libxenon. turns out 50mhz was not the real
+// frequency, so i wonder where we got that figure from
 static constexpr uint64_t TIMEBASE_FREQUENCY = 49875000ULL;
 
 static constexpr int32_t DECREMENTER_DISABLE = 0x7FFFFFFF;
@@ -145,8 +147,9 @@ class HWThread {
   std::unique_ptr<HWDecrementer> decrementer_;
   std::unique_ptr<XenonInterruptController> interrupt_controller_;
 
+  void (*external_interrupt_handler_)(cpu::ppc::PPCContext* context,
+                                      XenonInterruptController* controller);
 
-  void (*external_interrupt_handler_)(cpu::ppc::PPCContext* context, XenonInterruptController* controller);
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
   ~HWThread();
@@ -165,16 +168,18 @@ class HWThread {
     decrementer_->SetInterruptCallback(decr, ud);
   }
 
+
+  static void ThreadDelay();
   void SetExternalInterruptHandler(void (*handler)(
       cpu::ppc::PPCContext* context, XenonInterruptController* controller)) {
-      external_interrupt_handler_ = handler;
+    external_interrupt_handler_ = handler;
   }
 
   void _CallExternalInterruptHandler(cpu::ppc::PPCContext* context,
-      XenonInterruptController* controller) {
-      if (external_interrupt_handler_)  {
-        external_interrupt_handler_(context, controller);
-     }
+                                     XenonInterruptController* controller) {
+    if (external_interrupt_handler_) {
+      external_interrupt_handler_(context, controller);
+    }
   }
 
   void SetIdleProcessFunction(
@@ -188,7 +193,8 @@ class HWThread {
 
   void YieldToScheduler();
 
-  bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud, bool wait_done = false);
+  bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
+                                bool wait_done = false);
 
   uint64_t mftb() const;
   // SendGuestIPI is designed to run on a guest thread

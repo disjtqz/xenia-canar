@@ -433,8 +433,7 @@ void KernelState::CreateDispatchThread() {
                 reinterpret_cast<DispatchQueueEntry*>(dispatch_queue_.Pop());
 
             if (!entry) {
-              // xboxkrnl::xeNtYieldExecution(context);
-              int64_t interval = -100000;  // 10 ms
+              int64_t interval = -20000;  // 2 ms
               xboxkrnl::xeKeDelayExecutionThread(context, 0, false, &interval);
               continue;
             } else {
@@ -1424,7 +1423,9 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       xenia_assert(GetKThread(context) == kthread);
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
+      cpu::HWThread::ThreadDelay();
       _mm_pause();
+
     }
 
     /*

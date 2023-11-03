@@ -165,13 +165,6 @@ class XObject {
 
   X_STATUS Wait(uint32_t wait_reason, uint32_t processor_mode,
                 uint32_t alertable, uint64_t* opt_timeout);
-  static X_STATUS SignalAndWait(XObject* signal_object, XObject* wait_object,
-                                uint32_t wait_reason, uint32_t processor_mode,
-                                uint32_t alertable, uint64_t* opt_timeout, cpu::ppc::PPCContext* context);
-  static X_STATUS WaitMultiple(uint32_t count, XObject** objects,
-                               uint32_t wait_type, uint32_t wait_reason,
-                               uint32_t processor_mode, uint32_t alertable,
-                               uint64_t* opt_timeout, cpu::ppc::PPCContext* context);
 
   static object_ref<XObject> GetNativeObject(KernelState* kernel_state,
                                              void* native_ptr,

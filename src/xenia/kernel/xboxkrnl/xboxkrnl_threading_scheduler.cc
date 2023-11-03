@@ -740,6 +740,12 @@ void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
            (void*)header, increment);
   auto waitlist_head = &header->wait_list;
 
+  //hack!
+  //happens in marathon durandal. todo: figure out why
+  if (waitlist_head->blink_ptr == 0 && waitlist_head->flink_ptr == 0) {
+    return;
+  }
+
   for (X_KWAIT_BLOCK* i = context->TranslateVirtual<X_KWAIT_BLOCK*>(
            header->wait_list.flink_ptr);
        static_cast<int>(header->signal_state) > 0;

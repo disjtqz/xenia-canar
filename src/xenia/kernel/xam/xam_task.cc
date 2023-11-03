@@ -17,6 +17,7 @@
 #include "xenia/kernel/xam/xam_private.h"
 #include "xenia/kernel/xthread.h"
 #include "xenia/xbox.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 
 #if XE_PLATFORM_WIN32
 #include "xenia/base/platform_win.h"
@@ -49,6 +50,7 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
                                      pointer_t<XTASK_MESSAGE> message,
                                      dword_t optional_ptr, lpdword_t handle_ptr,
                                      const ppc_context_t& ctx) {
+  xboxkrnl::xeKeEnterCriticalRegion(ctx);
   // TODO(gibbed): figure out what this is for
   *handle_ptr = 12345;
 
@@ -75,12 +77,13 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
   if (XFAILED(result)) {
     // Failed!
     XELOGE("XAM task creation failed: {:08X}", result);
+    xboxkrnl::xeKeLeaveCriticalRegion(ctx);
     return result;
   }
 
   XELOGD("XAM task ({:08X}) scheduled asynchronously",
          callback.guest_address());
-
+  xboxkrnl::xeKeLeaveCriticalRegion(ctx);
   return X_STATUS_SUCCESS;
 }
 DECLARE_XAM_EXPORT2(XamTaskSchedule, kNone, kImplemented, kSketchy);

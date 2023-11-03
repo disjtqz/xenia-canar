@@ -12,9 +12,12 @@
 #include "xenia/cpu/processor.h"
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/kernel_guest_structures.h"
-DEFINE_bool(emulate_guest_interrupts_in_software, false,
+DEFINE_bool(emulate_guest_interrupts_in_software, true,
             "If true, emulate guest interrupts by repeatedly checking a "
             "location on the PCR. Otherwise uses host ipis.",
+            "CPU");
+DEFINE_bool(threads_aint_cheap, false,
+            "For people with < 8 hardware threads",
             "CPU");
 namespace xe {
 namespace cpu {
@@ -148,6 +151,7 @@ void HWThread::GuestIPIWorkerThreadFunc() {
 
     GuestIPI* entry = list_entries;
     if (!entry) {
+      ThreadDelay();
       continue;
     }
     while (entry) {
@@ -180,9 +184,14 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
 
   os_thread_ =
       threading::Thread::Create(params, std::bind(&HWThread::ThreadFunc, this));
-  os_thread_->set_affinity_mask(1ULL << cpu_number_);
+
+  if (cvars::threads_aint_cheap) {
+    os_thread_->set_affinity_mask(1ULL << cpu_number_);
+  }
+
   os_thread_->set_name(std::string("PPC HW Thread ") +
                        std::to_string(cpu_number));
+
   os_thread_->is_ppc_thread_ = true;
   guest_ipi_dispatch_event_ = threading::Event::CreateAutoResetEvent(false);
   params.stack_size = 512 * 1024;
@@ -269,6 +278,14 @@ uintptr_t HWThread::IPIWrapperFunction(void* ud) {
   return 2;
 }
 #define NO_RESULT_MAGIC 0x69420777777ULL
+
+void HWThread::ThreadDelay() {
+  if (cvars::threads_aint_cheap) {
+    threading::MaybeYield();
+  } else {
+    _mm_pause();
+  }
+}
 bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
                                         bool wait_done) {
   GuestInterruptWrapper* wrapper = new GuestInterruptWrapper();
@@ -296,17 +313,17 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
       while (!xe::atomic_cas(reinterpret_cast<uint64_t>(p_pcr),
                              reinterpret_cast<uint64_t>(&request),
                              &p_pcr->emulated_interrupt)) {
-        _mm_pause();
+        ThreadDelay();
       }
 
       while (p_pcr->emulated_interrupt ==
              reinterpret_cast<uint64_t>(&request)) {
-        _mm_pause();
+        ThreadDelay();
       }
       // guest has read the interrupt, now wait for it to change our value
 
       while (result_from_call == NO_RESULT_MAGIC) {
-        _mm_pause();
+        ThreadDelay();
       }
 
       if (result_from_call == 0) {
@@ -316,7 +333,7 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
           return true;
         } else {
           while (result_from_call != 2) {
-            _mm_pause();
+            ThreadDelay();
           }
           return true;
         }

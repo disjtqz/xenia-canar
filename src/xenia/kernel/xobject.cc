@@ -195,38 +195,6 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
       cpu::ThreadState::GetContext(), guest_object<X_DISPATCH_HEADER>(),wait_reason,
       processor_mode, alertable, (int64_t*)opt_timeout);
 }
-
-X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object,
-                                uint32_t wait_reason, uint32_t processor_mode,
-                                uint32_t alertable, uint64_t* opt_timeout,
-                                cpu::ppc::PPCContext* context) {
-  return xboxkrnl::xeKeSignalAndWaitForSingleObjectEx(
-      context, signal_object->guest_object<X_DISPATCH_HEADER>(),
-      wait_object->guest_object<X_DISPATCH_HEADER>(), processor_mode, alertable,
-      (int64_t*)opt_timeout);
-}
-
-X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
-                               uint32_t wait_type, uint32_t wait_reason,
-                               uint32_t processor_mode, uint32_t alertable,
-                               uint64_t* opt_timeout,
-                               cpu::ppc::PPCContext* context) {
-  X_DISPATCH_HEADER* objects_guest[64];
-  for (unsigned i = 0; i < count; ++i) {
-    xenia_assert(objects[i]);
-    objects_guest[i] = objects[i]->guest_object<X_DISPATCH_HEADER>();
-    xenia_assert(objects_guest[i]);
-  }
-  uint32_t tmp_wait_blocks =
-      kernel_memory()->SystemHeapAlloc(sizeof(X_KWAIT_BLOCK) * (count + 2));
-  X_STATUS tmp_status = xboxkrnl::xeKeWaitForMultipleObjects(
-      context, count, objects_guest, wait_type, wait_reason, processor_mode,
-      alertable, (int64_t*)opt_timeout,
-      context->TranslateVirtual<X_KWAIT_BLOCK*>(tmp_wait_blocks));
-  kernel_memory()->SystemHeapFree(tmp_wait_blocks);
-  return tmp_status;
-}
-
 uint8_t* XObject::CreateNative(uint32_t size) {
   auto global_lock = xe::global_critical_region::AcquireDirect();
 

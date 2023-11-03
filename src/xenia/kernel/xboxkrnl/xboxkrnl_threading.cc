@@ -766,7 +766,6 @@ dword_result_t NtReleaseMutant_entry(dword_t mutant_handle,
     kernel->DereferenceObject(context, object);
     return caught_status;
   }
-  
 }
 DECLARE_XBOXKRNL_EXPORT1(NtReleaseMutant, kThreading, kImplemented);
 
@@ -941,7 +940,8 @@ uint32_t NtWaitForSingleObjectEx(uint32_t object_handle, uint32_t wait_mode,
 
     return xeKeWaitForSingleObjectEx(cpu::ThreadState::GetContext(),
                                      object->guest_object<X_DISPATCH_HEADER>(),
-                                     wait_mode, alertable, (int64_t*)timeout_ptr);
+                                     wait_mode, alertable,
+                                     (int64_t*)timeout_ptr);
 
   } else {
     result = X_STATUS_INVALID_HANDLE;

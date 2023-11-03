@@ -32,6 +32,9 @@ void HWClock::WorkerThreadMain() {
     while (true) {
       new_value = Clock::QueryHostUptimeMillis();
       if (new_value != last_value) {
+        if (cvars::threads_aint_cheap) {
+          threading::MaybeYield();
+        }
         break;
       }
     }
@@ -49,7 +52,7 @@ void HWClock::WorkerThreadMain() {
 HWClock::HWClock(Processor* processor) : processor_(processor) {
   threading::Thread::CreationParameters crparams{};
   crparams.stack_size = 65536;
-  crparams.initial_priority = threading::ThreadPriority::kAboveNormal;
+  crparams.initial_priority = threading::ThreadPriority::kBelowNormal;
   crparams.create_suspended = true;
   timer_thread_ = threading::Thread::Create(
       crparams, std::bind(&HWClock::WorkerThreadMain, this));

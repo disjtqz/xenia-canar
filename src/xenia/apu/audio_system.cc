@@ -101,16 +101,19 @@ void AudioSystem::StartGuestWorkerThread() {
           [this]() {
             std::vector<GuestMessage*> messages_rev{};
             messages_rev.reserve(128);
+            auto context = cpu::ThreadState::GetContext();
             while (true) {
+              context->CheckInterrupt();
               auto callbacks = guest_worker_messages_.Flush();
-
+              
               if (!callbacks) {
                 auto status = kernel::xboxkrnl::xeNtYieldExecution(
                     cpu::ThreadState::GetContext());
+                context->CheckInterrupt();
                 if (status == X_STATUS_NO_YIELD_PERFORMED) {
                   int64_t wait_time = -10000 * 2; //2 ms
-                  kernel::xboxkrnl::xeKeDelayExecutionThread(
-                      cpu::ThreadState::GetContext(), 1, true, &wait_time);
+                  kernel::xboxkrnl::xeKeDelayExecutionThread(context, 1, true,
+                                                             &wait_time);
                 }
                 continue;
               }
@@ -118,6 +121,7 @@ void AudioSystem::StartGuestWorkerThread() {
               while (callbacks) {
                 messages_rev.push_back((GuestMessage*)callbacks);
                 callbacks = callbacks->next_;
+                context->CheckInterrupt();
               }
               std::reverse(messages_rev.begin(), messages_rev.end());
 
@@ -127,6 +131,7 @@ void AudioSystem::StartGuestWorkerThread() {
                                            order->client_callback_, args,
                                            countof(args));
                 delete order;
+                context->CheckInterrupt();
                 guest_received_event_->Set();
               }
               messages_rev.clear();
