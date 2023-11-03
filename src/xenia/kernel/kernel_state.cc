@@ -232,6 +232,11 @@ object_ref<KernelModule> KernelState::GetKernelModule(
 
   return nullptr;
 }
+//very slow!
+void KernelState::XamCall(cpu::ppc::PPCContext* context, uint16_t ordinal) {
+  uint32_t address = this->GetModule("xam")->GetProcAddressByOrdinal(ordinal);
+  context->processor->Execute(context->thread_state(), address);
+}
 
 object_ref<XModule> KernelState::GetModule(const std::string_view name,
                                            bool user_only) {
@@ -1380,7 +1385,6 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
     return wait_result;
   }
   return 0;
-  
 }
 cpu::XenonInterruptController* KernelState::InterruptControllerFromPCR(
     cpu::ppc::PPCContext* context, X_KPCR* pcr) {
@@ -1425,7 +1429,6 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       context->CheckInterrupt();
       cpu::HWThread::ThreadDelay();
       _mm_pause();
-
     }
 
     /*

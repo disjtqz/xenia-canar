@@ -1027,7 +1027,7 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
   }
   for (uint32_t n = 0; n < count; ++n) {
     objects_tmp[n] =
-        xeGetOBJECTDispatch(context, objects[n]->guest_object<void>());
+        xeObGetWaitableObject(context, objects[n]->guest_object<void>());
   }
 
   // return 0;
@@ -2275,6 +2275,12 @@ pointer_result_t InterlockedFlushSList_entry(
   return first;
 }
 DECLARE_XBOXKRNL_EXPORT1(InterlockedFlushSList, kThreading, kImplemented);
+//todo: does this belong here? its arguable whether this is a threading or object function
+dword_result_t ObGetWaitableObject_entry(dword_t object,
+    const ppc_context_t& context) {
+  return context->HostToGuestVirtual(xeObGetWaitableObject(context, context->TranslateVirtual(object)));
+}
+DECLARE_XBOXKRNL_EXPORT1(ObGetWaitableObject, kThreading, kImplemented);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

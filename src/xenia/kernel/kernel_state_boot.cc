@@ -51,7 +51,7 @@ void KernelState::InitializeProcess(X_KPROCESS* process, uint32_t type,
   process->clrdataa_masked_ptr = 0;
   // clrdataa_ & ~(1U << 31);
   process->thread_count = 0;
- // process->unk_1B = 0x06;
+  // process->unk_1B = 0x06;
   process->kernel_stack_size = 16 * 1024;
   process->tls_slot_size = 0x80;
 
@@ -341,15 +341,15 @@ void KernelState::BootInitializeStatics() {
 
   block->running_timers.Initialize(memory());
   uint32_t oddobject_offset =
-      kernel_guest_globals_ + offsetof(KernelGuestGlobals, OddObj);
+      kernel_guest_globals_ + offsetof(KernelGuestGlobals, XboxKernelDefaultObject);
 
   // init unknown object
 
-  block->OddObj.type = 1;
+  block->XboxKernelDefaultObject.type = 1;
 
-  block->OddObj.signal_state = 1;
+  block->XboxKernelDefaultObject.signal_state = 1;
   util::XeInitializeListHead(
-      &block->OddObj.wait_list,
+      &block->XboxKernelDefaultObject.wait_list,
       oddobject_offset + offsetof32(X_DISPATCH_HEADER, wait_list));
 
   // init thread object
@@ -499,9 +499,47 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->Boot();
   }
+
+  BootInitializeXam(context);
+
   // this is deliberate, does not change the interrupt priority!
   kpcr->current_irql = 2;
   SetupIdleThreadPriority(context, kpcr);
+}
+
+static void XamNotifyListenerDeleteProc(PPCContext* context) {
+  uint32_t a1 = static_cast<uint32_t>(context->r[3]);
+  if (a1) {
+    uint32_t deref1 = *context->TranslateVirtualBE<uint32_t>(a1);
+    uint32_t deref2 = *context->TranslateVirtualBE<uint32_t>(deref1);
+    context->processor->ExecuteRaw(context->thread_state(), deref2);
+    return;
+  }
+}
+
+void KernelState::BootInitializeXam(cpu::ppc::PPCContext* context) {
+  auto globals = context->kernel_state->GetKernelGuestGlobals(context);
+
+  uint32_t trampoline_allocatepool =
+      kernel_trampoline_group_.NewLongtermTrampoline(
+          SimpleForwardAllocatePoolTypeWithTag);
+  uint32_t trampoline_freepool =
+      kernel_trampoline_group_.NewLongtermTrampoline(SimpleForwardFreePool);
+
+  globals->XboxKernelDefaultObject.type = 1;
+  globals->XboxKernelDefaultObject.signal_state = 1;
+
+  util::XeInitializeListHead(&globals->XboxKernelDefaultObject.wait_list,
+                             context);
+
+  globals->XamNotifyListenerObjectType.allocate_proc = trampoline_allocatepool;
+  globals->XamNotifyListenerObjectType.free_proc = trampoline_freepool;
+  globals->XamNotifyListenerObjectType.delete_proc =
+      kernel_trampoline_group_.NewLongtermTrampoline(
+          XamNotifyListenerDeleteProc);
+  globals->XamNotifyListenerObjectType.unknown_size_or_object_ = 0xC;
+  globals->XamNotifyListenerObjectType.pool_tag = 0x66746F4E;
+  //todo: Enumerator!
 }
 
 void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,

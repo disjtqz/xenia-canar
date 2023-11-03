@@ -1517,7 +1517,7 @@ uint32_t xeKeWaitForSingleObjectEx(
     PPCContext* context,
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
     unsigned char waitmode, bool alertable, int64_t* timeout) {
-  return xeKeWaitForSingleObject(context, xeGetOBJECTDispatch(context, wait.m_base), 3, waitmode,
+  return xeKeWaitForSingleObject(context, xeObGetWaitableObject(context, wait.m_base), 3, waitmode,
                                  alertable,
                                  timeout);
 }
@@ -1528,7 +1528,7 @@ X_STATUS xeKeSignalAndWaitForSingleObjectEx(
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
     unsigned char mode, bool alertable, int64_t* timeout) {
 
-  X_DISPATCH_HEADER* waiter = xeGetOBJECTDispatch(context, wait.m_base);
+  X_DISPATCH_HEADER* waiter = xeObGetWaitableObject(context, wait.m_base);
 
   X_STATUS result = X_STATUS_SUCCESS;
   auto signal_type_ptr = signal.GetAdjacent()->object_type_ptr;

@@ -197,7 +197,7 @@ int32_t xeKeSetDisableBoostThread(PPCContext* context, X_KTHREAD* thread,
 int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
                               int priority);
 
-X_DISPATCH_HEADER* xeGetOBJECTDispatch(PPCContext* context, void* object);
+X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

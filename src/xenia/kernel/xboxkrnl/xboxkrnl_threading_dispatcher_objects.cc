@@ -355,7 +355,7 @@ int xeKeCancelExTimer(PPCContext* context, X_EXTIMER* timer) {
   return old_signalstate;
 }
 
-X_DISPATCH_HEADER* xeGetOBJECTDispatch(PPCContext* context, void* object) {
+X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object) {
   auto wait_object_type = context->TranslateVirtual<X_OBJECT_TYPE*>(
       reinterpret_cast<X_OBJECT_HEADER*>(object)[-1].object_type_ptr);
 

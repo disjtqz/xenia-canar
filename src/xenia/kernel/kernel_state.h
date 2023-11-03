@@ -76,9 +76,16 @@ struct KernelGuestGlobals {
   X_OBJECT_TYPE IoFileObjectType;
   X_OBJECT_TYPE ObDirectoryObjectType;
   X_OBJECT_TYPE ObSymbolicLinkObjectType;
+
+  //these are Xam object types, and not exported
+  X_OBJECT_TYPE XamNotifyListenerObjectType;
+  X_OBJECT_TYPE XamEnumeratorObjectType;
+
+  X_DISPATCH_HEADER XamDefaultObject;
+
   // a constant buffer that some object types' "unknown_size_or_object" field
   // points to
-  X_DISPATCH_HEADER OddObj;
+  X_DISPATCH_HEADER XboxKernelDefaultObject;
   X_KPROCESS idle_process;    // X_PROCTYPE_IDLE. runs in interrupt contexts. is
                               // also the context the kernel starts in?
   X_KPROCESS title_process;   // X_PROCTYPE_TITLE
@@ -212,6 +219,8 @@ class KernelState {
   void UnloadUserModule(const object_ref<UserModule>& module,
                         bool call_entry = true);
 
+  void XamCall(cpu::ppc::PPCContext* context, uint16_t ordinal);
+
   object_ref<KernelModule> GetKernelModule(const std::string_view name);
   template <typename T>
   object_ref<KernelModule> LoadKernelModule() {
@@ -344,6 +353,9 @@ class KernelState {
     a PPCContext to init
   */
   void BootInitializeStatics();
+
+  //runs on cpu0
+  void BootInitializeXam(cpu::ppc::PPCContext* context);
 
   void BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr);
   void BootCPU1Through5(cpu::ppc::PPCContext* context, X_KPCR* kpcr);
