@@ -68,9 +68,12 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
   // Stack must be aligned to 16kb pages
   stack_size = std::max((uint32_t)0x4000, ((stack_size + 0xFFF) & 0xFFFFF000));
 
+  //todo: this should be a system thread! but currently because of how thread priorities work
+  //making it a system thread causes it to never run!
+  //xam does some stuff with setting its priority, but its difficult to follow, so for now just make it a title thread
   auto thread =
       object_ref<XThread>(new XThread(kernel_state(), stack_size, 0, callback,
-                                      message.guest_address(), 0, true, false, kernel_state()->GetSystemProcess()));
+                                      message.guest_address(), XE_FLAG_AFFINITY_CPU2, true, false));//, kernel_state()->GetSystemProcess()));
 
   X_STATUS result = thread->Create();
 
