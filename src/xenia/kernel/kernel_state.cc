@@ -72,8 +72,6 @@ KernelState::KernelState(Emulator* emulator)
   }
   content_manager_ = std::make_unique<xam::ContentManager>(this, content_root);
 
-  // Hardcoded maximum of 2048 TLS slots.
-  tls_bitmap_.Resize(2048);
 
   auto hc_loc_heap = memory_->LookupHeap(strange_hardcoded_page_);
   bool fixed_alloc_worked = hc_loc_heap->AllocFixed(
@@ -143,19 +141,57 @@ util::XdbfGameData KernelState::module_xdbf(
   return util::XdbfGameData(nullptr, resource_size);
 }
 
-uint32_t KernelState::AllocateTLS() { return uint32_t(tls_bitmap_.Acquire()); }
+uint32_t KernelState::AllocateTLS(cpu::ppc::PPCContext* context) {
+  auto tls_lock = &GetKernelGuestGlobals(context)->tls_lock;
+  auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(context, tls_lock);
+  int result = -1;
+  {
+    auto current_process =
+        context->TranslateVirtual(GetKThread(context)->process);
 
-void KernelState::FreeTLS(uint32_t slot) {
-  const std::vector<object_ref<XThread>> threads =
-      object_table()->GetObjectsByType<XThread>();
-#if 0
-  for (const object_ref<XThread>& thread : threads) {
-    if (thread->is_guest_thread()) {
-      thread->SetTLSValue(slot, 0);
+    for (xe::be<uint32_t>* i = &current_process->tls_slot_bitmap[0];
+         i < &current_process->tls_slot_bitmap[8]; ++i) {
+      uint32_t lowest_allocated_bit = xe::lzcnt(*i);
+      if (lowest_allocated_bit != 32) {
+        // todo: figure out what this pointer arith is doing
+        result =
+            ((8 * ((char*)i - (char*)current_process) - 384) & 0xFFFFFFE0) +
+            lowest_allocated_bit;
+        *i &= ~(1 << (31 - lowest_allocated_bit));
+        break;
+      }
     }
   }
-#endif
-  tls_bitmap_.Release(slot);
+  xboxkrnl::xeKeKfReleaseSpinLock(context, tls_lock, old_irql);
+  return result;
+}
+
+void KernelState::FreeTLS(cpu::ppc::PPCContext* context, uint32_t slot) {
+  auto current_process =
+      context->TranslateVirtual(GetKThread(context)->process);
+
+  auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
+      context, &current_process->thread_list_spinlock);
+  //zero out all the values in this slot in each thread of the current process
+  for (auto&& process_thread :
+       current_process->thread_list.IterateForward(context)) {
+    uint32_t tls_address = process_thread.tls_address;
+    if (tls_address) {
+      context->TranslateVirtualBE<uint32_t>(
+          tls_address)[-static_cast<int>(slot) - 1] = 0;
+    }
+  }
+
+  //release spinlock, but keep the irql elevated
+  xboxkrnl::xeKeKfReleaseSpinLock(
+      context, &current_process->thread_list_spinlock, 0, false);
+  auto tls_lock = &GetKernelGuestGlobals(context)->tls_lock;
+
+  xboxkrnl::xeKeKfAcquireSpinLock(context, tls_lock, false);
+  //set the free bit for this slot
+  current_process->tls_slot_bitmap[slot / 32] |= 1U << (31 - (slot % 32));
+  //NOW we can lower the irql
+  xboxkrnl::xeKeKfReleaseSpinLock(context, tls_lock, old_irql);
 }
 
 void KernelState::RegisterTitleTerminateNotification(uint32_t routine,
@@ -232,7 +268,7 @@ object_ref<KernelModule> KernelState::GetKernelModule(
 
   return nullptr;
 }
-//very slow!
+// very slow!
 void KernelState::XamCall(cpu::ppc::PPCContext* context, uint16_t ordinal) {
   uint32_t address = this->GetModule("xam")->GetProcAddressByOrdinal(ordinal);
   context->processor->Execute(context->thread_state(), address);
@@ -671,8 +707,6 @@ void KernelState::TerminateTitle() {
   // Unregister all notify listeners.
   notify_listeners_.clear();
 
-  // Clear the TLS map.
-  tls_bitmap_.Reset();
 
   // Unset the executable module.
   executable_module_ = nullptr;
@@ -922,13 +956,6 @@ bool KernelState::Save(ByteStream* stream) {
   // Save the object table
   object_table_.Save(stream);
 
-  // Write the TLS allocation bitmap
-  auto tls_bitmap = tls_bitmap_.data();
-  stream->Write(uint32_t(tls_bitmap.size()));
-  for (size_t i = 0; i < tls_bitmap.size(); i++) {
-    stream->Write<uint64_t>(tls_bitmap[i]);
-  }
-
   // We save XThreads absolutely first, as they will execute code upon save
   // (which could modify the kernel state)
   auto threads = object_table_.GetObjectsByType<XThread>();
@@ -1076,11 +1103,7 @@ bool KernelState::Restore(ByteStream* stream) {
 
   // Read the TLS allocation bitmap
   auto num_bitmap_entries = stream->Read<uint32_t>();
-  auto& tls_bitmap = tls_bitmap_.data();
-  tls_bitmap.resize(num_bitmap_entries);
-  for (uint32_t i = 0; i < num_bitmap_entries; i++) {
-    tls_bitmap[i] = stream->Read<uint64_t>();
-  }
+
 
   uint32_t num_threads = stream->Read<uint32_t>();
   XELOGD("Loading {} threads...", num_threads);

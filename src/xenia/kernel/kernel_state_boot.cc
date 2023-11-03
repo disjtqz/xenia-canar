@@ -71,12 +71,12 @@ void KernelState::SetProcessTLSVars(X_KPROCESS* process, int num_slots,
   process->tls_slot_size = 4 * slots_padded;
   uint32_t count_div32 = slots_padded / 32;
   for (unsigned word_index = 0; word_index < count_div32; ++word_index) {
-    process->bitmap[word_index] = -1;
+    process->tls_slot_bitmap[word_index] = -1;
   }
 
   // set remainder of bitset
   if (((num_slots + 3) & 0x1C) != 0)
-    process->bitmap[count_div32] = -1 << (32 - ((num_slots + 3) & 0x1C));
+    process->tls_slot_bitmap[count_div32] = -1 << (32 - ((num_slots + 3) & 0x1C));
 }
 void AllocateThread(PPCContext* context) {
   uint32_t thread_mem_size = static_cast<uint32_t>(context->r[3]);

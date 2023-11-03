@@ -493,7 +493,7 @@ struct X_KPROCESS {
   uint8_t is_terminating;
   // one of X_PROCTYPE_
   uint8_t process_type;
-  xe::be<uint32_t> bitmap[8];
+  xe::be<uint32_t> tls_slot_bitmap[8];
   xe::be<uint32_t> unk_50;
   X_LIST_ENTRY unk_54;
   xe::be<uint32_t> unk_5C;

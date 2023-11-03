@@ -122,6 +122,8 @@ struct KernelGuestGlobals {
   uint32_t extimer_dpc_routine;
   uint32_t extimer_apc_kernel_routine;
   XDPC graphics_interrupt_dpc;
+
+  X_KSPINLOCK tls_lock;
 };
 
 struct X_KPCR_PAGE;
@@ -195,8 +197,8 @@ class KernelState {
     return kernel_guest_globals_ + offsetof(KernelGuestGlobals, idle_process);
   }
 
-  uint32_t AllocateTLS();
-  void FreeTLS(uint32_t slot);
+  uint32_t AllocateTLS(cpu::ppc::PPCContext* context);
+  void FreeTLS(cpu::ppc::PPCContext* context, uint32_t slot);
 
   void RegisterTitleTerminateNotification(uint32_t routine, uint32_t priority);
   void RemoveTitleTerminateNotification(uint32_t routine);
@@ -393,9 +395,6 @@ class KernelState {
   std::atomic<bool> dispatch_thread_running_;
   object_ref<XHostThread> dispatch_thread_;
   threading::AtomicListHeader dispatch_queue_;
-
-  BitMap tls_bitmap_;
-  std::unique_ptr<xe::threading::HighResolutionTimer> timestamp_timer_;
   cpu::backend::GuestTrampolineGroup kernel_trampoline_group_;
   // fixed address referenced by dashboards. Data is currently unknown
   uint32_t strange_hardcoded_page_ = 0x8E038634 & (~0xFFFF);

@@ -111,7 +111,7 @@ void AudioSystem::StartGuestWorkerThread() {
                     cpu::ThreadState::GetContext());
                 context->CheckInterrupt();
                 if (status == X_STATUS_NO_YIELD_PERFORMED) {
-                  int64_t wait_time = -10000 * 2; //2 ms
+                  int64_t wait_time = -20000 * 1; //2 ms
                   kernel::xboxkrnl::xeKeDelayExecutionThread(context, 1, true,
                                                              &wait_time);
                 }
@@ -132,7 +132,7 @@ void AudioSystem::StartGuestWorkerThread() {
                                            countof(args));
                 delete order;
                 context->CheckInterrupt();
-                guest_received_event_->Set();
+                //guest_received_event_->Set();
               }
               messages_rev.clear();
             }
@@ -213,7 +213,7 @@ void AudioSystem::WorkerThreadMain() {
         threading::Wait(guest_received_event_.get(), false);
         // StartGuestWorkerThread();
       }
-      threading::Wait(guest_received_event_.get(), false);
+      //threading::Wait(guest_received_event_.get(), false);
       //  processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
       //   this);
 

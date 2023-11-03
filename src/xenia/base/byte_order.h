@@ -106,6 +106,19 @@ struct endian_store {
     *this = *this + a;
     return *this;
   }
+  endian_store<T, E>& operator&=(int a) {
+    *this = *this & a;
+    return *this;
+  }
+  endian_store<T, E>& operator^=(int a) {
+    *this = *this ^ a;
+    return *this;
+  }
+  endian_store<T, E>& operator|=(int a) {
+    *this = *this | a;
+    return *this;
+  }
+
   endian_store<T, E>& operator-=(int a) {
     *this = *this - a;
     return *this;
