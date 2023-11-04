@@ -182,6 +182,16 @@ class Processor {
                                   uint32_t guest_address);
   uint32_t GuestAtomicDecrement32(ppc::PPCContext* context,
                                   uint32_t guest_address);
+  uint32_t GuestAtomicIncrement32(ppc::PPCContext* context,
+                                  void* guest_address) {
+    return GuestAtomicIncrement32(context,
+                                  context->HostToGuestVirtual(guest_address));
+  }
+  uint32_t GuestAtomicDecrement32(ppc::PPCContext* context,
+                                  void* guest_address) {
+    return GuestAtomicDecrement32(context,
+                                  context->HostToGuestVirtual(guest_address));
+  }
   uint32_t GuestAtomicOr32(ppc::PPCContext* context, uint32_t guest_address,
                            uint32_t mask);
   uint32_t GuestAtomicXor32(ppc::PPCContext* context, uint32_t guest_address,
@@ -190,7 +200,13 @@ class Processor {
                             uint32_t mask);
   bool GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
                         uint32_t new_value, uint32_t guest_address);
-  uint32_t GuestAtomicExchange32(ppc::PPCContext* context, void* guest_address, uint32_t new_value);
+  bool GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
+                        uint32_t new_value, void* guest_address) {
+    return GuestAtomicCAS32(context, old_value, new_value,
+                            context->HostToGuestVirtual(guest_address));
+  }
+  uint32_t GuestAtomicExchange32(ppc::PPCContext* context, void* guest_address,
+                                 uint32_t new_value);
 
  public:
   // TODO(benvanik): hide.
@@ -222,6 +238,7 @@ class Processor {
   HWClock* GetHWClock() { return hw_clock_.get(); }
   void NotifyHWThreadBooted(uint32_t i);
   bool AllHWThreadsBooted();
+
  private:
   // Synchronously demands a debug listener.
   void DemandDebugListener();

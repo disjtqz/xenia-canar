@@ -30,6 +30,10 @@ class KernelState;
 namespace xe {
 namespace cpu {
 namespace ppc {
+
+#if defined(DEBUG) || 1
+#define XE_TRACE_LAST_INTERRUPT_ADDR 1
+#endif
 struct PPCInterruptRequest {
   uintptr_t (*func_)(void* ud);
   void* ud_;
@@ -451,7 +455,7 @@ typedef struct alignas(64) PPCContext_s {
   uint64_t reserved_val;
   uint8_t* virtual_membase;
   uint32_t raised_status;
-#if defined(DEBUG)
+#if XE_TRACE_LAST_INTERRUPT_ADDR==1
   uint64_t recent_interrupt_addr_;
 #endif
   template <typename T = uint8_t*>

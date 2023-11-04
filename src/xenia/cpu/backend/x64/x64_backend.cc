@@ -1159,7 +1159,7 @@ static void NativeCall(void* ctx) {
 void* X64HelperEmitter::EmitEmulatedInterruptHelper() {
   _code_offsets code_offsets = {};
   pop(r9);
-#if defined(DEBUG)
+#if XE_TRACE_LAST_INTERRUPT_ADDR==1
   mov(qword[GetContextReg() +
             offsetof(ppc::PPCContext, recent_interrupt_addr_)],
       r9);

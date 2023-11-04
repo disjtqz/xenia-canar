@@ -18,6 +18,7 @@
 #include "xenia/base/logging.h"
 #include "xenia/base/string.h"
 #include "xenia/base/threading.h"
+#include "xenia/cpu/processor.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/user_module.h"
 #include "xenia/kernel/util/shim_utils.h"
@@ -434,9 +435,11 @@ pointer_result_t RtlImageNtHeader_entry(lpvoid_t module) {
 }
 DECLARE_XBOXKRNL_EXPORT1(RtlImageNtHeader, kNone, kImplemented);
 // https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-imagedirectoryentrytodata
-dword_result_t RtlImageDirectoryEntryToData_entry(dword_t Base, dword_t MappedAsImage_,
-                                           word_t DirectoryEntry, dword_t Size,
-                                           const ppc_context_t& ctx) {
+dword_result_t RtlImageDirectoryEntryToData_entry(dword_t Base,
+                                                  dword_t MappedAsImage_,
+                                                  word_t DirectoryEntry,
+                                                  dword_t Size,
+                                                  const ppc_context_t& ctx) {
   bool MappedAsImage = static_cast<unsigned char>(MappedAsImage_);
   uint32_t aligned_base = Base;
   if ((Base & 1) != 0) {
@@ -531,7 +534,7 @@ DECLARE_XBOXKRNL_EXPORT1(RtlImageXexHeaderField, kNone, kImplemented);
 #pragma pack(push, 1)
 struct X_RTL_CRITICAL_SECTION {
   X_DISPATCH_HEADER header;
-  int32_t lock_count;               // 0x10 -1 -> 0 on first lock
+  xe::be<int32_t> lock_count;       // 0x10 -1 -> 0 on first lock
   xe::be<int32_t> recursion_count;  // 0x14  0 -> 1 on first lock
   xe::be<uint32_t> owning_thread;   // 0x18 PKTHREAD 0 unless locked
 };
@@ -543,7 +546,7 @@ void xeRtlInitializeCriticalSection(X_RTL_CRITICAL_SECTION* cs,
   cs->header.type = 1;      // EventSynchronizationObject (auto reset)
   cs->header.absolute = 0;  // spin count div 256
   cs->header.signal_state = 0;
-  //todo: context should be arg
+  // todo: context should be arg
   util::XeInitializeListHead(&cs->header.wait_list, kernel_memory());
   cs->lock_count = -1;
   cs->recursion_count = 0;
@@ -569,8 +572,7 @@ X_STATUS xeRtlInitializeCriticalSectionAndSpinCount(X_RTL_CRITICAL_SECTION* cs,
   cs->header.absolute = spin_count_div_256;
   cs->header.signal_state = 0;
   // todo: context should be arg
-  util::XeInitializeListHead(&cs->header.wait_list,
-                            kernel_memory());
+  util::XeInitializeListHead(&cs->header.wait_list, kernel_memory());
   cs->lock_count = -1;
   cs->recursion_count = 0;
   cs->owning_thread = 0;
@@ -594,7 +596,8 @@ static void CriticalSectionPrefetchW(const void* vp) {
 #endif
 }
 
-void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const ppc_context_t& context) {
+void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
+                                   const ppc_context_t& context) {
   if (!cs.guest_address()) {
     XELOGE("Null critical section in RtlEnterCriticalSection!");
     return;
@@ -605,14 +608,16 @@ void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const p
 
   if (cs->owning_thread == cur_thread) {
     // We already own the lock.
-    xe::atomic_inc(&cs->lock_count);
+    // xe::atomic_inc(&cs->lock_count);
+    context->processor->GuestAtomicIncrement32(context, &cs->lock_count);
     cs->recursion_count++;
     return;
   }
 
   // Spin loop
   while (spin_count--) {
-    if (xe::atomic_cas(-1, 0, &cs->lock_count)) {
+    if (context->processor->GuestAtomicCAS32(context, 0xFFFFFFFFU, 0,
+                                             &cs->lock_count)) {
       // Acquired.
       cs->owning_thread = cur_thread;
       cs->recursion_count = 1;
@@ -622,10 +627,11 @@ void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const p
     }
   }
 
-  if (xe::atomic_inc(&cs->lock_count) != 0) {
+  if (context->processor->GuestAtomicIncrement32(context, &cs->lock_count)+1 !=
+      0) {
     // Create a full waiter.
-    uint32_t v = xeKeWaitForSingleObject(reinterpret_cast<void*>(cs.host_address()), 8, 0, 0,
-                            nullptr);
+    uint32_t v = xeKeWaitForSingleObject(
+        reinterpret_cast<void*>(cs.host_address()), 8, 0, 0, nullptr);
   }
 
   assert_true(cs->owning_thread == 0);
@@ -644,14 +650,15 @@ dword_result_t RtlTryEnterCriticalSection_entry(
   CriticalSectionPrefetchW(&cs->lock_count);
   uint32_t thread = GetKPCR(context)->prcb_data.current_thread;
 
-  if (xe::atomic_cas(-1, 0, &cs->lock_count)) {
+  if (context->processor->GuestAtomicCAS32(context, 0xFFFFFFFFU, 0,
+                                           &cs->lock_count)) {
     // Able to steal the lock right away.
     cs->owning_thread = thread;
     cs->recursion_count = 1;
     return 1;
   } else if (cs->owning_thread == thread) {
     // Already own the lock.
-    xe::atomic_inc(&cs->lock_count);
+    context->processor->GuestAtomicIncrement32(context, &cs->lock_count);
     ++cs->recursion_count;
     return 1;
   }
@@ -662,7 +669,8 @@ dword_result_t RtlTryEnterCriticalSection_entry(
 DECLARE_XBOXKRNL_EXPORT2(RtlTryEnterCriticalSection, kNone, kImplemented,
                          kHighFrequency);
 
-void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const ppc_context_t& context) {
+void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
+                                   const ppc_context_t& context) {
   if (!cs.guest_address()) {
     XELOGE("Null critical section in RtlLeaveCriticalSection!");
     return;
@@ -673,14 +681,14 @@ void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs, const p
   assert_true(cs->recursion_count > 0);
   if (--cs->recursion_count != 0) {
     assert_true(cs->recursion_count >= 0);
-
-    xe::atomic_dec(&cs->lock_count);
+    context->processor->GuestAtomicDecrement32(context, &cs->lock_count);
     return;
   }
 
   // Not owned - unlock!
   cs->owning_thread = 0;
-  if (xe::atomic_dec(&cs->lock_count) != -1) {
+  if ((context->processor->GuestAtomicDecrement32(context, &cs->lock_count) - 1) !=
+      -1) {
     // There were waiters - wake one of them.
     xeKeSetEvent(context, reinterpret_cast<X_KEVENT*>(cs.host_address()), 1, 0);
   }
@@ -837,7 +845,7 @@ static void RtlRip_entry(const ppc_context_t& ctx) {
 
   XELOGE("RtlRip called, arg1 = {}, arg2 = {}\n", msg_str1, msg_str2);
 
-  //we should break here... not sure what to do exactly
+  // we should break here... not sure what to do exactly
 }
 DECLARE_XBOXKRNL_EXPORT1(RtlRip, kNone, kImportant);
 

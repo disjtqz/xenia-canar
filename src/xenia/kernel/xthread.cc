@@ -140,7 +140,7 @@ XThread::~XThread() {
 
 bool XThread::IsInThread() {
   //  return Thread::IsInThread();
-  xe::FatalError("unimpl");
+  xenia_assert(false);
   return false;
 }
 

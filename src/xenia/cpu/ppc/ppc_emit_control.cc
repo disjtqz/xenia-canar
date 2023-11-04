@@ -36,7 +36,6 @@ using xe::cpu::hir::Value;
 int InstrEmit_branch(PPCHIRBuilder& f, const char* src, uint64_t cia,
                      Value* nia, bool lk, Value* cond = NULL,
                      bool expect_true = true, bool nia_is_lr = false) {
-  f.CheckInterrupt();
   uint32_t call_flags = 0;
 
   // TODO(benvanik): this may be wrong and overwrite LRs when not desired!
