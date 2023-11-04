@@ -1159,6 +1159,11 @@ static void NativeCall(void* ctx) {
 void* X64HelperEmitter::EmitEmulatedInterruptHelper() {
   _code_offsets code_offsets = {};
   pop(r9);
+#if defined(DEBUG)
+  mov(qword[GetContextReg() +
+            offsetof(ppc::PPCContext, recent_interrupt_addr_)],
+      r9);
+#endif
   CallNativeSafe(NativeCall);
   jmp(r9);
   code_offsets.prolog_stack_alloc = getSize();
@@ -1379,11 +1384,11 @@ void X64Backend::AcquireReservation(cpu::ppc::PPCContext* context,
   if (has_reserve) {
     goto already_has_a_reservation;
   }
-  uint32_t ecx = address >> 16;
+  uint32_t ecx = address >> RESERVE_BLOCK_SHIFT;
   unsigned r9d = 0;
   unsigned edx = ecx;
   edx >>= 6;
-  uint64_t* rdx = &r8->blocks[edx * 8];
+  uint64_t* rdx = &r8->blocks[edx];
   ecx &= 63;
   unsigned char r9b = _interlockedbittestandset64(
                           reinterpret_cast<volatile long long*>(rdx), ecx) ^
@@ -1396,20 +1401,6 @@ void X64Backend::AcquireReservation(cpu::ppc::PPCContext* context,
   return;
 already_has_a_reservation:
   __debugbreak();
-}
-
-bool X64Backend::CancelReservationOnAddress(cpu::ppc::PPCContext* context,
-    uint32_t address) {
-  auto bctx = this->BackendContextForGuestContext((void*)context);
-  auto r8 = bctx->reserve_helper_;
-  uint32_t ecx = address >> 16;
-  unsigned r9d = 0;
-  unsigned edx = ecx;
-  edx >>= 6;
-  uint64_t* rdx = &r8->blocks[edx * 8];
-  ecx &= 63;
-  return _interlockedbittestandreset64(
-      reinterpret_cast<volatile long long*>(rdx), ecx);
 }
 
 uint32_t X64Backend::ReservedLoad32(cpu::ppc::PPCContext* context,
@@ -1482,22 +1473,26 @@ bool ReservedStoreHelperHost(
     unsigned int address, T* host_address, T value) {
   value = xe::byte_swap(value);
 
-  unsigned char v4 = _bittestandreset((long*)&ADJ(context)->flags, 1u);
+  unsigned char v4 =
+      _bittestandreset((long*)&ADJ(context)->flags, kX64BackendHasReserveBit);
 
   if (!v4) {
     return false;
   }
-  uint32_t address_to_block = address >> 16;
-  uint64_t* v7 = &ADJ(context)->reserve_helper_->blocks[address_to_block >> 6];
-  _m_prefetchw(v7);
-  unsigned char result =
-      ADJ(context)->cached_reserve_offset == reinterpret_cast<uint64_t>(v7);
-  if ((uint64_t*)ADJ(context)->cached_reserve_offset == v7) {
-    uint32_t v8 = static_cast<uint32_t>(address_to_block & 0x3F);
-    result = ADJ(context)->cached_reserve_bit == static_cast<uint32_t>(v8);
+  uint32_t address_to_block = address >> RESERVE_BLOCK_SHIFT;
+  uint64_t* reserve_bitmap_element =
+      &ADJ(context)->reserve_helper_->blocks[address_to_block >> 6];
+  _m_prefetchw(reserve_bitmap_element);
+  unsigned char result = ADJ(context)->cached_reserve_offset ==
+                         reinterpret_cast<uint64_t>(reserve_bitmap_element);
+  if (result) {
+    uint32_t reserve_bit = static_cast<uint32_t>(address_to_block & 0x3F);
+    result =
+        ADJ(context)->cached_reserve_bit == static_cast<uint32_t>(reserve_bit);
     if (result) {
       if constexpr (sizeof(T) == 4) {
-        uint32_t compare_with = static_cast<uint32_t>(ADJ(context)->cached_reserve_value_);
+        uint32_t compare_with =
+            static_cast<uint32_t>(ADJ(context)->cached_reserve_value_);
         result =
             _InterlockedCompareExchange((volatile unsigned int*)host_address,
                                         value, compare_with) == compare_with;
@@ -1508,13 +1503,18 @@ bool ReservedStoreHelperHost(
             _InterlockedCompareExchange64((volatile long long*)host_address,
                                           value, compare_with) == compare_with;
       }
-      v4 = _interlockedbittestandreset64((volatile long long*)v7, v8);
+      v4 = _interlockedbittestandreset64(
+          (volatile long long*)reserve_bitmap_element, reserve_bit);
       if (v4) {
         return static_cast<bool>(result & v4);
       }
+    } else {
+      __debugbreak();
     }
+  } else {
+    __debugbreak();
   }
-  __debugbreak();
+  //__debugbreak();
   return false;
 }
 
@@ -1598,8 +1598,8 @@ void* X64HelperEmitter::EmitReservedStoreHelper(bool bit64) {
 
 bool X64Backend::ReservedStore32(cpu::ppc::PPCContext* context,
                                  uint32_t address, uint32_t value) {
-  return ReservedStoreHelperHost<uint32_t>(context, address,
-                          context->TranslateVirtual<uint32_t*>(address), value);
+  return ReservedStoreHelperHost<uint32_t>(
+      context, address, context->TranslateVirtual<uint32_t*>(address), value);
 }
 bool X64Backend::ReservedStore64(cpu::ppc::PPCContext* context,
                                  uint32_t address, uint64_t value) {

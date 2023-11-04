@@ -171,6 +171,7 @@ static void IPIInterruptProc(PPCContext* context) {}
 // ues _KTHREAD list_entry field at 0x94
 // this dpc uses none of the routine args
 static void DestroyThreadDpc(PPCContext* context) {
+  XELOGD("DestroyThreadDpc");
   //  context->kernel_state->LockDispatcherAtIrql(context);
 
   // context->kernel_state->UnlockDispatcherAtIrql(context);
@@ -214,6 +215,7 @@ void KernelState::InitProcessorStack(X_KPCR* pcr) {
 }
 
 void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
+  XELOGD("Setting up processor {} pcr", which_processor_index);
   X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
   memset(page_for, 0, 4096);
 
@@ -279,6 +281,7 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
 // need to implement "initialize thread" function!
 // this gets called after initial pcr
 void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
+  XELOGD("Setting up processor {} idle thread", which_processor_index);
   X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
   X_KTHREAD* thread = &page_for->idle_process_thread;
   thread->thread_state = 2;
@@ -311,12 +314,14 @@ void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
 }
 
 void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {
+  XELOGD("SetupKPCRPageForCpu - cpu {}", cpunum);
   SetupProcessorPCR(cpunum);
   SetupProcessorIdleThread(cpunum);
 }
 
 static void KernelNullsub(PPCContext* context) {}
 void KernelState::BootInitializeStatics() {
+  XELOGD("Initializing kernel statics");
   kernel_guest_globals_ = memory_->SystemHeapAlloc(sizeof(KernelGuestGlobals));
 
   KernelGuestGlobals* block =
@@ -520,6 +525,7 @@ static void XamNotifyListenerDeleteProc(PPCContext* context) {
 }
 
 void KernelState::BootInitializeXam(cpu::ppc::PPCContext* context) {
+  XELOGD("BootInitializeXam");
   auto globals = context->kernel_state->GetKernelGuestGlobals(context);
 
   uint32_t trampoline_allocatepool =
@@ -578,6 +584,7 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   }
 }
 void KernelState::BootKernel() {
+  XELOGD("Booting kernel");
   BootInitializeStatics();
 
   // initialize the idle process' thread list prior to startup for convenience
@@ -605,6 +612,7 @@ void KernelState::BootKernel() {
   while (!processor()->AllHWThreadsBooted()) {
     threading::NanoSleep(10000);  // 10 microseconds
   }
+  XELOGD("All processor HW threads have booted up");
   processor()->GetHWClock()->SetInterruptCallback(HWClockCallback);
 
   auto bundle =

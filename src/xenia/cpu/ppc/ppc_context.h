@@ -451,6 +451,9 @@ typedef struct alignas(64) PPCContext_s {
   uint64_t reserved_val;
   uint8_t* virtual_membase;
   uint32_t raised_status;
+#if defined(DEBUG)
+  uint64_t recent_interrupt_addr_;
+#endif
   template <typename T = uint8_t*>
   inline T TranslateVirtual(uint32_t guest_address) XE_RESTRICT const {
     static_assert(std::is_pointer_v<T>);
@@ -548,7 +551,7 @@ typedef struct alignas(64) PPCContext_s {
   void AssertInterruptsOff() { xenia_assert(!ExternalInterruptsEnabled()); }
   void AssertInterruptsOn() { xenia_assert(ExternalInterruptsEnabled()); }
 
-  //for a very weak emulation of RtlRaiseStatus
+  // for a very weak emulation of RtlRaiseStatus
   void RaiseStatus(uint32_t stat) {
     status_raised = true;
     raised_status = stat;

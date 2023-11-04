@@ -57,7 +57,7 @@ static constexpr uint32_t GUEST_TRAMPOLINE_MIN_LEN = 8;
 static constexpr uint32_t MAX_GUEST_TRAMPOLINES =
     (GUEST_TRAMPOLINE_END - GUEST_TRAMPOLINE_BASE) / GUEST_TRAMPOLINE_MIN_LEN;
 
-#define RESERVE_BLOCK_SHIFT 16
+#define RESERVE_BLOCK_SHIFT 7
 
 #define RESERVE_NUM_ENTRIES \
   ((1024ULL * 1024ULL * 1024ULL * 4ULL) >> RESERVE_BLOCK_SHIFT)
@@ -202,8 +202,6 @@ class X64Backend : public Backend {
   virtual bool ReservedStore64(cpu::ppc::PPCContext* context, uint32_t address,
                                uint64_t value) override;
 
-  virtual bool CancelReservationOnAddress(cpu::ppc::PPCContext* context,
-                                          uint32_t address) override;
 #if XE_X64_PROFILER_AVAILABLE == 1
   uint64_t* GetProfilerRecordForFunction(uint32_t guest_address);
 #endif

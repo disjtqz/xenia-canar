@@ -77,7 +77,7 @@ struct KernelGuestGlobals {
   X_OBJECT_TYPE ObDirectoryObjectType;
   X_OBJECT_TYPE ObSymbolicLinkObjectType;
 
-  //these are Xam object types, and not exported
+  // these are Xam object types, and not exported
   X_OBJECT_TYPE XamNotifyListenerObjectType;
   X_OBJECT_TYPE XamEnumeratorObjectType;
 
@@ -94,12 +94,13 @@ struct KernelGuestGlobals {
                               // ExCreateThread and the thread flag 0x2
 
   // locks.
-  X_KSPINLOCK dispatcher_lock;  // called the "dispatcher lock" in nt 3.5 ppc
-                                // .dbg file. Used basically everywhere that
-                                // DISPATCHER_HEADER'd objects appear
+  alignas(128)
+      X_KSPINLOCK dispatcher_lock;  // called the "dispatcher lock" in nt 3.5
+                                    // ppc .dbg file. Used basically everywhere
+                                    // that DISPATCHER_HEADER'd objects appear
   // this lock is only used in some Ob functions. It's odd that it is used at
   // all, as each table already has its own spinlock.
-  X_KSPINLOCK ob_lock;
+  alignas(128) X_KSPINLOCK ob_lock;
 
   // if LLE emulating Xam, this is needed or you get an immediate freeze
   X_KEVENT UsbdBootEnumerationDoneEvent;
@@ -327,18 +328,21 @@ class KernelState {
   uint64_t GetKernelInterruptTime();
   X_KPCR_PAGE* KPCRPageForCpuNumber(uint32_t i);
 
-  X_STATUS ContextSwitch(cpu::ppc::PPCContext* context, X_KTHREAD* guest, bool from_idle_loop=false);
+  X_STATUS ContextSwitch(cpu::ppc::PPCContext* context, X_KTHREAD* guest,
+                         bool from_idle_loop = false);
   // the cpu number is encoded in the pcr address
   uint32_t GetPCRCpuNum(X_KPCR* pcr) {
     return (memory_->HostToGuestVirtual(pcr) >> 12) & 0xF;
   }
-  cpu::XenonInterruptController* InterruptControllerFromPCR(cpu::ppc::PPCContext* context, X_KPCR* pcr);
+  cpu::XenonInterruptController* InterruptControllerFromPCR(
+      cpu::ppc::PPCContext* context, X_KPCR* pcr);
   void SetCurrentInterruptPriority(cpu::ppc::PPCContext* context, X_KPCR* pcr,
                                    uint32_t priority);
   static void GenericExternalInterruptEpilog(cpu::ppc::PPCContext* context);
 
   static void GraphicsInterruptDPC(cpu::ppc::PPCContext* context);
   static void CPInterruptIPI(void* ud);
+
  private:
   static void LaunchModuleInterrupt(void* ud);
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
@@ -356,7 +360,7 @@ class KernelState {
   */
   void BootInitializeStatics();
 
-  //runs on cpu0
+  // runs on cpu0
   void BootInitializeXam(cpu::ppc::PPCContext* context);
 
   void BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr);

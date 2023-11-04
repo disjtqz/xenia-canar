@@ -190,8 +190,8 @@ class Processor {
                             uint32_t mask);
   bool GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
                         uint32_t new_value, uint32_t guest_address);
-  bool CancelReservationOnAddress(ppc::PPCContext* context,
-                                  uint32_t guest_address);
+  uint32_t GuestAtomicExchange32(ppc::PPCContext* context, void* guest_address, uint32_t new_value);
+
  public:
   // TODO(benvanik): hide.
   void OnThreadCreated(uint32_t handle, ThreadState* thread_state,

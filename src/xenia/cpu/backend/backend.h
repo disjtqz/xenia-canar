@@ -133,11 +133,6 @@ class Backend {
       uint64_t value) {
     return false;
   }
-
-  virtual bool CancelReservationOnAddress(cpu::ppc::PPCContext* context,
-      uint32_t address) {
-    return false;
-  }
  protected:
   Processor* processor_ = nullptr;
   MachineInfo machine_info_;

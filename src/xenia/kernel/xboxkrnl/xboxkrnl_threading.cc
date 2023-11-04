@@ -1104,8 +1104,11 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
     return old_irql;
   }
   // Lock.
-  while (!xe::atomic_cas(0, xe::byte_swap(static_cast<uint32_t>(ctx->r[13])),
-                         &lock->pcr_of_owner.value)) {
+  auto processor = ctx->processor;
+
+  while (!processor->GuestAtomicCAS32(
+      ctx, 0, static_cast<uint32_t>(ctx->r[13]),
+      ctx->HostToGuestVirtual(&lock->pcr_of_owner.value))) {
     // bad hack. always check once reworked interrupt controller
     if (change_irql) {
       ctx->CheckInterrupt();
@@ -1126,7 +1129,17 @@ void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                            uint32_t old_irql, bool change_irql) {
   assert_true(lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13]));
   // Unlock.
-  lock->pcr_of_owner.value = 0;
+  //if someone has a reservation on this address, make sure its been cancelled before we store
+  
+  //lock->pcr_of_owner.value = 0;
+
+  //this is just to cancel adjacent reserves
+
+  ctx->processor->GuestAtomicExchange32(ctx, &lock->pcr_of_owner, 0);
+  //_mm_mfence();
+  //ctx->processor->CancelReservationOnAddress(ctx, &lock->pcr_of_owner);
+
+
 
   if (change_irql) {
     // Unlock.

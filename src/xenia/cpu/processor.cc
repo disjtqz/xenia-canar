@@ -1414,15 +1414,21 @@ bool Processor::GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
   }
 }
 
-bool Processor::CancelReservationOnAddress(ppc::PPCContext* context,
-    uint32_t guest_address) {
+uint32_t Processor::GuestAtomicExchange32(ppc::PPCContext* context,
+                                          void* guest_address,
+                                          uint32_t new_value) {
   if (cvars::use_reserve_in_host_code) {
-    backend()->CancelReservationOnAddress(context, guest_address);
+    uint32_t result;
+    uint32_t gaddr = context->HostToGuestVirtual(guest_address);
+    do {
+      result = backend()->ReservedLoad32(context, gaddr);
+    } while (!backend()->ReservedStore32(context, gaddr, new_value));
+    return result;
   } else {
-    return false;
+    return xe::byte_swap(xe::atomic_exchange(xe::byte_swap(new_value),
+                                             (uint32_t*)guest_address));
   }
 }
-
 void Processor::NotifyHWThreadBooted(uint32_t i) {
   xe::atomic_inc(&num_booted_hwthreads_);
 }

@@ -1237,8 +1237,10 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   params->interrupt_callback_ = interrupt_callback;
   params->interrupt_callback_data_ = interrupt_callback_data;
   auto hwthread = processor_->GetCPUThread(cpu);
-  while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
-  }
+  //while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
+ // }
+  hwthread->SendGuestIPI(CPInterruptIPI, params);
+
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {
