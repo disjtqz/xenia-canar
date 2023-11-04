@@ -79,6 +79,7 @@ class X64HelperEmitter : public X64Emitter {
   void* EmitFrsqrteHelper();
 
   void* EmitEmulatedInterruptHelper();
+
  private:
   void* EmitCurrentForOffsets(const _code_offsets& offsets,
                               size_t stack_size = 0);
@@ -294,7 +295,6 @@ bool X64Backend::Initialize(Processor* processor) {
 
   if (cvars::emulate_guest_interrupts_in_software) {
     emulated_interrupt_helper_ = thunk_emitter.EmitEmulatedInterruptHelper();
-
   }
   // Set the code cache to use the ResolveFunction thunk for default
   // indirections.
@@ -930,7 +930,8 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
   Xbyak::Label L18, L2, L35, L4, L9, L8, L10, L11, L12, L13, L1;
   Xbyak::Label LC1, _LCPI3_1;
   Xbyak::Label handle_denormal_input;
-  Xbyak::Label specialcheck_1, convert_to_signed_inf_and_ret, handle_oddball_denormal;
+  Xbyak::Label specialcheck_1, convert_to_signed_inf_and_ret,
+      handle_oddball_denormal;
 
   auto emulate_lzcnt_helper_unary_reg = [this](auto& reg, auto& scratch_reg) {
     inLocalLabel();
@@ -947,19 +948,19 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
   vmovd(r8d, xmm0);
   vmovaps(xmm1, xmm0);
   mov(ecx, r8d);
-  //extract mantissa
+  // extract mantissa
   and_(ecx, 0x7fffff);
   mov(edx, ecx);
   cmp(r8d, 0xff800000);
   jz(specialcheck_1, CodeGenerator::T_NEAR);
-  //is exponent zero?
+  // is exponent zero?
   test(r8d, 0x7f800000);
   jne(L18);
   test(ecx, ecx);
   jne(L2);
 
   L(L18);
-  //extract biased exponent and unbias
+  // extract biased exponent and unbias
   mov(r9d, r8d);
   shr(r9d, 23);
   movzx(r9d, r9b);
@@ -994,7 +995,7 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
   vxorps(xmm0, xmm0, xmm0);
   vcomiss(xmm0, xmm1);
   jbe(L9);
-  vmovss(xmm2, ptr[rip+LC1]);
+  vmovss(xmm2, ptr[rip + LC1]);
   vandps(xmm1, GetXmmConstPtr(XMMSignMaskF32));
 
   test(edx, edx);
@@ -1025,7 +1026,7 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
 
   L(L11);
   vxorps(xmm2, xmm2, xmm2);
-  vmovss(xmm0, ptr[rip+LC1]);
+  vmovss(xmm0, ptr[rip + LC1]);
   vcomiss(xmm2, xmm1);
   ja(L1, CodeGenerator::T_NEAR);
   mov(ecx, 127);
@@ -1086,7 +1087,7 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
   or_(ecx, r8d);
   or_(ecx, eax);
   vmovd(xmm0, ecx);
-  vaddss(xmm0, xmm1);//apply DAZ behavior to output
+  vaddss(xmm0, xmm1);  // apply DAZ behavior to output
 
   L(L1);
   ret();
@@ -1113,7 +1114,8 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
     xchg(ecx, edx);
     // esi is just the value of xmm0's low word, so we can restore it from there
     shl(r8d, cl);
-    mov(ecx, edx);  // restore ecx, dont xchg because we're going to spoil edx anyway
+    mov(ecx,
+        edx);  // restore ecx, dont xchg because we're going to spoil edx anyway
     mov(edx, r8d);
     vmovd(r8d, xmm0);
   }
@@ -1121,8 +1123,8 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
   jmp(L4);
 
   L(specialcheck_1);
-  //should be extremely rare
-  vmovss(xmm0, ptr[rip+LC1]);
+  // should be extremely rare
+  vmovss(xmm0, ptr[rip + LC1]);
   ret();
 
   L(handle_oddball_denormal);
@@ -1137,7 +1139,8 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
   dd(0xFF800000);
   dd(0x7F800000);
   L(LC1);
-  //the position of 7FC00000 here matters, this address will be indexed in handle_oddball_denormal
+  // the position of 7FC00000 here matters, this address will be indexed in
+  // handle_oddball_denormal
   dd(0x7FC00000);
   dd(0x5F34FD00);
 
@@ -1171,11 +1174,13 @@ void* X64HelperEmitter::EmitVectorVRsqrteHelper(void* scalar_helper) {
   Xbyak::Label check_scalar_operation_in_vmx, actual_vector_version;
   auto result_ptr =
       GetBackendCtxPtr(offsetof(X64BackendContext, helper_scratch_xmms[0]));
-  auto counter_ptr = GetBackendCtxPtr(offsetof(X64BackendContext, helper_scratch_u64s[2]));
+  auto counter_ptr =
+      GetBackendCtxPtr(offsetof(X64BackendContext, helper_scratch_u64s[2]));
   counter_ptr.setBit(64);
 
-  //shuffle and xor to check whether all lanes are equal
-  //sadly has to leave the float pipeline for the vptest, which is moderate yikes
+  // shuffle and xor to check whether all lanes are equal
+  // sadly has to leave the float pipeline for the vptest, which is moderate
+  // yikes
   vmovhlps(xmm2, xmm0, xmm0);
   vmovsldup(xmm1, xmm0);
   vxorps(xmm1, xmm1, xmm0);
@@ -1183,7 +1188,7 @@ void* X64HelperEmitter::EmitVectorVRsqrteHelper(void* scalar_helper) {
   vorps(xmm2, xmm1, xmm2);
   vptest(xmm2, xmm2);
   jnz(check_scalar_operation_in_vmx);
-  //jmp(scalar_helper, CodeGenerator::T_NEAR);
+  // jmp(scalar_helper, CodeGenerator::T_NEAR);
   call(scalar_helper);
   vshufps(xmm0, xmm0, xmm0, 0);
   ret();
@@ -1192,7 +1197,7 @@ void* X64HelperEmitter::EmitVectorVRsqrteHelper(void* scalar_helper) {
 
   vptest(xmm0, ptr[backend()->LookupXMMConstantAddress(XMMThreeFloatMask)]);
   jnz(actual_vector_version);
-  vshufps(xmm0, xmm0,xmm0, _MM_SHUFFLE(3, 3, 3, 3));
+  vshufps(xmm0, xmm0, xmm0, _MM_SHUFFLE(3, 3, 3, 3));
   call(scalar_helper);
   // this->DebugBreak();
   vinsertps(xmm0, xmm0, (3 << 4) | (0 << 6));
@@ -1212,11 +1217,11 @@ void* X64HelperEmitter::EmitVectorVRsqrteHelper(void* scalar_helper) {
 
   L(loop);
   lea(rax, result_ptr);
-  vmovss(xmm0, ptr[rax+rcx*4]);
+  vmovss(xmm0, ptr[rax + rcx * 4]);
   call(scalar_helper);
   mov(rcx, counter_ptr);
   lea(rax, result_ptr);
-  vmovss(ptr[rax+rcx*4], xmm0);
+  vmovss(ptr[rax + rcx * 4], xmm0);
   inc(ecx);
   cmp(ecx, 4);
   mov(counter_ptr, rcx);
@@ -1297,7 +1302,7 @@ void* X64HelperEmitter::EmitFrsqrteHelper() {
   xor_(eax, 8);
   sub(edx, ecx);
   lea(rcx, ptr[rip + frsqrte_table2]);
-  movzx(eax, byte[rax+rcx]);
+  movzx(eax, byte[rax + rcx]);
   sal(rdx, 52);
   sal(rax, 44);
   or_(rax, rdx);
@@ -1365,6 +1370,69 @@ void* X64HelperEmitter::EmitFrsqrteHelper() {
   return EmitCurrentForOffsets(code_offsets);
 }
 
+void X64Backend::AcquireReservation(cpu::ppc::PPCContext* context,
+                                    uint32_t address) {
+  auto bctx = this->BackendContextForGuestContext((void*)context);
+  unsigned char has_reserve = _bittestandreset(
+      reinterpret_cast<long*>(&bctx->flags), kX64BackendHasReserveBit);
+  auto r8 = bctx->reserve_helper_;
+  if (has_reserve) {
+    goto already_has_a_reservation;
+  }
+  uint32_t ecx = address >> 16;
+  unsigned r9d = 0;
+  unsigned edx = ecx;
+  edx >>= 6;
+  uint64_t* rdx = &r8->blocks[edx * 8];
+  ecx &= 63;
+  unsigned char r9b = _interlockedbittestandset64(
+                          reinterpret_cast<volatile long long*>(rdx), ecx) ^
+                      1;
+
+  r9b <<= kX64BackendHasReserveBit;
+  bctx->cached_reserve_offset = reinterpret_cast<uint64_t>(rdx);
+  bctx->cached_reserve_bit = ecx;
+  bctx->flags |= static_cast<uint32_t>(r9b);
+  return;
+already_has_a_reservation:
+  __debugbreak();
+}
+
+bool X64Backend::CancelReservationOnAddress(cpu::ppc::PPCContext* context,
+    uint32_t address) {
+  auto bctx = this->BackendContextForGuestContext((void*)context);
+  auto r8 = bctx->reserve_helper_;
+  uint32_t ecx = address >> 16;
+  unsigned r9d = 0;
+  unsigned edx = ecx;
+  edx >>= 6;
+  uint64_t* rdx = &r8->blocks[edx * 8];
+  ecx &= 63;
+  return _interlockedbittestandreset64(
+      reinterpret_cast<volatile long long*>(rdx), ecx);
+}
+
+uint32_t X64Backend::ReservedLoad32(cpu::ppc::PPCContext* context,
+                                    uint32_t address) {
+  auto address_host = context->TranslateVirtual<uint32_t*>(address);
+  swcache::PrefetchW(address_host);
+  AcquireReservation(context, address);
+  auto bctx = this->BackendContextForGuestContext((void*)context);
+  uint32_t result_unswapped = *address_host;
+  bctx->cached_reserve_value_ = static_cast<uint64_t>(result_unswapped);
+  return xe::byte_swap(result_unswapped);
+}
+uint64_t X64Backend::ReservedLoad64(cpu::ppc::PPCContext* context,
+                                    uint32_t address) {
+  auto address_host = context->TranslateVirtual<uint64_t*>(address);
+  swcache::PrefetchW(address_host);
+  AcquireReservation(context, address);
+  auto bctx = this->BackendContextForGuestContext((void*)context);
+  uint64_t result_unswapped = *address_host;
+  bctx->cached_reserve_value_ = result_unswapped;
+  return xe::byte_swap(result_unswapped);
+}
+
 void* X64HelperEmitter::EmitTryAcquireReservationHelper() {
   _code_offsets code_offsets = {};
   code_offsets.prolog = getSize();
@@ -1405,6 +1473,51 @@ void* X64HelperEmitter::EmitTryAcquireReservationHelper() {
   code_offsets.tail = getSize();
   return EmitCurrentForOffsets(code_offsets);
 }
+
+template <typename T>
+bool ReservedStoreHelperHost(
+    ShiftedPointer<ppc::PPCContext_s, X64BackendContext,
+                   sizeof(X64BackendContext)>
+        context,
+    unsigned int address, T* host_address, T value) {
+  value = xe::byte_swap(value);
+
+  unsigned char v4 = _bittestandreset((long*)&ADJ(context)->flags, 1u);
+
+  if (!v4) {
+    return false;
+  }
+  uint32_t address_to_block = address >> 16;
+  uint64_t* v7 = &ADJ(context)->reserve_helper_->blocks[address_to_block >> 6];
+  _m_prefetchw(v7);
+  unsigned char result =
+      ADJ(context)->cached_reserve_offset == reinterpret_cast<uint64_t>(v7);
+  if ((uint64_t*)ADJ(context)->cached_reserve_offset == v7) {
+    uint32_t v8 = static_cast<uint32_t>(address_to_block & 0x3F);
+    result = ADJ(context)->cached_reserve_bit == static_cast<uint32_t>(v8);
+    if (result) {
+      if constexpr (sizeof(T) == 4) {
+        uint32_t compare_with = static_cast<uint32_t>(ADJ(context)->cached_reserve_value_);
+        result =
+            _InterlockedCompareExchange((volatile unsigned int*)host_address,
+                                        value, compare_with) == compare_with;
+      } else {
+        uint64_t compare_with = ADJ(context)->cached_reserve_value_;
+
+        result =
+            _InterlockedCompareExchange64((volatile long long*)host_address,
+                                          value, compare_with) == compare_with;
+      }
+      v4 = _interlockedbittestandreset64((volatile long long*)v7, v8);
+      if (v4) {
+        return static_cast<bool>(result & v4);
+      }
+    }
+  }
+  __debugbreak();
+  return false;
+}
+
 // ecx=guest addr
 // r9 = host addr
 // r8 = value
@@ -1481,6 +1594,17 @@ void* X64HelperEmitter::EmitReservedStoreHelper(bool bit64) {
   code_offsets.epilog = getSize();
   code_offsets.tail = getSize();
   return EmitCurrentForOffsets(code_offsets);
+}
+
+bool X64Backend::ReservedStore32(cpu::ppc::PPCContext* context,
+                                 uint32_t address, uint32_t value) {
+  return ReservedStoreHelperHost<uint32_t>(context, address,
+                          context->TranslateVirtual<uint32_t*>(address), value);
+}
+bool X64Backend::ReservedStore64(cpu::ppc::PPCContext* context,
+                                 uint32_t address, uint64_t value) {
+  return ReservedStoreHelperHost<uint64_t>(
+      context, address, context->TranslateVirtual<uint64_t*>(address), value);
 }
 
 void X64HelperEmitter::EmitSaveVolatileRegs() {
@@ -1716,7 +1840,6 @@ uint32_t X64Backend::CreateGuestTrampoline(GuestTrampolineProc proc,
       GUEST_TRAMPOLINE_BASE +
       (static_cast<uint32_t>(new_index) * GUEST_TRAMPOLINE_MIN_LEN);
 
-
   code_cache()->AddIndirection(
       indirection_guest_addr,
       static_cast<uint32_t>(reinterpret_cast<uintptr_t>(write_pos)));
@@ -1725,7 +1848,7 @@ uint32_t X64Backend::CreateGuestTrampoline(GuestTrampolineProc proc,
   funct->set_end_address(indirection_guest_addr + 4);
 
   processor()->DirectlyInsertFunction(indirection_guest_addr, funct);
-  
+
   return indirection_guest_addr;
 }
 
@@ -1739,7 +1862,6 @@ void X64Backend::FreeGuestTrampoline(uint32_t trampoline_addr) {
   processor()->RemoveFunctionByAddress(trampoline_addr);
   guest_trampoline_address_bitmap_.Release(index);
   delete old_function;
-  
 }
 }  // namespace x64
 }  // namespace backend

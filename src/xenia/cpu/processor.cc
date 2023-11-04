@@ -49,6 +49,12 @@ DEFINE_path(trace_function_data_path, "", "File to write trace data to.",
 DEFINE_bool(break_on_start, false, "Break into the debugger on startup.",
             "CPU");
 
+DEFINE_bool(use_reserve_in_host_code, true,
+            "If true try to emulate RESERVE behavior in kernel code, and try "
+            "to emulate stores cancelling reservations in certain places. If "
+            "false host atomics are used.",
+            "CPU");
+
 namespace xe {
 namespace kernel {
 class XThread;
@@ -520,24 +526,15 @@ void Processor::OnFunctionDefined(Function* function) {
 }
 
 void Processor::OnThreadCreated(uint32_t thread_handle,
-                                ThreadState* thread_state, Thread* thread) {
-}
+                                ThreadState* thread_state, Thread* thread) {}
 
-void Processor::OnThreadExit(uint32_t thread_id) {
+void Processor::OnThreadExit(uint32_t thread_id) {}
 
-}
+void Processor::OnThreadDestroyed(uint32_t thread_id) {}
 
-void Processor::OnThreadDestroyed(uint32_t thread_id) {
+void Processor::OnThreadEnteringWait(uint32_t thread_id) {}
 
-}
-
-void Processor::OnThreadEnteringWait(uint32_t thread_id) {
-
-}
-
-void Processor::OnThreadLeavingWait(uint32_t thread_id) {
-
-}
+void Processor::OnThreadLeavingWait(uint32_t thread_id) {}
 
 std::vector<ThreadDebugInfo*> Processor::QueryThreadDebugInfos() {
   std::vector<ThreadDebugInfo*> result;
@@ -550,7 +547,7 @@ ThreadDebugInfo* Processor::QueryThreadDebugInfo(uint32_t thread_id) {
 }
 
 void Processor::AddBreakpoint(Breakpoint* breakpoint) {
-  //auto global_lock = global_critical_region_.Acquire();
+  // auto global_lock = global_critical_region_.Acquire();
 
   // Add to breakpoints map.
   breakpoints_.push_back(breakpoint);
@@ -561,7 +558,7 @@ void Processor::AddBreakpoint(Breakpoint* breakpoint) {
 }
 
 void Processor::RemoveBreakpoint(Breakpoint* breakpoint) {
-  //auto global_lock = global_critical_region_.Acquire();
+  // auto global_lock = global_critical_region_.Acquire();
 
   // Uninstall (if needed).
   if (execution_state_ == ExecutionState::kRunning) {
@@ -574,7 +571,7 @@ void Processor::RemoveBreakpoint(Breakpoint* breakpoint) {
 }
 
 Breakpoint* Processor::FindBreakpoint(uint32_t address) {
-//  auto global_lock = global_critical_region_.Acquire();
+  //  auto global_lock = global_critical_region_.Acquire();
   for (auto breakpoint : breakpoints_) {
     if (breakpoint->address() == address) {
       return breakpoint;
@@ -1302,60 +1299,128 @@ uint32_t Processor::CalculateNextGuestInstruction(ThreadDebugInfo* thread_info,
 }
 uint32_t Processor::GuestAtomicIncrement32(ppc::PPCContext* context,
                                            uint32_t guest_address) {
-  uint32_t* host_address = context->TranslateVirtual<uint32_t*>(guest_address);
+  if (cvars::use_reserve_in_host_code) {
+    uint32_t result;
+    do {
+      result = backend()->ReservedLoad32(context, guest_address);
+    } while (!backend()->ReservedStore32(context, guest_address, result + 1));
+    return result;
+  } else {
+    uint32_t* host_address =
+        context->TranslateVirtual<uint32_t*>(guest_address);
 
-  uint32_t result;
-  while (true) {
-    result = *host_address;
-    // todo: should call a processor->backend function that acquires a
-    // reservation instead of using host atomics
-    if (xe::atomic_cas(result, xe::byte_swap(xe::byte_swap(result) + 1),
-                       host_address)) {
-      break;
+    uint32_t result;
+    while (true) {
+      result = *host_address;
+      // todo: should call a processor->backend function that acquires a
+      // reservation instead of using host atomics
+      if (xe::atomic_cas(result, xe::byte_swap(xe::byte_swap(result) + 1),
+                         host_address)) {
+        break;
+      }
     }
+    return xe::byte_swap(result);
   }
-  return xe::byte_swap(result);
 }
 uint32_t Processor::GuestAtomicDecrement32(ppc::PPCContext* context,
                                            uint32_t guest_address) {
-  uint32_t* host_address = context->TranslateVirtual<uint32_t*>(guest_address);
+  if (cvars::use_reserve_in_host_code) {
+    uint32_t result;
+    do {
+      result = backend()->ReservedLoad32(context, guest_address);
+    } while (!backend()->ReservedStore32(context, guest_address, result - 1));
+    return result;
+  } else {
+    uint32_t* host_address =
+        context->TranslateVirtual<uint32_t*>(guest_address);
 
-  uint32_t result;
-  while (true) {
-    result = *host_address;
-    // todo: should call a processor->backend function that acquires a
-    // reservation instead of using host atomics
-    if (xe::atomic_cas(result, xe::byte_swap(xe::byte_swap(result) - 1),
-                       host_address)) {
-      break;
+    uint32_t result;
+    while (true) {
+      result = *host_address;
+      // todo: should call a processor->backend function that acquires a
+      // reservation instead of using host atomics
+      if (xe::atomic_cas(result, xe::byte_swap(xe::byte_swap(result) - 1),
+                         host_address)) {
+        break;
+      }
     }
+    return xe::byte_swap(result);
   }
-  return xe::byte_swap(result);
 }
 
 uint32_t Processor::GuestAtomicOr32(ppc::PPCContext* context,
                                     uint32_t guest_address, uint32_t mask) {
-  return xe::byte_swap(
-      xe::atomic_or(context->TranslateVirtual<volatile int32_t*>(guest_address),
-                    xe::byte_swap(mask)));
+  if (cvars::use_reserve_in_host_code) {
+    uint32_t result;
+    do {
+      result = backend()->ReservedLoad32(context, guest_address);
+    } while (
+        !backend()->ReservedStore32(context, guest_address, result | mask));
+    return result;
+  } else {
+    return xe::byte_swap(xe::atomic_or(
+        context->TranslateVirtual<volatile int32_t*>(guest_address),
+        xe::byte_swap(mask)));
+  }
 }
 uint32_t Processor::GuestAtomicXor32(ppc::PPCContext* context,
                                      uint32_t guest_address, uint32_t mask) {
-  return xe::byte_swap(xe::atomic_xor(
-      context->TranslateVirtual<volatile int32_t*>(guest_address),
-      xe::byte_swap(mask)));
+  if (cvars::use_reserve_in_host_code) {
+    uint32_t result;
+    do {
+      result = backend()->ReservedLoad32(context, guest_address);
+    } while (
+        !backend()->ReservedStore32(context, guest_address, result ^ mask));
+    return result;
+  } else {
+    return xe::byte_swap(xe::atomic_xor(
+        context->TranslateVirtual<volatile int32_t*>(guest_address),
+        xe::byte_swap(mask)));
+  }
 }
 uint32_t Processor::GuestAtomicAnd32(ppc::PPCContext* context,
                                      uint32_t guest_address, uint32_t mask) {
-  return xe::byte_swap(xe::atomic_and(
-      context->TranslateVirtual<volatile int32_t*>(guest_address),
-      xe::byte_swap(mask)));
+  if (cvars::use_reserve_in_host_code) {
+    uint32_t result;
+    do {
+      result = backend()->ReservedLoad32(context, guest_address);
+    } while (
+        !backend()->ReservedStore32(context, guest_address, result & mask));
+    return result;
+  } else {
+    return xe::byte_swap(xe::atomic_and(
+        context->TranslateVirtual<volatile int32_t*>(guest_address),
+        xe::byte_swap(mask)));
+  }
 }
 
 bool Processor::GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
                                  uint32_t new_value, uint32_t guest_address) {
-  return xe::atomic_cas(xe::byte_swap(old_value), xe::byte_swap(new_value),
-                        context->TranslateVirtual<uint32_t*>(guest_address));
+  if (cvars::use_reserve_in_host_code) {
+    uint32_t result;
+    do {
+      result = backend()->ReservedLoad32(context, guest_address);
+      if (result != old_value) {
+        // guests seem to do this, presumably its to end the reservation?
+        // what would be the disadvantage to leaving a reserve hanging?
+        backend()->ReservedStore32(context, guest_address, result);
+        return false;
+      }
+    } while (!backend()->ReservedStore32(context, guest_address, new_value));
+    return true;
+  } else {
+    return xe::atomic_cas(xe::byte_swap(old_value), xe::byte_swap(new_value),
+                          context->TranslateVirtual<uint32_t*>(guest_address));
+  }
+}
+
+bool Processor::CancelReservationOnAddress(ppc::PPCContext* context,
+    uint32_t guest_address) {
+  if (cvars::use_reserve_in_host_code) {
+    backend()->CancelReservationOnAddress(context, guest_address);
+  } else {
+    return false;
+  }
 }
 
 void Processor::NotifyHWThreadBooted(uint32_t i) {

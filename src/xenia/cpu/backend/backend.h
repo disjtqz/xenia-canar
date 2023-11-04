@@ -114,6 +114,30 @@ class Backend {
   }
   virtual void FreeGuestTrampoline(uint32_t trampoline_addr) {}
 
+  /*
+    these methods are wrapped by Processor's guest atomic functions
+  */
+  virtual uint32_t ReservedLoad32(cpu::ppc::PPCContext* context,
+                                  uint32_t address) {
+    return 0;
+  }
+  virtual uint64_t ReservedLoad64(cpu::ppc::PPCContext* context,
+      uint32_t address) {
+    return 0;
+  }
+  virtual bool ReservedStore32(cpu::ppc::PPCContext* context, uint32_t address,
+      uint32_t value) {
+    return false;
+  }
+  virtual bool ReservedStore64(cpu::ppc::PPCContext* context, uint32_t address,
+      uint64_t value) {
+    return false;
+  }
+
+  virtual bool CancelReservationOnAddress(cpu::ppc::PPCContext* context,
+      uint32_t address) {
+    return false;
+  }
  protected:
   Processor* processor_ = nullptr;
   MachineInfo machine_info_;

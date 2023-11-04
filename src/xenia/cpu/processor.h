@@ -31,7 +31,7 @@
 #include "xenia/memory.h"
 
 DECLARE_bool(debug);
-
+DECLARE_bool(use_reserve_in_host_code);
 namespace xe {
 namespace cpu {
 
@@ -190,7 +190,8 @@ class Processor {
                             uint32_t mask);
   bool GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
                         uint32_t new_value, uint32_t guest_address);
-
+  bool CancelReservationOnAddress(ppc::PPCContext* context,
+                                  uint32_t guest_address);
  public:
   // TODO(benvanik): hide.
   void OnThreadCreated(uint32_t handle, ThreadState* thread_state,

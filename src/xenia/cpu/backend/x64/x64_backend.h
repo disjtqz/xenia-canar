@@ -12,8 +12,8 @@
 
 #include <memory>
 
-#include "xenia/base/cvar.h"
 #include "xenia/base/bit_map.h"
+#include "xenia/base/cvar.h"
 #include "xenia/cpu/backend/backend.h"
 
 #if XE_PLATFORM_WIN32 == 1
@@ -44,9 +44,10 @@ typedef void* (*GuestToHostThunk)(void* target, void* arg0, void* arg1);
 typedef void (*ResolveFunctionThunk)();
 
 /*
-    place guest trampolines in the memory range that the HV normally occupies. 
-    This way guests can call in via the indirection table and we don't have to clobber/reuse an existing memory range
-    The xboxkrnl range is already used by export trampolines (see kernel/kernel_module.cc)
+    place guest trampolines in the memory range that the HV normally occupies.
+    This way guests can call in via the indirection table and we don't have to
+   clobber/reuse an existing memory range The xboxkrnl range is already used by
+   export trampolines (see kernel/kernel_module.cc)
 */
 static constexpr uint32_t GUEST_TRAMPOLINE_BASE = 0x80000000;
 static constexpr uint32_t GUEST_TRAMPOLINE_END = 0x80040000;
@@ -75,11 +76,13 @@ struct X64BackendStackpoint {
   // use
   unsigned guest_return_address_;
 };
-enum : uint32_t { 
-    kX64BackendMXCSRModeBit = 0, 
-    kX64BackendHasReserveBit = 1,
-    kX64BackendNJMOn = 2, //non-java mode bit is currently set. for use in software fp routines
-    kX64BackendNonIEEEMode = 3, //non-ieee mode is currently enabled for scalar fpu.
+enum : uint32_t {
+  kX64BackendMXCSRModeBit = 0,
+  kX64BackendHasReserveBit = 1,
+  kX64BackendNJMOn =
+      2,  // non-java mode bit is currently set. for use in software fp routines
+  kX64BackendNonIEEEMode =
+      3,  // non-ieee mode is currently enabled for scalar fpu.
 };
 // located prior to the ctx register
 // some things it would be nice to have be per-emulator instance instead of per
@@ -170,8 +173,8 @@ class X64Backend : public Backend {
         reinterpret_cast<intptr_t>(ctx) - sizeof(X64BackendContext));
   }
   virtual uint32_t CreateGuestTrampoline(GuestTrampolineProc proc,
-                                         void* userdata1,
-                                         void* userdata2, bool long_term) override;
+                                         void* userdata1, void* userdata2,
+                                         bool long_term) override;
 
   virtual void FreeGuestTrampoline(uint32_t trampoline_addr) override;
   virtual void SetGuestRoundingMode(void* ctx, unsigned int mode) override;
@@ -184,6 +187,23 @@ class X64Backend : public Backend {
   void* LookupXMMConstantAddress(unsigned index) {
     return reinterpret_cast<void*>(emitter_data() + sizeof(vec128_t) * index);
   }
+
+  void AcquireReservation(cpu::ppc::PPCContext* context, uint32_t address);
+
+  virtual uint32_t ReservedLoad32(cpu::ppc::PPCContext* context,
+                                  uint32_t address) override;
+
+  virtual uint64_t ReservedLoad64(cpu::ppc::PPCContext* context,
+                                  uint32_t address) override;
+
+  virtual bool ReservedStore32(cpu::ppc::PPCContext* context, uint32_t address,
+                               uint32_t value) override;
+
+  virtual bool ReservedStore64(cpu::ppc::PPCContext* context, uint32_t address,
+                               uint64_t value) override;
+
+  virtual bool CancelReservationOnAddress(cpu::ppc::PPCContext* context,
+                                          uint32_t address) override;
 #if XE_X64_PROFILER_AVAILABLE == 1
   uint64_t* GetProfilerRecordForFunction(uint32_t guest_address);
 #endif
@@ -214,6 +234,7 @@ class X64Backend : public Backend {
   void* vrsqrtefp_scalar_helper = nullptr;
   void* frsqrtefp_helper = nullptr;
   void* emulated_interrupt_helper_ = nullptr;
+
  private:
 #if XE_X64_PROFILER_AVAILABLE == 1
   GuestProfilerData profiler_data_;
