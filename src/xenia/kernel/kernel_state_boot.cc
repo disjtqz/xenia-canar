@@ -609,7 +609,7 @@ void KernelState::BootKernel() {
 
   auto bundle =
       memory()->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
-  uint32_t initial_ms = static_cast<uint32_t>(Clock::QueryHostTickCount());
+  uint32_t initial_ms = static_cast<uint32_t>(Clock::QueryGuestTickCount());
   uint64_t initial_systemtime = Clock::QueryGuestSystemTime();
 
   bundle->interrupt_time = initial_systemtime;
