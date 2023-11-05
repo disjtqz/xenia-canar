@@ -63,9 +63,13 @@ static constexpr uint32_t MAX_GUEST_TRAMPOLINES =
   ((1024ULL * 1024ULL * 1024ULL * 4ULL) >> RESERVE_BLOCK_SHIFT)
 // https://codalogic.com/blog/2022/12/06/Exploring-PowerPCs-read-modify-write-operations
 struct ReserveHelper {
+  // block 0 is used as global reserve helper lock
   uint64_t blocks[RESERVE_NUM_ENTRIES / 64];
 
   ReserveHelper() { memset(blocks, 0, sizeof(blocks)); }
+
+  void lock();
+  void unlock();
 };
 
 struct X64BackendStackpoint {

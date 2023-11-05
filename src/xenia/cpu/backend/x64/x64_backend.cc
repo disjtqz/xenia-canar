@@ -14,6 +14,7 @@
 #include "third_party/capstone/include/capstone/capstone.h"
 #include "third_party/capstone/include/capstone/x86.h"
 
+#include "xenia/base/atomic.h"
 #include "xenia/base/exception_handler.h"
 #include "xenia/base/logging.h"
 #include "xenia/cpu/backend/x64/x64_assembler.h"
@@ -26,7 +27,7 @@
 #include "xenia/cpu/processor.h"
 #include "xenia/cpu/stack_walker.h"
 #include "xenia/cpu/xex_module.h"
-
+#define XE_ALLOW_DEADLOCKABLE_RESERVE 0
 DEFINE_bool(record_mmio_access_exceptions, true,
             "For guest addresses records whether we caught any mmio accesses "
             "for them. This info can then be used on a subsequent run to "
@@ -1159,7 +1160,7 @@ static void NativeCall(void* ctx) {
 void* X64HelperEmitter::EmitEmulatedInterruptHelper() {
   _code_offsets code_offsets = {};
   pop(r9);
-#if XE_TRACE_LAST_INTERRUPT_ADDR==1
+#if XE_TRACE_LAST_INTERRUPT_ADDR == 1
   mov(qword[GetContextReg() +
             offsetof(ppc::PPCContext, recent_interrupt_addr_)],
       r9);
@@ -1204,7 +1205,6 @@ void* X64HelperEmitter::EmitVectorVRsqrteHelper(void* scalar_helper) {
   jnz(actual_vector_version);
   vshufps(xmm0, xmm0, xmm0, _MM_SHUFFLE(3, 3, 3, 3));
   call(scalar_helper);
-  // this->DebugBreak();
   vinsertps(xmm0, xmm0, (3 << 4) | (0 << 6));
 
   vblendps(xmm0, xmm0, ptr[backend()->LookupXMMConstantAddress(XMMFloatInf)],
@@ -1375,12 +1375,23 @@ void* X64HelperEmitter::EmitFrsqrteHelper() {
   return EmitCurrentForOffsets(code_offsets);
 }
 
+void ReserveHelper::lock() {
+  while (!xe::atomic_cas(0, (uint32_t)(uint64_t)this, (uint32_t*)&blocks[0])) {
+  }
+}
+void ReserveHelper::unlock() {
+  auto old = xe::atomic_exchange(0, (uint32_t*)&blocks[0]);
+  xenia_assert(old == (uint32_t)(uint64_t)this);
+}
+
 void X64Backend::AcquireReservation(cpu::ppc::PPCContext* context,
                                     uint32_t address) {
   auto bctx = this->BackendContextForGuestContext((void*)context);
+  auto r8 = bctx->reserve_helper_;
+  r8->lock();
   unsigned char has_reserve = _bittestandreset(
       reinterpret_cast<long*>(&bctx->flags), kX64BackendHasReserveBit);
-  auto r8 = bctx->reserve_helper_;
+
   if (has_reserve) {
     goto already_has_a_reservation;
   }
@@ -1398,8 +1409,12 @@ void X64Backend::AcquireReservation(cpu::ppc::PPCContext* context,
   bctx->cached_reserve_offset = reinterpret_cast<uint64_t>(rdx);
   bctx->cached_reserve_bit = ecx;
   bctx->flags |= static_cast<uint32_t>(r9b);
+#if XE_ALLOW_DEADLOCKABLE_RESERVE == 0
+  r8->unlock();
+#endif
   return;
 already_has_a_reservation:
+  r8->unlock();
   __debugbreak();
 }
 
@@ -1431,8 +1446,20 @@ void* X64HelperEmitter::EmitTryAcquireReservationHelper() {
   Xbyak::Label already_has_a_reservation;
   Xbyak::Label acquire_new_reservation;
 
-  btr(GetBackendFlagsPtr(), kX64BackendHasReserveBit);
+  Xbyak::Label lock_label;
+
   mov(r8, GetBackendCtxPtr(offsetof(X64BackendContext, reserve_helper_)));
+  push(rax);
+  L(lock_label);
+  xor_(r9d, r9d);
+  mov(rax, r8);
+  xchg(rax, r9);
+  lock();
+  cmpxchg(ptr[r8], r9d);
+  jnz(lock_label);
+
+  btr(GetBackendFlagsPtr(), kX64BackendHasReserveBit);
+  pop(rax);
   jc(already_has_a_reservation);
 
   shr(ecx, RESERVE_BLOCK_SHIFT);
@@ -1454,6 +1481,9 @@ void* X64HelperEmitter::EmitTryAcquireReservationHelper() {
   mov(GetBackendCtxPtr(offsetof(X64BackendContext, cached_reserve_bit)), ecx);
 
   or_(GetBackendCtxPtr(offsetof(X64BackendContext, flags)), r9d);
+#if XE_ALLOW_DEADLOCKABLE_RESERVE == 0
+  mov(dword[r8], 0);
+#endif
   ret();
   L(already_has_a_reservation);
   DebugBreak();
@@ -1471,17 +1501,24 @@ bool ReservedStoreHelperHost(
                    sizeof(X64BackendContext)>
         context,
     unsigned int address, T* host_address, T value) {
+  auto reserve_helper = ADJ(context)->reserve_helper_;
+  // lock carries over from load
+#if XE_ALLOW_DEADLOCKABLE_RESERVE == 0
+  reserve_helper->lock();
+#endif
+
   value = xe::byte_swap(value);
 
   unsigned char v4 =
       _bittestandreset((long*)&ADJ(context)->flags, kX64BackendHasReserveBit);
 
   if (!v4) {
+    reserve_helper->unlock();
     return false;
   }
   uint32_t address_to_block = address >> RESERVE_BLOCK_SHIFT;
   uint64_t* reserve_bitmap_element =
-      &ADJ(context)->reserve_helper_->blocks[address_to_block >> 6];
+      &reserve_helper->blocks[address_to_block >> 6];
   _m_prefetchw(reserve_bitmap_element);
   unsigned char result = ADJ(context)->cached_reserve_offset ==
                          reinterpret_cast<uint64_t>(reserve_bitmap_element);
@@ -1506,6 +1543,7 @@ bool ReservedStoreHelperHost(
       v4 = _interlockedbittestandreset64(
           (volatile long long*)reserve_bitmap_element, reserve_bit);
       if (v4) {
+        reserve_helper->unlock();
         return static_cast<bool>(result & v4);
       }
     } else {
@@ -1515,6 +1553,7 @@ bool ReservedStoreHelperHost(
     __debugbreak();
   }
   //__debugbreak();
+  reserve_helper->unlock();
   return false;
 }
 
@@ -1529,12 +1568,30 @@ void* X64HelperEmitter::EmitReservedStoreHelper(bool bit64) {
   Xbyak::Label reservation_isnt_for_our_addr;
   Xbyak::Label somehow_double_cleared;
   // carry must be set + zero flag must be set
+  mov(rax, GetBackendCtxPtr(offsetof(X64BackendContext, reserve_helper_)));
+#if XE_ALLOW_DEADLOCKABLE_RESERVE == 0
+  Xbyak::Label lock_label;
 
+  push(r8);
+  push(r9);
+  push(rax);
+  mov(r8, rax);
+  L(lock_label);
+
+  xor_(r9d, r9d);
+  mov(rax, r8);
+  xchg(rax, r9);
+  lock();
+  cmpxchg(ptr[r8], r9d);
+  jnz(lock_label);
+
+  pop(rax);
+  pop(r9);
+  pop(r8);
+#endif
   btr(GetBackendFlagsPtr(), kX64BackendHasReserveBit);
 
   jnc(done);
-
-  mov(rax, GetBackendCtxPtr(offsetof(X64BackendContext, reserve_helper_)));
 
   shr(ecx, RESERVE_BLOCK_SHIFT);
   mov(edx, ecx);
@@ -1561,7 +1618,6 @@ void* X64HelperEmitter::EmitReservedStoreHelper(bool bit64) {
   lock();
   if (bit64) {
     cmpxchg(ptr[r9], r8);
-
   } else {
     cmpxchg(ptr[r9], r8d);
   }
@@ -1579,6 +1635,9 @@ void* X64HelperEmitter::EmitReservedStoreHelper(bool bit64) {
   setz(al);
   setc(ah);
   cmp(ax, 0x0101);
+  mov(rax, GetBackendCtxPtr(offsetof(X64BackendContext, reserve_helper_)));
+  // release lock
+  mov(dword[rax], 0);
   ret();
 
   // could be the same label, but otherwise we don't know where we came from
