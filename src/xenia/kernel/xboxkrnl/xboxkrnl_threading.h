@@ -199,6 +199,12 @@ int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
 
 X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object);
 
+void xeKeInitializeQueue(X_KQUEUE* queue, uint32_t count, PPCContext* context);
+int32_t xeKeInsertQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
+                        PPCContext* context);
+int32_t xeKeInsertHeadQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
+                            PPCContext* context);
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

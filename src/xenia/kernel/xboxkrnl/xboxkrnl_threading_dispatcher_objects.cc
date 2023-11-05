@@ -63,7 +63,7 @@ int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int increment,
 }
 
 int32_t xeKePulseEvent(PPCContext* context, X_KEVENT* event, int increment,
-                     unsigned char wait) {
+                       unsigned char wait) {
   xenia_assert(event && event->header.type < 2);
   uint32_t old_irql = context->kernel_state->LockDispatcher(context);
 
@@ -71,10 +71,11 @@ int32_t xeKePulseEvent(PPCContext* context, X_KEVENT* event, int increment,
   auto wait_list = context->TranslateVirtual<X_KWAIT_BLOCK*>(
       event->header.wait_list.flink_ptr);
 
-  if (!old_signalstate && &wait_list->wait_list_entry != &event->header.wait_list) {
+  if (!old_signalstate &&
+      &wait_list->wait_list_entry != &event->header.wait_list) {
     event->header.signal_state = 1;
     xeDispatchSignalStateChange(context, &event->header, increment);
-  } 
+  }
   event->header.signal_state = 0;
   if (wait) {
     auto current_thread =
@@ -112,15 +113,15 @@ int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int increment,
 
   if (!abandoned) {
     if (context->TranslateVirtual(mutant->owner) != current_thread) {
-
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), old_irql);
-      //xe::FatalError("We don't own the mutant, but we're releasing it!");
-     // return -1;
-      //xenia_assert(false);
+      // xe::FatalError("We don't own the mutant, but we're releasing it!");
+      // return -1;
+      // xenia_assert(false);
       X_STATUS stat = mutant->abandoned ? X_STATUS_ABANDONED_WAIT_0
                                         : X_STATUS_MUTANT_NOT_OWNED;
-      //should RtlRaiseStatus! NtReleaseMutant catches the status i think, ida indicates a try handler
+      // should RtlRaiseStatus! NtReleaseMutant catches the status i think, ida
+      // indicates a try handler
 
       context->RaiseStatus(stat);
       return 0;
@@ -154,10 +155,10 @@ int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int increment,
 }
 
 int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
-                             int increment, int adjustment, unsigned char wait) {
+                             int increment, int adjustment,
+                             unsigned char wait) {
   auto old_irql = context->kernel_state->LockDispatcher(context);
   int32_t old_signal_state = semaphore->header.signal_state;
-
 
   int32_t new_signal_state = old_signal_state + adjustment;
 
@@ -166,7 +167,7 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context), old_irql);
     // should RtlRaiseStatus
-    //xenia_assert(false);
+    // xenia_assert(false);
     context->RaiseStatus(X_STATUS_SEMAPHORE_LIMIT_EXCEEDED);
     return 0;
   }
@@ -347,11 +348,11 @@ int xeKeSetExTimer(PPCContext* context, X_EXTIMER* timer, int64_t due_timer,
 
 int xeKeCancelExTimer(PPCContext* context, X_EXTIMER* timer) {
   uint32_t old_irql = xeKeKfAcquireSpinLock(context, &timer->timer_lock);
-  
+
   bool v8 = HelperCancelTimer(context, timer);
   xeKeKfReleaseSpinLock(context, &timer->timer_lock, old_irql);
   int old_signalstate = timer->ktimer.header.signal_state;
-  
+
   return old_signalstate;
 }
 
@@ -364,9 +365,9 @@ X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object) {
   uint32_t unk = wait_object_type->unknown_size_or_object_;
   X_DISPATCH_HEADER* waiter =
       context->TranslateVirtual<X_DISPATCH_HEADER*>(unk);
-  //if (unk) {
- //   __debugbreak();
- // }
+  // if (unk) {
+  //   __debugbreak();
+  // }
   if (!((unsigned int)unk >> 16)) {
     waiter = reinterpret_cast<X_DISPATCH_HEADER*>(
         reinterpret_cast<char*>(object) + unk);
@@ -375,6 +376,72 @@ X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object) {
   }
   return waiter;
 }
+
+void xeKeInitializeQueue(X_KQUEUE* queue, uint32_t count, PPCContext* context) {
+  queue->header.signal_state = 0;
+  queue->header.type = 4;
+  util::XeInitializeListHead(&queue->header.wait_list, context);
+  util::XeInitializeListHead(&queue->entry_list_head, context);
+  util::XeInitializeListHead(&queue->thread_list_head, context);
+  queue->current_count = 0;
+  if (count) {
+    queue->maximum_count = count;
+  } else {
+    queue->maximum_count = 1;
+  }
+}
+
+template <bool to_head>
+static int32_t InsertQueueUnderLock(PPCContext* context, X_KQUEUE* queue,
+                                     X_LIST_ENTRY* entry) {
+  auto old_irql = context->kernel_state->LockDispatcher(context);
+  auto first_waitblock = context->TranslateVirtual<X_KWAIT_BLOCK*>(
+      queue->header.wait_list.blink_ptr);
+  auto current_thread = GetKThread(context);
+  int32_t old_signalstate = queue->header.signal_state;
+  if (first_waitblock == (X_KWAIT_BLOCK*)&queue->header.wait_list ||
+      queue->current_count >= queue->maximum_count ||
+      current_thread->unkptr_118.xlat() == queue &&
+          current_thread->wait_reason == 4) {
+    queue->header.signal_state = old_signalstate + 1;
+    if (to_head) {
+      util::XeInsertHeadList(&queue->entry_list_head, entry, context);
+
+    } else {
+      util::XeInsertTailList(&queue->entry_list_head, entry, context);
+    }
+  } else {
+    util::XeRemoveEntryList(&first_waitblock->wait_list_entry, context);
+
+    auto thread_for_waitblock =
+        context->TranslateVirtual(first_waitblock->thread);
+    thread_for_waitblock->wait_result = (int)context->HostToGuestVirtual(entry);
+    ++queue->current_count;
+    thread_for_waitblock->wait_reason = 0;
+    if (thread_for_waitblock->wait_timeout_timer.header.inserted) {
+      thread_for_waitblock->wait_timeout_timer.header.inserted = 0;
+      util::XeRemoveEntryList(
+          &thread_for_waitblock->wait_timeout_timer.table_bucket_entry,
+          context);
+    }
+    xeReallyQueueThread(context, thread_for_waitblock);
+  }
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return old_signalstate;
+}
+
+int32_t xeKeInsertQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
+    PPCContext* context) {
+  return InsertQueueUnderLock<false>(context, queue, entry);
+}
+int32_t xeKeInsertHeadQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
+                        PPCContext* context) {
+  return InsertQueueUnderLock<true>(context, queue, entry);
+}
+
+
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

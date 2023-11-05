@@ -384,8 +384,7 @@ dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
                                             lpqword_t interval_ptr,
                                             const ppc_context_t& context) {
   uint64_t interval = *interval_ptr;
-  return KeDelayExecutionThread(processor_mode, alertable,
-                               &interval, context);
+  return KeDelayExecutionThread(processor_mode, alertable, &interval, context);
 }
 DECLARE_XBOXKRNL_EXPORT3(KeDelayExecutionThread, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
@@ -823,7 +822,6 @@ void xeKeInitializeTimerEx(X_KTIMER* timer, uint32_t type, uint32_t proctype,
   timer->header.inserted = 0;
   timer->header.type = type + 8;
   timer->header.signal_state = 0;
-  // todo: should initialize wait list in header
   util::XeInitializeListHead(&timer->header.wait_list, context);
   timer->due_time = 0;
   timer->period = 0;
@@ -836,20 +834,21 @@ void KeInitializeTimerEx_entry(pointer_t<X_KTIMER> timer, dword_t type,
 DECLARE_XBOXKRNL_EXPORT1(KeInitializeTimerEx, kThreading, kImplemented);
 
 dword_result_t KeSetTimerEx_entry(pointer_t<X_KTIMER> timer, qword_t due_time,
-                           dword_t period, pointer_t<XDPC> dpc,
-                           const ppc_context_t& context) {
+                                  dword_t period, pointer_t<XDPC> dpc,
+                                  const ppc_context_t& context) {
   return xeKeSetTimerEx(context, timer, due_time, period, dpc);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeSetTimerEx, kThreading, kImplemented);
 
 dword_result_t KeSetTimer_entry(pointer_t<X_KTIMER> timer, qword_t due_time,
-                         pointer_t<XDPC> dpc, const ppc_context_t& context) {
+                                pointer_t<XDPC> dpc,
+                                const ppc_context_t& context) {
   return xeKeSetTimerEx(context, timer, due_time, 0, dpc);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeSetTimer, kThreading, kImplemented);
 
 dword_result_t KeCancelTimer_entry(pointer_t<X_KTIMER> timer,
-                            const ppc_context_t& context) {
+                                   const ppc_context_t& context) {
   return xeKeCancelTimer(context, timer);
 }
 DECLARE_XBOXKRNL_EXPORT1(KeCancelTimer, kThreading, kImplemented);
@@ -1129,17 +1128,16 @@ void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                            uint32_t old_irql, bool change_irql) {
   assert_true(lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13]));
   // Unlock.
-  //if someone has a reservation on this address, make sure its been cancelled before we store
-  
-  //lock->pcr_of_owner.value = 0;
+  // if someone has a reservation on this address, make sure its been cancelled
+  // before we store
 
-  //this is just to cancel adjacent reserves
+  // lock->pcr_of_owner.value = 0;
+
+  // this is just to cancel adjacent reserves
 
   ctx->processor->GuestAtomicExchange32(ctx, &lock->pcr_of_owner, 0);
   //_mm_mfence();
-  //ctx->processor->CancelReservationOnAddress(ctx, &lock->pcr_of_owner);
-
-
+  // ctx->processor->CancelReservationOnAddress(ctx, &lock->pcr_of_owner);
 
   if (change_irql) {
     // Unlock.
@@ -2289,12 +2287,36 @@ pointer_result_t InterlockedFlushSList_entry(
   return first;
 }
 DECLARE_XBOXKRNL_EXPORT1(InterlockedFlushSList, kThreading, kImplemented);
-//todo: does this belong here? its arguable whether this is a threading or object function
+// todo: does this belong here? its arguable whether this is a threading or
+// object function
 dword_result_t ObGetWaitableObject_entry(dword_t object,
-    const ppc_context_t& context) {
-  return context->HostToGuestVirtual(xeObGetWaitableObject(context, context->TranslateVirtual(object)));
+                                         const ppc_context_t& context) {
+  return context->HostToGuestVirtual(
+      xeObGetWaitableObject(context, context->TranslateVirtual(object)));
 }
 DECLARE_XBOXKRNL_EXPORT1(ObGetWaitableObject, kThreading, kImplemented);
+
+void KeInitializeQueue_entry(pointer_t<X_KQUEUE> queue, dword_t count,
+                             const ppc_context_t& context) {
+  xeKeInitializeQueue(queue, count, context);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeInitializeQueue, kThreading, kImplemented);
+
+dword_result_t KeInsertHeadQueue_entry(pointer_t<X_KQUEUE> queue,
+                                       pointer_t<X_LIST_ENTRY> entry,
+                                       const ppc_context_t& context) {
+  return xeKeInsertHeadQueue(queue, entry, context);
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeInsertHeadQueue, kThreading, kImplemented);
+
+dword_result_t KeInsertQueue_entry(pointer_t<X_KQUEUE> queue,
+                                   pointer_t<X_LIST_ENTRY> entry,
+                                   const ppc_context_t& context) {
+  return xeKeInsertQueue(queue, entry, context);
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeInsertQueue, kThreading, kImplemented);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

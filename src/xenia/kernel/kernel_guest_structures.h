@@ -162,15 +162,9 @@ struct X_DISPATCH_HEADER {
     union {
       uint8_t abandoned;
       uint8_t absolute;
-      uint8_t npx_irql;
-      uint8_t signalling;
     };
     uint8_t process_type;  // X_PROCTYPE_
-    union {
-      uint8_t inserted;
-      uint8_t debug_active;
-      uint8_t dpc_active;
-    };
+    uint8_t inserted;
   };
   xe::be<int32_t> signal_state;
   X_LIST_ENTRY wait_list;
@@ -445,7 +439,7 @@ struct X_KTHREAD {
   XAPC on_suspend;                                // 0xD4
   X_KSEMAPHORE suspend_sema;                      // 0xFC
   X_LIST_ENTRY process_threads;                   // 0x110
-  xe::be<uint32_t> unkptr_118;                    // 0x118
+  EZPointer<X_KQUEUE> unkptr_118;                 // 0x118
   xe::be<uint32_t> unk_11C;                       // 0x11C
   xe::be<uint32_t> unk_120;                       // 0x120
   xe::be<uint32_t> unk_124;                       // 0x124
