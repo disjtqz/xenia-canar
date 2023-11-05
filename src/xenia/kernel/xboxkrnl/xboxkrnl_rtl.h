@@ -16,14 +16,17 @@ namespace xe {
 namespace kernel {
 namespace xboxkrnl {
 
-struct X_RTL_CRITICAL_SECTION;
-
 void xeRtlInitializeCriticalSection(X_RTL_CRITICAL_SECTION* cs,
                                     uint32_t cs_ptr);
 X_STATUS xeRtlInitializeCriticalSectionAndSpinCount(X_RTL_CRITICAL_SECTION* cs,
                                                     uint32_t cs_ptr,
                                                     uint32_t spin_count);
-
+void xeRtlEnterCriticalSection(cpu::ppc::PPCContext* context,
+                               X_RTL_CRITICAL_SECTION* cs);
+uint32_t xeRtlTryEnterCriticalSection(cpu::ppc::PPCContext* context,
+                                      X_RTL_CRITICAL_SECTION* cs);
+void xeRtlLeaveCriticalSection(cpu::ppc::PPCContext* context,
+                               X_RTL_CRITICAL_SECTION* cs);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

@@ -505,6 +505,13 @@ struct X_EVENT_INFORMATION {
   xe::be<uint32_t> signal_state;
 };
 
+struct X_RTL_CRITICAL_SECTION {
+  X_DISPATCH_HEADER header;
+  xe::be<int32_t> lock_count;       // 0x10 -1 -> 0 on first lock
+  xe::be<int32_t> recursion_count;  // 0x14  0 -> 1 on first lock
+  xe::be<uint32_t> owning_thread;   // 0x18 PKTHREAD 0 unless locked
+};
+static_assert_size(X_RTL_CRITICAL_SECTION, 28);
 #pragma pack(pop)
 
 }  // namespace kernel

@@ -6,7 +6,6 @@
  * Released under the BSD license - see LICENSE in the root for more details. *
  ******************************************************************************
  */
-
 #include "xenia/kernel/xboxkrnl/xboxkrnl_rtl.h"
 
 #include <algorithm>
@@ -513,34 +512,6 @@ pointer_result_t RtlImageXexHeaderField_entry(pointer_t<xex2_header> xex_header,
 }
 DECLARE_XBOXKRNL_EXPORT1(RtlImageXexHeaderField, kNone, kImplemented);
 
-// Unfortunately the Windows RTL_CRITICAL_SECTION object is bigger than the one
-// on the 360 (32b vs. 28b). This means that we can't do in-place splatting of
-// the critical sections. Also, the 360 never calls RtlDeleteCriticalSection
-// so we can't clean up the native handles.
-//
-// Because of this, we reimplement it poorly. Hooray.
-// We have 28b to work with so we need to be careful. We map our struct directly
-// into guest memory, as it should be opaque and so long as our size is right
-// the user code will never know.
-//
-// Ref:
-// https://web.archive.org/web/20161214022602/https://msdn.microsoft.com/en-us/magazine/cc164040.aspx
-// Ref:
-// https://github.com/reactos/reactos/blob/master/sdk/lib/rtl/critical.c
-
-// This structure tries to match the one on the 360 as best I can figure out.
-// Unfortunately some games have the critical sections pre-initialized in
-// their embedded data and InitializeCriticalSection will never be called.
-#pragma pack(push, 1)
-struct X_RTL_CRITICAL_SECTION {
-  X_DISPATCH_HEADER header;
-  xe::be<int32_t> lock_count;       // 0x10 -1 -> 0 on first lock
-  xe::be<int32_t> recursion_count;  // 0x14  0 -> 1 on first lock
-  xe::be<uint32_t> owning_thread;   // 0x18 PKTHREAD 0 unless locked
-};
-#pragma pack(pop)
-static_assert_size(X_RTL_CRITICAL_SECTION, 28);
-
 void xeRtlInitializeCriticalSection(X_RTL_CRITICAL_SECTION* cs,
                                     uint32_t cs_ptr) {
   cs->header.type = 1;      // EventSynchronizationObject (auto reset)
@@ -596,9 +567,9 @@ static void CriticalSectionPrefetchW(const void* vp) {
 #endif
 }
 
-void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
-                                   const ppc_context_t& context) {
-  if (!cs.guest_address()) {
+void xeRtlEnterCriticalSection(PPCContext* context,
+                               X_RTL_CRITICAL_SECTION* cs) {
+  if (!cs) {
     XELOGE("Null critical section in RtlEnterCriticalSection!");
     return;
   }
@@ -627,23 +598,30 @@ void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
     }
   }
 
-  if (context->processor->GuestAtomicIncrement32(context, &cs->lock_count)+1 !=
+  if (context->processor->GuestAtomicIncrement32(context, &cs->lock_count) +
+          1 !=
       0) {
     // Create a full waiter.
-    uint32_t v = xeKeWaitForSingleObject(
-        reinterpret_cast<void*>(cs.host_address()), 8, 0, 0, nullptr);
+    uint32_t v =
+        xeKeWaitForSingleObject(reinterpret_cast<void*>(cs), 8, 0, 0, nullptr);
   }
 
   assert_true(cs->owning_thread == 0);
   cs->owning_thread = cur_thread;
   cs->recursion_count = 1;
 }
+
+void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
+                                   const ppc_context_t& context) {
+  return xeRtlEnterCriticalSection(context, cs);
+}
 DECLARE_XBOXKRNL_EXPORT2(RtlEnterCriticalSection, kNone, kImplemented,
                          kHighFrequency);
 
-dword_result_t RtlTryEnterCriticalSection_entry(
-    pointer_t<X_RTL_CRITICAL_SECTION> cs, const ppc_context_t& context) {
-  if (!cs.guest_address()) {
+uint32_t xeRtlTryEnterCriticalSection(
+    PPCContext* context,
+    X_RTL_CRITICAL_SECTION* cs) {
+  if (!cs) {
     XELOGE("Null critical section in RtlTryEnterCriticalSection!");
     return 1;  // pretend we got the critical section.
   }
@@ -666,12 +644,16 @@ dword_result_t RtlTryEnterCriticalSection_entry(
   // Failed to acquire lock.
   return 0;
 }
+
+dword_result_t RtlTryEnterCriticalSection_entry(
+    pointer_t<X_RTL_CRITICAL_SECTION> cs, const ppc_context_t& context) {
+  return xeRtlTryEnterCriticalSection(context, cs);
+}
 DECLARE_XBOXKRNL_EXPORT2(RtlTryEnterCriticalSection, kNone, kImplemented,
                          kHighFrequency);
 
-void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
-                                   const ppc_context_t& context) {
-  if (!cs.guest_address()) {
+void xeRtlLeaveCriticalSection(PPCContext* context, X_RTL_CRITICAL_SECTION* cs) {
+  if (!cs) {
     XELOGE("Null critical section in RtlLeaveCriticalSection!");
     return;
   }
@@ -687,11 +669,16 @@ void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
 
   // Not owned - unlock!
   cs->owning_thread = 0;
-  if ((context->processor->GuestAtomicDecrement32(context, &cs->lock_count) - 1) !=
-      -1) {
+  if ((context->processor->GuestAtomicDecrement32(context, &cs->lock_count) -
+       1) != -1) {
     // There were waiters - wake one of them.
-    xeKeSetEvent(context, reinterpret_cast<X_KEVENT*>(cs.host_address()), 1, 0);
+    xeKeSetEvent(context, reinterpret_cast<X_KEVENT*>(cs), 1, 0);
   }
+}
+
+void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
+                                   const ppc_context_t& context) {
+  xeRtlLeaveCriticalSection(context, cs);
 }
 DECLARE_XBOXKRNL_EXPORT2(RtlLeaveCriticalSection, kNone, kImplemented,
                          kHighFrequency);
