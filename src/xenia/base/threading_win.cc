@@ -540,7 +540,7 @@ std::unique_ptr<Timer> Timer::CreateSynchronizationTimer() {
 // NtWaitForAlertByThreadId
 bool WaitForAlert(int64_t nanoseconds) {
   LARGE_INTEGER wait_time{};
-  wait_time.QuadPart = nanoseconds / 100LL;
+  wait_time.QuadPart = -(nanoseconds / 100LL);
   return NtWaitForAlertByThreadIdPointer.invoke<NTSTATUS>(nullptr,
                                                           &wait_time) ==
          0x101;  // STATUS_ALERTED vs STATUS_TIMEOUT

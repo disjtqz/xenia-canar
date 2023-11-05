@@ -292,7 +292,14 @@ void HandleCpuThreadDisownedIPI(void* ud) {
   // this is incorrect
   // xeHandleDPCsAndThreadSwapping(cpu::ThreadState::GetContext(), false);
   auto context = cpu::ThreadState::GetContext();
-  //hack!!! don't know what the ipi that the kernel sends actually does
+  // hack!!! don't know what the ipi that the kernel sends actually does
+
+  auto kpcr = GetKPCR(context);
+  if (kpcr->prcb_data.running_idle_thread) {
+    // just signal the idle loop to break
+    GetKPCR(context)->generic_software_interrupt = 2;
+    return;
+  }
   GetKPCR(context)->generic_software_interrupt = 2;
   KernelState::GenericExternalInterruptEpilog(context);
 }
@@ -332,7 +339,7 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
          this thread belonged to has given it up before we continue
       */
       context->processor->GetCPUThread(old_cpu_for_thread)
-        ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
+          ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
     }
     return;
   }
@@ -740,8 +747,8 @@ void xeDispatchSignalStateChange(PPCContext* context, X_DISPATCH_HEADER* header,
            (void*)header, increment);
   auto waitlist_head = &header->wait_list;
 
-  //hack!
-  //happens in marathon durandal. todo: figure out why
+  // hack!
+  // happens in marathon durandal. todo: figure out why
   if (waitlist_head->blink_ptr == 0 && waitlist_head->flink_ptr == 0) {
     return;
   }
@@ -910,7 +917,7 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
   prcb->current_thread = next_thread;
   auto result = context->kernel_state->ContextSwitch(context, next_thread);
   pcr = GetKPCR(context);
-  #if 0
+#if 0
   auto v9 = next_thread->unk_A4;
   auto result = next_thread->wait_result;
   pcr->current_irql = v9;
@@ -919,7 +926,7 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
   if (v9 < v11) {
     xeDispatchProcedureCallInterrupt(v9, v11, context);
   }
-  #endif
+#endif
   return result;
 }
 
@@ -1000,7 +1007,6 @@ int xeKeResumeThread(PPCContext* context, X_KTHREAD* thread) {
   char suspendcount = thread->suspend_count;
   result = suspendcount;
   if (suspendcount) {
-
     thread->suspend_count = suspendcount - 1;
     XELOGE("New suspendcount {}", (int)suspendcount - 1);
     if (suspendcount == 1) {
@@ -1517,9 +1523,9 @@ uint32_t xeKeWaitForSingleObjectEx(
     PPCContext* context,
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
     unsigned char waitmode, bool alertable, int64_t* timeout) {
-  return xeKeWaitForSingleObject(context, xeObGetWaitableObject(context, wait.m_base), 3, waitmode,
-                                 alertable,
-                                 timeout);
+  return xeKeWaitForSingleObject(context,
+                                 xeObGetWaitableObject(context, wait.m_base), 3,
+                                 waitmode, alertable, timeout);
 }
 
 X_STATUS xeKeSignalAndWaitForSingleObjectEx(
@@ -1527,7 +1533,6 @@ X_STATUS xeKeSignalAndWaitForSingleObjectEx(
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> signal,
     ShiftedPointer<X_DISPATCH_HEADER, X_OBJECT_HEADER, 16> wait,
     unsigned char mode, bool alertable, int64_t* timeout) {
-
   X_DISPATCH_HEADER* waiter = xeObGetWaitableObject(context, wait.m_base);
 
   X_STATUS result = X_STATUS_SUCCESS;

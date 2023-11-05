@@ -1865,7 +1865,14 @@ uint32_t xeKeInsertQueueApc(XAPC* apc, uint32_t arg1, uint32_t arg2,
 
 // i doubt this is correctly implemented
 static void SendRunKernelApcIPI(void* ud) {
-  xeProcessKernelApcs(cpu::ThreadState::GetContext());
+  auto context = cpu::ThreadState::GetContext();
+  auto kpcr = GetKPCR(context);
+  if (kpcr->prcb_data.current_thread.xlat() != (X_KTHREAD*)ud) {
+    XELOGE("Mismatched current thread in sendrunkernelapcipi");
+    return;
+  }
+  xeProcessKernelApcs(context);
+  
 }
 
 void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
@@ -1914,7 +1921,7 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
         } else {
           // THIS IS DEFINITELY BADLY IMPLEMENTED!
           context->processor->GetCPUThread(thread_processor)
-              ->SendGuestIPI(SendRunKernelApcIPI, nullptr);
+              ->SendGuestIPI(SendRunKernelApcIPI, apc_thread);
         }
         goto LABEL_26;
       }
@@ -1980,7 +1987,19 @@ void KeInitializeDpc_entry(pointer_t<XDPC> dpc, lpvoid_t routine,
 DECLARE_XBOXKRNL_EXPORT2(KeInitializeDpc, kThreading, kImplemented, kSketchy);
 
 static void DPCIPIFunction(void* ud) {
-  KernelState::GenericExternalInterruptEpilog(cpu::ThreadState::GetContext());
+  // maybe xeHandleDPCsAndThreadSwapping instead?
+  // KernelState::GenericExternalInterruptEpilog(cpu::ThreadState::GetContext());
+  auto context = cpu::ThreadState::GetContext();
+
+  auto kpcr = GetKPCR(context);
+
+  if (kpcr->prcb_data.running_idle_thread) {
+    GetKPCR(context)->generic_software_interrupt = 2;
+    return;
+  } else {
+    GetKPCR(context)->generic_software_interrupt = 2;
+    KernelState::GenericExternalInterruptEpilog(cpu::ThreadState::GetContext());
+  }
 }
 uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
                             PPCContext* ctx) {

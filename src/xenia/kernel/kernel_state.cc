@@ -1025,7 +1025,7 @@ void KernelState::SystemClockInterrupt() {
         memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
 // uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
 // uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
-#if 0
+#if 1
 
     uint64_t time_imprecise = (lpKeTimeStampBundle->interrupt_time += 10000ULL);
     lpKeTimeStampBundle->system_time += 10000ULL;

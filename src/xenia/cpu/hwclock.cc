@@ -32,10 +32,13 @@ void HWClock::WorkerThreadMain() {
     while (true) {
       new_value = Clock::QueryHostUptimeMillis();
       if (new_value != last_value) {
-        if (cvars::threads_aint_cheap) {
-          threading::MaybeYield();
-        }
+
         break;
+      } else {
+        //if (cvars::threads_aint_cheap) {
+//threading::MaybeYield();
+        //}
+        
       }
     }
 
@@ -46,6 +49,8 @@ void HWClock::WorkerThreadMain() {
     if (interrupt_callback_) {
       interrupt_callback_(processor_);
     }
+
+    threading::NanoSleep(1000000 / 2);
     //}
   }
 }
