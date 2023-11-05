@@ -42,11 +42,11 @@ void HWClock::WorkerThreadMain() {
     uint64_t num_interrupts_to_trigger = new_value - last_value;
     last_value = new_value;
 
-    for (uint64_t i = 0; i < num_interrupts_to_trigger; ++i) {
-      if (interrupt_callback_) {
-        interrupt_callback_(processor_);
-      }
+    // for (uint64_t i = 0; i < num_interrupts_to_trigger; ++i) {
+    if (interrupt_callback_) {
+      interrupt_callback_(processor_);
     }
+    //}
   }
 }
 HWClock::HWClock(Processor* processor) : processor_(processor) {

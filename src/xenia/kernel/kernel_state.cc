@@ -72,7 +72,6 @@ KernelState::KernelState(Emulator* emulator)
   }
   content_manager_ = std::make_unique<xam::ContentManager>(this, content_root);
 
-
   auto hc_loc_heap = memory_->LookupHeap(strange_hardcoded_page_);
   bool fixed_alloc_worked = hc_loc_heap->AllocFixed(
       strange_hardcoded_page_, 65536, 0,
@@ -172,7 +171,7 @@ void KernelState::FreeTLS(cpu::ppc::PPCContext* context, uint32_t slot) {
 
   auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       context, &current_process->thread_list_spinlock);
-  //zero out all the values in this slot in each thread of the current process
+  // zero out all the values in this slot in each thread of the current process
   for (auto&& process_thread :
        current_process->thread_list.IterateForward(context)) {
     uint32_t tls_address = process_thread.tls_address;
@@ -182,15 +181,15 @@ void KernelState::FreeTLS(cpu::ppc::PPCContext* context, uint32_t slot) {
     }
   }
 
-  //release spinlock, but keep the irql elevated
+  // release spinlock, but keep the irql elevated
   xboxkrnl::xeKeKfReleaseSpinLock(
       context, &current_process->thread_list_spinlock, 0, false);
   auto tls_lock = &GetKernelGuestGlobals(context)->tls_lock;
 
   xboxkrnl::xeKeKfAcquireSpinLock(context, tls_lock, false);
-  //set the free bit for this slot
+  // set the free bit for this slot
   current_process->tls_slot_bitmap[slot / 32] |= 1U << (31 - (slot % 32));
-  //NOW we can lower the irql
+  // NOW we can lower the irql
   xboxkrnl::xeKeKfReleaseSpinLock(context, tls_lock, old_irql);
 }
 
@@ -707,7 +706,6 @@ void KernelState::TerminateTitle() {
   // Unregister all notify listeners.
   notify_listeners_.clear();
 
-
   // Unset the executable module.
   executable_module_ = nullptr;
 
@@ -1025,13 +1023,23 @@ void KernelState::SystemClockInterrupt() {
   if (cpu_num == 0) {
     X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
         memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
-    // uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
-    // uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
+// uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
+// uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
+#if 0
 
     uint64_t time_imprecise = (lpKeTimeStampBundle->interrupt_time += 10000ULL);
     lpKeTimeStampBundle->system_time += 10000ULL;
     lpKeTimeStampBundle->tick_count += 1;
-
+#else
+    uint64_t time_imprecise = Clock::QueryGuestSystemTime();
+    uint32_t ticks = (uint32_t)Clock::QueryGuestTickCount();
+    // truncate system time so its precision matches with original hardware
+    time_imprecise /= 10000ULL;
+    time_imprecise *= 10000ULL;
+    lpKeTimeStampBundle->system_time = time_imprecise;
+    lpKeTimeStampBundle->interrupt_time = time_imprecise;
+    lpKeTimeStampBundle->tick_count = ticks;
+#endif
     /*
       check timers!
     */
@@ -1103,7 +1111,6 @@ bool KernelState::Restore(ByteStream* stream) {
 
   // Read the TLS allocation bitmap
   auto num_bitmap_entries = stream->Read<uint32_t>();
-
 
   uint32_t num_threads = stream->Read<uint32_t>();
   XELOGD("Loading {} threads...", num_threads);
@@ -1237,10 +1244,9 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   params->interrupt_callback_ = interrupt_callback;
   params->interrupt_callback_data_ = interrupt_callback_data;
   auto hwthread = processor_->GetCPUThread(cpu);
-  //while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
- // }
+  // while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
+  // }
   hwthread->SendGuestIPI(CPInterruptIPI, params);
-
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {

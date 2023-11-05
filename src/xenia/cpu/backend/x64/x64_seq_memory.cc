@@ -1876,7 +1876,9 @@ EMITTER_OPCODE_TABLE(OPCODE_CACHE_CONTROL, CACHE_CONTROL);
 // ============================================================================
 struct MEMORY_BARRIER
     : Sequence<MEMORY_BARRIER, I<OPCODE_MEMORY_BARRIER, VoidOp>> {
-  static void Emit(X64Emitter& e, const EmitArgType& i) { e.mfence(); }
+  static void Emit(X64Emitter& e, const EmitArgType& i) { 
+      //do nothing. X86 does not reorder writes in the way PPC does, so not necessary
+  }
 };
 EMITTER_OPCODE_TABLE(OPCODE_MEMORY_BARRIER, MEMORY_BARRIER);
 
