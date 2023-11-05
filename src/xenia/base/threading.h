@@ -414,6 +414,12 @@ struct ThreadPriority {
   static const int32_t kAboveNormal = 1;
   static const int32_t kHighest = 2;
 };
+
+  // NtWaitForAlertByThreadId
+bool WaitForAlert(int64_t nanoseconds);
+// NtAlertThreadByThreadId
+bool AlertThreadById(uint32_t thread_id);
+
 using IPIFunction = uintptr_t (*)(void* ud);
 // Models a Win32-like thread object.
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms682453(v=vs.85).aspx

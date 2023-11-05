@@ -61,6 +61,10 @@ XE_NTDLL_IMPORT(NtQueryInformationThread, cls_NtQueryInformationThread,
 
 XE_NTDLL_IMPORT(NtQueueApcThreadEx, cls_NtQueueApcThreadEx,
                 NtQueueApcThreadExPointer);
+XE_NTDLL_IMPORT(NtAlertThreadByThreadId, cls_NtAlertThreadByThreadId,
+                NtAlertThreadByThreadIdPointer);
+XE_NTDLL_IMPORT(NtWaitForAlertByThreadId, cls_NtWaitForAlertByThreadId,
+                NtWaitForAlertByThreadIdPointer);
 namespace xe {
 namespace threading {
 static bool IsInGuestThread() {
@@ -533,7 +537,18 @@ std::unique_ptr<Timer> Timer::CreateSynchronizationTimer() {
     return nullptr;
   }
 }
-
+// NtWaitForAlertByThreadId
+bool WaitForAlert(int64_t nanoseconds) {
+  LARGE_INTEGER wait_time{};
+  wait_time.QuadPart = nanoseconds / 100LL;
+  return NtWaitForAlertByThreadIdPointer.invoke<NTSTATUS>(nullptr,
+                                                          &wait_time) ==
+         0x101;  // STATUS_ALERTED vs STATUS_TIMEOUT
+}
+// NtAlertThreadByThreadId
+bool AlertThreadById(uint32_t thread_id) {
+  return NtAlertThreadByThreadIdPointer.invoke<NTSTATUS>(thread_id) == 0;
+}
 class Win32Thread : public Win32Handle<Thread> {
  public:
   explicit Win32Thread(HANDLE handle) : Win32Handle(handle) {}
@@ -678,7 +693,6 @@ bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
   }
   uint32_t previous_suspend_count = 0;
   if (!this->Suspend(&previous_suspend_count)) {
-
     return false;
   }
   if (previous_suspend_count != 0) {
