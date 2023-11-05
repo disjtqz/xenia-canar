@@ -227,7 +227,7 @@ static_assert_size(X_KEVENT, 0x10);
 
 struct X_KTHREAD;
 struct X_KPROCESS;
-//https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_file_object
+// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_file_object
 struct X_KFILE_OBJECT {
   uint8_t unk_0[0x68];
 };
@@ -364,9 +364,26 @@ struct X_EXTIMER {
 
 static_assert_size(X_EXTIMER, 0x80);
 
+// iocompletions appear to just be a KQUEUE under another name
+// seems to exactly match normal nt structure!
+// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-keinitializequeue
+// todo: figure out where thread_list_head links into 360 KTHREAD
+struct X_KQUEUE {
+  X_DISPATCH_HEADER header;        // 0x0
+  X_LIST_ENTRY entry_list_head;    // 0x10
+  xe::be<uint32_t> current_count;  // 0x18
+  xe::be<uint32_t> maximum_count;  // 0x1C
+  X_LIST_ENTRY thread_list_head;   // 0x20
+};
+static_assert_size(X_KQUEUE, 0x28);
+
+// just an alias, they are identical structures
+using X_KIO_COMPLETION = X_KQUEUE;
+
 struct X_KTHREAD {
-  X_DISPATCH_HEADER header;          // 0x0
-  util::X_TYPED_LIST<X_KMUTANT, offsetof(X_KMUTANT, unk_list)> mutants_list;         // 0x10
+  X_DISPATCH_HEADER header;  // 0x0
+  util::X_TYPED_LIST<X_KMUTANT, offsetof(X_KMUTANT, unk_list)>
+      mutants_list;                  // 0x10
   X_KTIMER wait_timeout_timer;       // 0x18
   X_KWAIT_BLOCK wait_timeout_block;  // 0x40
   uint8_t unk_58[0x4];               // 0x58
@@ -407,7 +424,7 @@ struct X_KTHREAD {
   uint8_t wait_reason;                            // 0xA7
   EZPointer<X_KWAIT_BLOCK> wait_blocks;           // 0xA8
   uint8_t unk_AC[4];                              // 0xAC
-  xe::be<int32_t> apc_disable_count;                      // 0xB0
+  xe::be<int32_t> apc_disable_count;              // 0xB0
   xe::be<int32_t> unk_B4;                         // 0xB4
   uint8_t unk_B8;                                 // 0xB8
   uint8_t unk_B9;                                 // 0xB9
@@ -471,7 +488,8 @@ constexpr uint32_t X_PROCTYPE_SYSTEM = 2;
 struct X_KPROCESS {
   X_KSPINLOCK thread_list_spinlock;
   // list of threads in this process, guarded by the spinlock above
-  util::X_TYPED_LIST<X_KTHREAD, offsetof(X_KTHREAD,process_threads)>  thread_list;
+  util::X_TYPED_LIST<X_KTHREAD, offsetof(X_KTHREAD, process_threads)>
+      thread_list;
 
   xe::be<int32_t> unk_0C;
   // kernel sets this to point to a section of size 0x2F700 called CLRDATAA,
