@@ -85,7 +85,6 @@ HWDecrementer::HWDecrementer(HWThread* owner) : hw_thread_(owner) {
 
   worker_ = threading::Thread::Create(
       crparams, std::bind(&HWDecrementer::WorkerMain, this));
-  worker_->set_affinity_mask(1ULL << owner->cpu_number());
   worker_->set_name("Decrementer Thread " +
                     std::to_string(owner->cpu_number()));
 }

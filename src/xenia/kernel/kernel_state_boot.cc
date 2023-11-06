@@ -328,6 +328,8 @@ void KernelState::BootInitializeStatics() {
       memory_->TranslateVirtual<KernelGuestGlobals*>(kernel_guest_globals_);
   memset(block, 0, sizeof(block));
 
+  block->background_processors = 0x3C;
+
   auto idle_process = memory()->TranslateVirtual<X_KPROCESS*>(GetIdleProcess());
   InitializeProcess(idle_process, X_PROCTYPE_IDLE, 0, 0, 0);
   idle_process->unk_0C = 0x7F;

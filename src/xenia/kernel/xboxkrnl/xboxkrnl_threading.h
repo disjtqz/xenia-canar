@@ -205,6 +205,10 @@ int32_t xeKeInsertQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
 int32_t xeKeInsertHeadQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
                             PPCContext* context);
 
+
+uint32_t xeKeQueryBackgroundProcessors(PPCContext* context);
+void xeKeSetBackgroundProcessors(PPCContext* context, uint32_t new_bgproc);
+void xeKeEnterBackgroundMode(PPCContext* context);
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

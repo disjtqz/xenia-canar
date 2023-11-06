@@ -1872,7 +1872,6 @@ static void SendRunKernelApcIPI(void* ud) {
     return;
   }
   xeProcessKernelApcs(context);
-  
 }
 
 void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
@@ -2336,6 +2335,18 @@ dword_result_t KeInsertQueue_entry(pointer_t<X_KQUEUE> queue,
 }
 
 DECLARE_XBOXKRNL_EXPORT1(KeInsertQueue, kThreading, kImplemented);
+
+dword_result_t KeQueryBackgroundProcessors_entry(const ppc_context_t& context) {
+  return xeKeQueryBackgroundProcessors(context);
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeQueryBackgroundProcessors, kThreading, kImplemented);
+
+void KeSetBackgroundProcessors_entry(dword_t value,
+                                     const ppc_context_t& context) {
+  xeKeSetBackgroundProcessors(context, value);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeSetBackgroundProcessors, kThreading, kImplemented);
 
 }  // namespace xboxkrnl
 }  // namespace kernel

@@ -125,6 +125,8 @@ struct KernelGuestGlobals {
   XDPC graphics_interrupt_dpc;
 
   X_KSPINLOCK tls_lock;
+
+  uint32_t background_processors;
 };
 
 struct X_KPCR_PAGE;

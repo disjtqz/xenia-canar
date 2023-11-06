@@ -1185,6 +1185,12 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
     xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, context);
   }
+  //from markvblank
+  if (callback_data[0] == 0) {
+    xboxkrnl::xeKeEnterBackgroundMode(context);
+  }
+  
+
 }
 
 void KernelState::CPInterruptIPI(void* ud) {

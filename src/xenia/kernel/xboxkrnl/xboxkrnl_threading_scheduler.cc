@@ -1832,6 +1832,56 @@ int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
       context, context->kernel_state->GetDispatcherLock(context), old_irql);
   return old_priority;
 }
+static void BackgroundModeIPI(void* ud) {
+  xe::cpu::ppc::PPCContext_s* context;
+  xe::kernel::X_KPCR* KPCR;  // [rsp+28h] [rbp+8h]
+
+  context = xe::cpu::ThreadState::GetContext();
+  KPCR = xe::kernel::GetKPCR(context);
+  KPCR->unk_1A = 1;
+  KPCR->timeslice_ended = 1;
+  KPCR->generic_software_interrupt = 2;
+  if (!KPCR->prcb_data.running_idle_thread) {
+    xe::kernel::KernelState::GenericExternalInterruptEpilog(context);
+  }
+}
+void xeKeEnterBackgroundMode(xe::cpu::ppc::PPCContext_s* context) {
+  unsigned int BackgroundProcessors;  // [rsp+20h] [rbp+0h]
+  xe::kernel::X_KPCR* KPCR;           // [rsp+28h] [rbp+8h]
+  unsigned int v3;                    // [rsp+30h] [rbp+10h]
+  unsigned int i;                     // [rsp+34h] [rbp+14h]
+  xe::cpu::HWThread* CPUThread;       // [rsp+80h] [rbp+60h]
+
+  BackgroundProcessors =
+      xe::kernel::xboxkrnl::xeKeQueryBackgroundProcessors(context);
+  KPCR = xe::kernel::GetKPCR(context);
+  v3 = KPCR->prcb_data.processor_mask;
+  if ((BackgroundProcessors & v3) != 0) {
+    BackgroundProcessors &= ~v3;
+    KPCR->unk_1A = 1;
+    KPCR->timeslice_ended = 1;
+    KPCR->generic_software_interrupt = 2;
+  }
+  if (BackgroundProcessors) {
+    for (i = 0; i < 6; ++i) {
+      if (((1 << i) & BackgroundProcessors) != 0) {
+        CPUThread = context->processor->GetCPUThread(i);
+
+        CPUThread->SendGuestIPI(BackgroundModeIPI, nullptr);
+      }
+    }
+  }
+}
+
+uint32_t xeKeQueryBackgroundProcessors(PPCContext* context) {
+  return context->kernel_state->GetKernelGuestGlobals(context)
+      ->background_processors;
+}
+
+void xeKeSetBackgroundProcessors(PPCContext* context, unsigned int new_bgproc) {
+  context->kernel_state->GetKernelGuestGlobals(context)->background_processors =
+      new_bgproc;
+}
 
 }  // namespace xboxkrnl
 }  // namespace kernel
