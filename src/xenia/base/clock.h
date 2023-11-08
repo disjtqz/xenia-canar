@@ -39,8 +39,8 @@ class Clock {
   // Host tick count. Generally QueryHostTickCount() should be used.
   static uint64_t host_tick_count_platform();
 #if XE_CLOCK_RAW_AVAILABLE
-  //chrispy: the way msvc was ordering the branches was causing rdtsc to be speculatively executed each time
-  //the branch history was lost
+  // chrispy: the way msvc was ordering the branches was causing rdtsc to be
+  // speculatively executed each time the branch history was lost
   XE_NOINLINE
   static uint64_t host_tick_count_raw();
 #endif
@@ -94,6 +94,20 @@ class Clock {
   static int64_t ScaleGuestDurationFileTime(int64_t guest_file_time);
   // Scales a time duration represented as a timeval, from guest time.
   static void ScaleGuestDurationTimeval(int32_t* tv_sec, int32_t* tv_usec);
+
+  // QueryQuickCounter maps to the lowest latency timestamp query possible
+
+#if XE_ARCH_AMD64 == 1
+  XE_FORCEINLINE
+  static uint64_t QueryQuickCounter() { return __rdtsc(); }
+#else
+  static uint64_t QueryQuickCounter();
+#endif
+  //converts a timestamp in host tick frequency format to 
+  //one that is comparable with the quick counter
+  static uint64_t HostTickTimestampToQuickTimestamp(uint64_t host_ticks);
+
+  static void Initialize();
 };
 
 }  // namespace xe

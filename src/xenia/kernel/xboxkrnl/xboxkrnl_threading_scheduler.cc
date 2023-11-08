@@ -281,8 +281,7 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
   context->TranslateVirtual<X_LIST_ENTRY*>(v8)->flink_ptr = v7;
   context->TranslateVirtual<X_LIST_ENTRY*>(v7)->blink_ptr = v8;
   if (v8 == v7) {
-    prcb->has_ready_thread_by_priority =
-        prcb->has_ready_thread_by_priority & (~(1 << v5));
+    prcb->has_ready_thread_by_priority &= ~(1 << v5);
   }
   return result;
 }
@@ -368,8 +367,7 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   next_thread->thread_state = 1;
   v11->ready_threads_by_priority[v10].InsertHead(next_thread, context);
 
-  v11->has_ready_thread_by_priority =
-      v11->has_ready_thread_by_priority | (1 << v10);
+  v11->has_ready_thread_by_priority |= (1 << v10);
 
   xboxkrnl::xeKeKfReleaseSpinLock(
       context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);

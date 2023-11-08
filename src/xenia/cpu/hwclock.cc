@@ -14,36 +14,38 @@
 namespace xe {
 namespace cpu {
 
-void HWClock::SynchronizeToHostClockInterrupt() {
-  volatile uint64_t* timer_stash =
-      reinterpret_cast<volatile uint64_t*>(0x7FFE0320ULL);
-  uint64_t start_ticks = *timer_stash;
-
-  while (start_ticks == *timer_stash) {
-    _mm_pause();
-  }
-}
+void HWClock::SynchronizeToHostClockInterrupt() {}
 void HWClock::WorkerThreadMain() {
   SynchronizeToHostClockInterrupt();
-  uint64_t last_value = Clock::QueryHostUptimeMillis();
+
+  uint64_t millisecond_frequency =
+      Clock::host_tick_frequency_platform() / 1000LL;
+
+  uint64_t last_tick_count = Clock::host_tick_count_platform();
+
+  uint64_t rdtsc_endpoint = Clock::HostTickTimestampToQuickTimestamp(
+      last_tick_count + millisecond_frequency);
 
   while (true) {
     uint64_t new_value;
     while (true) {
-      new_value = Clock::QueryHostUptimeMillis();
-      if (new_value != last_value) {
-
+      new_value = Clock::QueryQuickCounter();
+      if (new_value >= rdtsc_endpoint) {
         break;
       } else {
-        //if (cvars::threads_aint_cheap) {
-//threading::MaybeYield();
-        //}
-        
+        _mm_pause();
+        _mm_pause();
+        _mm_pause();
+        _mm_pause();
       }
     }
+    last_tick_count = Clock::host_tick_count_platform();
 
-    uint64_t num_interrupts_to_trigger = new_value - last_value;
-    last_value = new_value;
+    rdtsc_endpoint = Clock::HostTickTimestampToQuickTimestamp(
+        last_tick_count + millisecond_frequency);
+
+    // uint64_t num_interrupts_to_trigger = new_value - last_value;
+    // last_value = new_value;
 
     // for (uint64_t i = 0; i < num_interrupts_to_trigger; ++i) {
     if (interrupt_callback_) {

@@ -37,9 +37,9 @@ namespace xe {
 // Time scalar applied to all time operations.
 double guest_time_scalar_ = 1.0;
 // Tick frequency of guest.
-uint64_t guest_tick_frequency_ = Clock::host_tick_frequency_platform();
+uint64_t guest_tick_frequency_;
 // Base FILETIME of the guest system from app start.
-uint64_t guest_system_time_base_ = Clock::QueryHostSystemTime();
+uint64_t guest_system_time_base_ ;
 // Combined time and frequency ratio between host and guest.
 // Split in numerator (first) and denominator (second).
 // Computed by RecomputeGuestTickScalar.
@@ -48,7 +48,7 @@ std::pair<uint64_t, uint64_t> guest_tick_ratio_ = std::make_pair(1, 1);
 // Native guest ticks.
 uint64_t last_guest_tick_count_ = 0;
 // Last sampled host tick count.
-uint64_t last_host_tick_count_ = Clock::QueryHostTickCount();
+uint64_t last_host_tick_count_;
 
 using tick_mutex_type = std::mutex;
 

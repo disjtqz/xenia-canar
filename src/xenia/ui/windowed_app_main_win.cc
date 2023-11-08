@@ -13,6 +13,7 @@
 #include "xenia/base/console.h"
 #include "xenia/base/cvar.h"
 #include "xenia/base/main_win.h"
+#include "xenia/base/clock.h"
 #include "xenia/base/platform_win.h"
 #include "xenia/ui/windowed_app.h"
 #include "xenia/ui/windowed_app_context_win.h"
@@ -354,6 +355,7 @@ int WINAPI wWinMain(HINSTANCE hinstance, HINSTANCE hinstance_prev,
 
   int result;
   SetUnhandledExceptionFilter(_UnhandledExceptionFilter);
+  xe::Clock::Initialize();
   {
     xe::ui::Win32WindowedAppContext app_context(hinstance, show_cmd);
     // TODO(Triang3l): Initialize creates a window. Set DPI awareness via the
