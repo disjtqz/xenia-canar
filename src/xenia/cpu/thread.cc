@@ -34,67 +34,6 @@ uint32_t Thread::GetCurrentThreadId() {
   return cpu::ThreadState::GetContext()->thread_id;
 }
 
-void HWDecrementer::WorkerMain() {
-  threading::WaitHandle* cancellable[2];
-  cancellable[0] = this->timer_.get();
-  cancellable[1] = this->wrote_.get();
-
-  while (true) {
-    threading::Wait(this->wrote_.get(), false);
-
-  cancelled:
-    int32_t decrementer_ticks = this->value_;
-
-    if (decrementer_ticks < 0) {
-      // negative value means signal immediately
-      goto do_ipi;
-    }
-
-    double wait_time_in_nanoseconds =
-        (static_cast<double>(decrementer_ticks) /
-         static_cast<double>(TIMEBASE_FREQUENCY)) *
-        1000000000.0;
-    timer_->SetOnceAfter(chrono::hundrednanoseconds(
-        static_cast<long long>(wait_time_in_nanoseconds / 100.0)));
-    {
-      auto [result, which] = threading::WaitAny(cancellable, 2, false);
-      // if the index is wrote_, our interrupt has been cancelled and a new one
-      // needs setting up
-      if (which == 1) {
-        goto cancelled;
-      }
-    }
-
-  do_ipi:
-    // timer was signalled
-    // send using sendguestipi, which is async. the interrupt may set the
-    // decrementer again!
-    hw_thread_->SendGuestIPI(interrupt_callback_, ud_);
-  }
-}
-
-HWDecrementer::HWDecrementer(HWThread* owner) : hw_thread_(owner) {
-  wrote_ = threading::Event::CreateAutoResetEvent(false);
-  timer_ = threading::Timer::CreateManualResetTimer();
-  value_ = 0x7FFFFFFF;
-  threading::Thread::CreationParameters crparams;
-  crparams.stack_size = 65536;
-  // use a much higher priority than the hwthread itself so that we get more
-  // accurate timing
-  crparams.initial_priority = threading::ThreadPriority::kHighest;
-
-  worker_ = threading::Thread::Create(
-      crparams, std::bind(&HWDecrementer::WorkerMain, this));
-  worker_->set_name("Decrementer Thread " +
-                    std::to_string(owner->cpu_number()));
-}
-HWDecrementer ::~HWDecrementer() {}
-
-void HWDecrementer::Set(int32_t value) {
-  this->value_ = value;
-  this->wrote_->Set();
-}
-
 bool HWThread::HandleInterrupts() { return false; }
 
 void HWThread::RunRunnable(RunnableThread* runnable) {
@@ -126,8 +65,7 @@ void HWThread::ThreadFunc() {
 HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
     : cpu_number_(cpu_number),
       idle_process_threadstate_(thread_state),
-      runnable_thread_list_(),
-      decrementer_(std::make_unique<HWDecrementer>(this)) {
+      runnable_thread_list_() {
   threading::Thread::CreationParameters params;
   params.create_suspended = true;
   params.initial_priority = threading::ThreadPriority::kNormal;
@@ -191,15 +129,13 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
   ppc::PPCGprSnapshot snap;
   context->TakeGPRSnapshot(&snap);
 
-  auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(
-      context->r[13]);
+  auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
   auto old_irql = kpcr->current_irql;
 
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
 
-  kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(
-      context->r[13]);
+  kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
   auto new_irql = kpcr->current_irql;
   xenia_assert(old_irql == new_irql);
@@ -223,14 +159,11 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   GuestInterruptWrapper* wrapper =
       reinterpret_cast<GuestInterruptWrapper*>(&request->extra_data_[0]);
 
-
   wrapper->ipi_func = ipi_func;
   wrapper->ud = ud;
   wrapper->thiz = this;
   // ipi wrapper returns 0 if current context has interrupts disabled
   volatile uintptr_t result_from_call = 0;
-
-
 
   request->func_ = IPIWrapperFunction;
   request->ud_ = (void*)wrapper;
@@ -254,6 +187,48 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
 bool HWThread::SendGuestIPI(void (*ipi_func)(void*), void* ud) {
   // todo: pool this structure!
   return TrySendInterruptFromHost(ipi_func, ud, false);
+}
+
+void HWThread::DecrementerInterruptEnqueueProc(
+    XenonInterruptController* controller, uint32_t slot, void* ud) {
+  auto thiz = reinterpret_cast<HWThread*>(ud);
+  thiz->SendGuestIPI(thiz->decrementer_interrupt_callback_,
+                     thiz->decrementer_ud_);
+
+  controller->FreeTimedInterruptSlot(slot);
+  thiz->decrementer_interrupt_slot_ = ~0u;
+}
+void HWThread::SetDecrementerTicks(int32_t ticks) {
+  if (decrementer_interrupt_slot_ != ~0u) {
+    interrupt_controller()->FreeTimedInterruptSlot(decrementer_interrupt_slot_);
+    decrementer_interrupt_slot_ = ~0u;
+  }
+  //0x7FFFFFFF just means cancel
+  if (ticks != 0x7FFFFFFF) {
+    double wait_time_in_microseconds =
+        (static_cast<double>(ticks) / static_cast<double>(TIMEBASE_FREQUENCY)) *
+        1000000.0;
+
+    CpuTimedInterrupt cti;
+    cti.destination_microseconds_ =
+        interrupt_controller()->CreateRelativeUsTimestamp(
+            static_cast<uint64_t>(wait_time_in_microseconds));
+
+    cti.ud_ = this;
+    cti.enqueue_ = DecrementerInterruptEnqueueProc;
+
+    decrementer_interrupt_slot_ =
+        interrupt_controller()->AllocateTimedInterruptSlot();
+
+    interrupt_controller()->SetTimedInterruptArgs(decrementer_interrupt_slot_,
+                                                  &cti);
+  }
+  interrupt_controller()->RecomputeNextEventCycles();
+}
+void HWThread::SetDecrementerInterruptCallback(void (*decr)(void* ud),
+                                               void* ud) {
+  decrementer_interrupt_callback_ = decr;
+  decrementer_ud_ = ud;
 }
 
 uint64_t HWThread::mftb() const {

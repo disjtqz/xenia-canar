@@ -1155,7 +1155,7 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
 }
 
 static void NativeCheckInterrupt(void* ctx) {
-  reinterpret_cast<ppc::PPCContext*>(ctx)->CheckInterrupt();
+  ppc::PPCContext::ReallyDoInterrupt(reinterpret_cast<ppc::PPCContext*>(ctx));
 }
 
 void* X64HelperEmitter::EmitEmulatedInterruptHelper() {

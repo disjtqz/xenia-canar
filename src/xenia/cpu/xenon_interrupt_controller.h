@@ -24,11 +24,12 @@ struct ExternalInterruptArgs {
   uint32_t source_;
 };
 static constexpr uint32_t MAX_CPU_TIMED_INTERRUPTS = 4;
-using CpuTimedInterruptProc = void (*)(XenonInterruptController* controller, uint32_t slot);
+using CpuTimedInterruptProc = void (*)(XenonInterruptController* controller, uint32_t slot, void* ud);
 struct CpuTimedInterrupt {
     //time in nanoseconds that the event should be triggered at
-  uint64_t destination_nanoseconds_;
+  uint64_t destination_microseconds_;
   CpuTimedInterruptProc enqueue_;
+  void* ud_;
 };
 
 /*
@@ -75,7 +76,7 @@ class XenonInterruptController {
   uint32_t pad_;
   HWThread* const owner_;
   Processor* const processor_;
-  uint64_t tick_nanosecond_frequency_;
+  uint64_t tick_microsecond_frequency;
   threading::AtomicListHeader free_interrupt_requests_;
 
   uint32_t timed_event_slots_bitmap_=0;
@@ -109,6 +110,7 @@ class XenonInterruptController {
   void RecomputeNextEventCycles();
   void EnqueueTimedInterrupts();
 
+  uint64_t CreateRelativeUsTimestamp(uint64_t nanoseconds);
 };
 
 }  // namespace cpu

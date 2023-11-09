@@ -196,7 +196,7 @@ bool PPCContext::CompareRegWithString(const char* name, const char* value,
   }
 }
 XE_NOINLINE
-static void ReallyDoInterrupt(PPCContext* context) {
+void PPCContext::ReallyDoInterrupt(PPCContext* context) {
   auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
   auto interrupt_controller = context->GetExternalInterruptController();
   if (interrupt_controller->queued_interrupts_.depth()) {
@@ -214,8 +214,8 @@ static void ReallyDoInterrupt(PPCContext* context) {
           run_interrupt = ireq_deref.may_run_(context);
         }
         if (run_interrupt) {
-
-          uintptr_t result = ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
+          uintptr_t result =
+              ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
           if (ireq_deref.wait) {
             if (ireq_deref.result_out_) {
               *ireq_deref.result_out_ = result;
@@ -233,16 +233,13 @@ static void ReallyDoInterrupt(PPCContext* context) {
 }
 
 void PPCContext::CheckInterrupt() {
-  if (!cvars::emulate_guest_interrupts_in_software) {
+  auto controller = GetExternalInterruptController();
+  CheckTimedInterrupt();
+
+  if (!controller->queued_interrupts_.depth()) {
     return;
   } else {
-    auto controller = GetExternalInterruptController();
-
-    if (!controller->queued_interrupts_.depth()) {
-      return;
-    } else {
-      ReallyDoInterrupt(this);
-    }
+    ReallyDoInterrupt(this);
   }
 }
 void PPCContext::AssertCurrent() {

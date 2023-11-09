@@ -88,31 +88,6 @@ class HWThread;
 static constexpr uint64_t TIMEBASE_FREQUENCY = 49875000ULL;
 
 static constexpr int32_t DECREMENTER_DISABLE = 0x7FFFFFFF;
-class HWDecrementer {
-  volatile int32_t value_ = -1;
-  HWThread* hw_thread_ = 0;
-  std::unique_ptr<threading::Thread> worker_;
-
-  std::unique_ptr<threading::Timer> timer_;
-  std::unique_ptr<threading::Event> wrote_;
-  void (*interrupt_callback_)(void* ud);
-  void* ud_;
-
-  void WorkerMain();
-
- public:
-  HWDecrementer(HWThread* owner);
-  ~HWDecrementer();
-
-  void Set(int32_t value);
-
-  void SetInterruptCallback(void (*decr)(void* ud), void* ud) {
-    interrupt_callback_ = decr;
-    ud_ = ud;
-  }
-};
-
-
 
 class HWThread {
   void ThreadFunc();
@@ -124,7 +99,8 @@ class HWThread {
   void RunIdleProcess();
 
   static uintptr_t IPIWrapperFunction(ppc::PPCContext_s* context,
-                                      ppc::PPCInterruptRequest* request, void* ud);
+                                      ppc::PPCInterruptRequest* request,
+                                      void* ud);
   volatile bool ready_ = false;
   std::unique_ptr<threading::Thread> os_thread_;
 
@@ -142,12 +118,18 @@ class HWThread {
 
   void (*boot_function_)(ppc::PPCContext* context, void* ud) = nullptr;
   void* boot_ud_ = nullptr;
-  std::unique_ptr<HWDecrementer> decrementer_;
   std::unique_ptr<XenonInterruptController> interrupt_controller_;
 
   void (*external_interrupt_handler_)(cpu::ppc::PPCContext* context,
                                       XenonInterruptController* controller);
 
+  uint32_t decrementer_interrupt_slot_ = ~0u;
+
+  void (*decrementer_interrupt_callback_)(void* ud);
+  void* decrementer_ud_;
+
+  static void DecrementerInterruptEnqueueProc(
+      XenonInterruptController* controller, uint32_t slot, void* ud); 
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
   ~HWThread();
@@ -161,11 +143,8 @@ class HWThread {
   }
   bool HasBooted() { return ready_; }
 
-  void SetDecrementerTicks(int32_t ticks) { decrementer_->Set(ticks); }
-  void SetDecrementerInterruptCallback(void (*decr)(void* ud), void* ud) {
-    decrementer_->SetInterruptCallback(decr, ud);
-  }
-
+  void SetDecrementerTicks(int32_t ticks);
+  void SetDecrementerInterruptCallback(void (*decr)(void* ud), void* ud);
 
   static void ThreadDelay();
   void SetExternalInterruptHandler(void (*handler)(

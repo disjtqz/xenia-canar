@@ -17,8 +17,9 @@ namespace cpu {
 XenonInterruptController::XenonInterruptController(HWThread* thread,
                                                    Processor* processor)
     : cpu_number_(thread->cpu_number()),
-      owner_(thread),
-      processor_(processor) {}
+      owner_(thread), processor_(processor) {
+  Initialize();
+}
 
 XenonInterruptController::~XenonInterruptController() {}
 
@@ -46,8 +47,9 @@ void XenonInterruptController::Initialize() {
   processor_->memory()->AddVirtualMappedRange(GuestMMIOAddress(), 0xFFFF0000,
                                               0xFFFF, this, ReadRegisterStub,
                                               WriteRegisterStub);
-  tick_nanosecond_frequency_ =
-      Clock::host_tick_frequency_platform() / (1000ULL * 1000ULL * 1000ULL);
+
+  tick_microsecond_frequency =
+      Clock::host_tick_frequency_platform() / (1000ULL * 1000ULL);
 }
 
 void XenonInterruptController::SetInterruptSource(uint64_t src) {
@@ -127,14 +129,14 @@ void XenonInterruptController::SetTimedInterruptArgs(uint32_t slot,
 }
 
 void XenonInterruptController::RecomputeNextEventCycles() {
-  uint64_t lowest_cycles = ~0u;
+  uint64_t lowest_cycles = ~0ull;
   for (uint32_t i = 0; i < MAX_CPU_TIMED_INTERRUPTS; ++i) {
     if (!(timed_event_slots_bitmap_ & (1U << i))) {
       continue;
     }
 
     uint64_t rdtsc_cycles = Clock::HostTickTimestampToQuickTimestamp(
-        timed_events_[i].destination_nanoseconds_ * tick_nanosecond_frequency_);
+        timed_events_[i].destination_microseconds_ * tick_microsecond_frequency);
 
     if (rdtsc_cycles < lowest_cycles) {
       lowest_cycles = rdtsc_cycles;
@@ -144,17 +146,27 @@ void XenonInterruptController::RecomputeNextEventCycles() {
 }
 
 void XenonInterruptController::EnqueueTimedInterrupts() {
-  for (uint32_t timed_interrupt_slot = 0; timed_interrupt_slot < MAX_CPU_TIMED_INTERRUPTS; ++timed_interrupt_slot) {
+  for (uint32_t timed_interrupt_slot = 0;
+       timed_interrupt_slot < MAX_CPU_TIMED_INTERRUPTS;
+       ++timed_interrupt_slot) {
     if (!(timed_event_slots_bitmap_ & (1U << timed_interrupt_slot))) {
       continue;
     }
-    uint64_t current_time_ns =
-        Clock::host_tick_count_platform() / tick_nanosecond_frequency_;
-    if (timed_events_[timed_interrupt_slot].destination_nanoseconds_ < current_time_ns) {
-      timed_events_[timed_interrupt_slot].enqueue_(this, timed_interrupt_slot);
+    uint64_t current_time_us =
+        Clock::host_tick_count_platform() / tick_microsecond_frequency;
+    if (timed_events_[timed_interrupt_slot].destination_microseconds_ <
+        current_time_us) {
+      timed_events_[timed_interrupt_slot].enqueue_(
+          this, timed_interrupt_slot, timed_events_[timed_interrupt_slot].ud_);
     }
   }
   RecomputeNextEventCycles();
+}
+
+uint64_t XenonInterruptController::CreateRelativeUsTimestamp(
+    uint64_t nanoseconds) {
+  return (Clock::host_tick_count_platform() / tick_microsecond_frequency) +
+         nanoseconds;
 }
 
 }  // namespace cpu
