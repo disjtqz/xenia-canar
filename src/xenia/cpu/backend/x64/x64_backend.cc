@@ -80,7 +80,7 @@ class X64HelperEmitter : public X64Emitter {
   void* EmitFrsqrteHelper();
 
   void* EmitEmulatedInterruptHelper();
-
+  void* EmitTimedInterruptHelper();
  private:
   void* EmitCurrentForOffsets(const _code_offsets& offsets,
                               size_t stack_size = 0);
@@ -296,6 +296,7 @@ bool X64Backend::Initialize(Processor* processor) {
 
   if (cvars::emulate_guest_interrupts_in_software) {
     emulated_interrupt_helper_ = thunk_emitter.EmitEmulatedInterruptHelper();
+    enqueue_timed_interrupts_helper_ = thunk_emitter.EmitTimedInterruptHelper();
   }
   // Set the code cache to use the ResolveFunction thunk for default
   // indirections.
@@ -1153,7 +1154,7 @@ void* X64HelperEmitter::EmitScalarVRsqrteHelper() {
   return EmitCurrentForOffsets(code_offsets);
 }
 
-static void NativeCall(void* ctx) {
+static void NativeCheckInterrupt(void* ctx) {
   reinterpret_cast<ppc::PPCContext*>(ctx)->CheckInterrupt();
 }
 
@@ -1165,7 +1166,23 @@ void* X64HelperEmitter::EmitEmulatedInterruptHelper() {
             offsetof(ppc::PPCContext, recent_interrupt_addr_)],
       r9);
 #endif
-  CallNativeSafe(NativeCall);
+  CallNativeSafe(NativeCheckInterrupt);
+  jmp(r9);
+  code_offsets.prolog_stack_alloc = getSize();
+  code_offsets.body = getSize();
+  code_offsets.epilog = getSize();
+  code_offsets.tail = getSize();
+  code_offsets.prolog = getSize();
+  return EmitCurrentForOffsets(code_offsets);
+}
+
+static void NativeTimedInterruptHelper(void* ctx) {
+  reinterpret_cast<ppc::PPCContext*>(ctx)->EnqueueTimedInterrupts();
+}
+void* X64HelperEmitter::EmitTimedInterruptHelper() {
+  _code_offsets code_offsets = {};
+  pop(r9);
+  CallNativeSafe(NativeTimedInterruptHelper);
   jmp(r9);
   code_offsets.prolog_stack_alloc = getSize();
   code_offsets.body = getSize();

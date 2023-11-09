@@ -46,6 +46,8 @@ void XenonInterruptController::Initialize() {
   processor_->memory()->AddVirtualMappedRange(GuestMMIOAddress(), 0xFFFF0000,
                                               0xFFFF, this, ReadRegisterStub,
                                               WriteRegisterStub);
+  tick_nanosecond_frequency_ =
+      Clock::host_tick_frequency_platform() / (1000ULL * 1000ULL * 1000ULL);
 }
 
 void XenonInterruptController::SetInterruptSource(uint64_t src) {
@@ -93,12 +95,67 @@ ppc::PPCInterruptRequest* XenonInterruptController::AllocateInterruptRequest() {
 void XenonInterruptController::FreeInterruptRequest(
     ppc::PPCInterruptRequest* request) {
   // limit the number of available interrupts in the list to a sane value
-  // if we hit this number, the guest has probably frozen and isn't processing the interrupts we're sending
+  // if we hit this number, the guest has probably frozen and isn't processing
+  // the interrupts we're sending
   if (free_interrupt_requests_.depth() < 256) {
     free_interrupt_requests_.Push(&request->list_entry_);
   } else {
     delete request;
   }
 }
+
+uint32_t XenonInterruptController::AllocateTimedInterruptSlot() {
+  for (uint32_t i = 0; i < MAX_CPU_TIMED_INTERRUPTS; ++i) {
+    if (!(timed_event_slots_bitmap_ & (1U << i))) {
+      timed_event_slots_bitmap_ |= 1U << i;
+      return i;
+    }
+  }
+  xenia_assert(false);  // need to expand free slots!
+  xe::FatalError("out of timed interrupt slots!");
+  return ~0u;
+}
+
+void XenonInterruptController::FreeTimedInterruptSlot(uint32_t slot) {
+  xenia_assert(slot < MAX_CPU_TIMED_INTERRUPTS);
+  xenia_assert(timed_event_slots_bitmap_ & (1U << slot));
+  timed_event_slots_bitmap_ &= ~(1U << slot);
+}
+void XenonInterruptController::SetTimedInterruptArgs(uint32_t slot,
+                                                     CpuTimedInterrupt* data) {
+  timed_events_[slot] = *data;
+}
+
+void XenonInterruptController::RecomputeNextEventCycles() {
+  uint64_t lowest_cycles = ~0u;
+  for (uint32_t i = 0; i < MAX_CPU_TIMED_INTERRUPTS; ++i) {
+    if (!(timed_event_slots_bitmap_ & (1U << i))) {
+      continue;
+    }
+
+    uint64_t rdtsc_cycles = Clock::HostTickTimestampToQuickTimestamp(
+        timed_events_[i].destination_nanoseconds_ * tick_nanosecond_frequency_);
+
+    if (rdtsc_cycles < lowest_cycles) {
+      lowest_cycles = rdtsc_cycles;
+    }
+  }
+  next_event_quick_timestamp_ = lowest_cycles;
+}
+
+void XenonInterruptController::EnqueueTimedInterrupts() {
+  for (uint32_t timed_interrupt_slot = 0; timed_interrupt_slot < MAX_CPU_TIMED_INTERRUPTS; ++timed_interrupt_slot) {
+    if (!(timed_event_slots_bitmap_ & (1U << timed_interrupt_slot))) {
+      continue;
+    }
+    uint64_t current_time_ns =
+        Clock::host_tick_count_platform() / tick_nanosecond_frequency_;
+    if (timed_events_[timed_interrupt_slot].destination_nanoseconds_ < current_time_ns) {
+      timed_events_[timed_interrupt_slot].enqueue_(this, timed_interrupt_slot);
+    }
+  }
+  RecomputeNextEventCycles();
+}
+
 }  // namespace cpu
 }  // namespace xe

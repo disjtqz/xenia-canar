@@ -23,6 +23,13 @@ struct ExternalInterruptArgs {
   XenonInterruptController* controller_;
   uint32_t source_;
 };
+static constexpr uint32_t MAX_CPU_TIMED_INTERRUPTS = 4;
+using CpuTimedInterruptProc = void (*)(XenonInterruptController* controller, uint32_t slot);
+struct CpuTimedInterrupt {
+    //time in nanoseconds that the event should be triggered at
+  uint64_t destination_nanoseconds_;
+  CpuTimedInterruptProc enqueue_;
+};
 
 /*
     todo: can't LLE this, because the MMIO handler does not support 8-byte loads
@@ -31,7 +38,8 @@ struct ExternalInterruptArgs {
 class XenonInterruptController {
  public:
   threading::AtomicListHeader queued_interrupts_;
-  uint64_t next_event_quick_timestamp_;
+  uint64_t next_event_quick_timestamp_ = ~0ULL;
+
   // technically has a whole page, but I think only a little bit of it (0x100) is used. at least, from kernel space
   union {
     struct {
@@ -67,10 +75,11 @@ class XenonInterruptController {
   uint32_t pad_;
   HWThread* const owner_;
   Processor* const processor_;
-
+  uint64_t tick_nanosecond_frequency_;
   threading::AtomicListHeader free_interrupt_requests_;
 
-
+  uint32_t timed_event_slots_bitmap_=0;
+  CpuTimedInterrupt timed_events_[4];
   void Initialize();
 
   void SetInterruptSource(uint64_t src);
@@ -93,7 +102,13 @@ class XenonInterruptController {
   void WriteRegisterOffset(uint32_t offset, uint64_t value);
   uint64_t ReadRegisterOffset(uint32_t offset);
 
-  
+  uint32_t AllocateTimedInterruptSlot();
+  void FreeTimedInterruptSlot(uint32_t slot);
+  void SetTimedInterruptArgs(uint32_t slot, CpuTimedInterrupt* data);
+
+  void RecomputeNextEventCycles();
+  void EnqueueTimedInterrupts();
+
 };
 
 }  // namespace cpu

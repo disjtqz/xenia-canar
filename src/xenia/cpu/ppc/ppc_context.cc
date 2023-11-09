@@ -283,6 +283,21 @@ XenonInterruptController* PPCContext::GetExternalInterruptController() {
   return reinterpret_cast<XenonInterruptController*>(kpcr->emulated_interrupt);
 }
 
+XE_NOINLINE
+void PPCContext::EnqueueTimedInterrupts() {
+  this->GetExternalInterruptController()->EnqueueTimedInterrupts();
+}
+void PPCContext::CheckTimedInterrupt() {
+  auto eext = GetExternalInterruptController();
+  uint64_t cycles = Clock::QueryQuickCounter();
+
+  if (cycles <= eext->next_event_quick_timestamp_) {
+    return;
+  } else {
+    EnqueueTimedInterrupts();
+  }
+}
+
 }  // namespace ppc
 }  // namespace cpu
 }  // namespace xe

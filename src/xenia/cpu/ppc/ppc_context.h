@@ -575,7 +575,9 @@ typedef struct alignas(64) PPCContext_s {
     }
   }
   XenonInterruptController* GetExternalInterruptController();
-
+  void CheckTimedInterrupt();
+  XE_NOINLINE
+  void EnqueueTimedInterrupts();
 } PPCContext;
 #pragma pack(pop)
 constexpr size_t ppcctx_size = sizeof(PPCContext);

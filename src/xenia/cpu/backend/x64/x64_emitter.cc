@@ -1849,17 +1849,36 @@ void X64Emitter::EmitEmulatedInterruptCheck() {
     return;
   }
   Xbyak::Label& after_interrupt_check = NewCachedLabel();
+  Xbyak::Label& rerun_due_to_timer = NewCachedLabel();
 
-  mov(eax, dword[GetContextReg() + offsetof(ppc::PPCContext, r[13])]);
+  L(rerun_due_to_timer);
+  rdtsc();
+  mov(ecx, dword[GetContextReg() + offsetof(ppc::PPCContext, r[13])]);
+  shl(rdx, 32);
   // assume PCR is never in physical memory!
-  //add(rax, GetMembaseReg());
-  mov(rax, qword[GetMembaseReg() + rax +
+  // add(rax, GetMembaseReg());
+  mov(rcx, qword[GetMembaseReg() + rcx +
                  offsetof(kernel::X_KPCR, emulated_interrupt)]);
+  or_(rax, rdx);
 
-  cmp(word[rax + offsetof(cpu::XenonInterruptController, queued_interrupts_)],
+  cmp(rax, qword[rcx + offsetof(cpu::XenonInterruptController,
+                                next_event_quick_timestamp_)]);
+
+  Xbyak::Label& do_timed_interrupts_label = AddToTail(
+      [&rerun_due_to_timer](X64Emitter& e, Xbyak::Label& our_tail_label) {
+        e.L(our_tail_label);
+
+        e.call(e.backend()->enqueue_timed_interrupts_helper_);
+
+        e.jmp(rerun_due_to_timer, e.T_NEAR);
+      });
+
+  ja(do_timed_interrupts_label, CodeGenerator::T_NEAR);
+
+  cmp(word[rcx + offsetof(cpu::XenonInterruptController, queued_interrupts_)],
       0);
 
-  //cmp(qword[rax + offsetof(kernel::X_KPCR, emulated_interrupt)], rax);
+  // cmp(qword[rax + offsetof(kernel::X_KPCR, emulated_interrupt)], rax);
 
   Xbyak::Label& do_emulated_interrupt_label = AddToTail(
       [&after_interrupt_check](X64Emitter& e, Xbyak::Label& our_tail_label) {
