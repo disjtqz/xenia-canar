@@ -7,10 +7,10 @@
  ******************************************************************************
  */
 
+#include "xenia/cpu/xenon_interrupt_controller.h"
 #include "xenia/base/logging.h"
 #include "xenia/cpu/mmio_handler.h"
 #include "xenia/cpu/processor.h"
-#include "xenia/cpu/xenon_interrupt_controller.h"
 #include "xenia/cpu/thread.h"
 namespace xe {
 namespace cpu {
@@ -60,18 +60,14 @@ void XenonInterruptController::InterruptFunction(void* ud) {
 
   controller->owner_->_CallExternalInterruptHandler(
       cpu::ThreadState::GetContext(), controller);
-
-
 }
 
 void XenonInterruptController::SendExternalInterrupt(
     ExternalInterruptArgs& args) {
-  //SetInterruptSource(args.source_);
+  // SetInterruptSource(args.source_);
   while (!owner_->TrySendInterruptFromHost(
       &XenonInterruptController::InterruptFunction, &args)) {
-  
   }
-  
 }
 
 void XenonInterruptController::WriteRegisterOffset(uint32_t offset,
@@ -84,6 +80,25 @@ uint64_t XenonInterruptController::ReadRegisterOffset(uint32_t offset) {
   xenia_assert(offset + 8 <= sizeof(data_));
   return *reinterpret_cast<uint64_t*>(reinterpret_cast<char*>(&data_[0]) +
                                       offset);
+}
+
+ppc::PPCInterruptRequest* XenonInterruptController::AllocateInterruptRequest() {
+  auto head = free_interrupt_requests_.Pop();
+  if (head) {
+    return new (head) ppc::PPCInterruptRequest();
+  } else {
+    return new ppc::PPCInterruptRequest();
+  }
+}
+void XenonInterruptController::FreeInterruptRequest(
+    ppc::PPCInterruptRequest* request) {
+  // limit the number of available interrupts in the list to a sane value
+  // if we hit this number, the guest has probably frozen and isn't processing the interrupts we're sending
+  if (free_interrupt_requests_.depth() < 256) {
+    free_interrupt_requests_.Push(&request->list_entry_);
+  } else {
+    delete request;
+  }
 }
 }  // namespace cpu
 }  // namespace xe

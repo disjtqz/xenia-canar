@@ -112,6 +112,8 @@ class HWDecrementer {
   }
 };
 
+
+
 class HWThread {
   void ThreadFunc();
 
@@ -135,10 +137,6 @@ class HWThread {
 
   RunnableThread* last_run_thread_ = nullptr;
 
-  threading::AtomicListHeader guest_ipi_list_;
-
-  std::unique_ptr<threading::Thread> guest_ipi_dispatch_worker_;
-  std::unique_ptr<threading::Event> guest_ipi_dispatch_event_;
   // set by kernel
   void (*idle_process_function_)(ppc::PPCContext* context) = nullptr;
 

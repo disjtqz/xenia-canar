@@ -572,9 +572,11 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   */
 
   auto kpcr = GetKPCR(context);
-
-  kpcr->emulated_interrupt = reinterpret_cast<uint64_t>(kpcr);
   auto cpunum = ks->GetPCRCpuNum(kpcr);
+  kpcr->emulated_interrupt = reinterpret_cast<uintptr_t>(
+      context->processor->GetCPUThread(cpunum)->interrupt_controller());
+      //reinterpret_cast<uint64_t>(kpcr);
+  
 
   kpcr->prcb_data.current_cpu = cpunum;
   kpcr->prcb_data.processor_mask = 1U << cpunum;

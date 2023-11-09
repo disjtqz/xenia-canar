@@ -306,7 +306,8 @@ struct X_KPCR {
   // as a hack for now
   union {
     uint8_t unk_38[8];                     // 0x38
-    volatile uint64_t emulated_interrupt;  // 0x38
+    //points to XenonInterruptController
+    uint64_t emulated_interrupt;  // 0x38
   };
   uint8_t unk_40[28];                      // 0x40
   xe::be<uint32_t> unk_stack_5c;           // 0x5C

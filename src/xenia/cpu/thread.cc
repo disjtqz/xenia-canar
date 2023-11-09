@@ -16,9 +16,9 @@ DEFINE_bool(emulate_guest_interrupts_in_software, true,
             "If true, emulate guest interrupts by repeatedly checking a "
             "location on the PCR. Otherwise uses host ipis.",
             "CPU");
-DEFINE_bool(threads_aint_cheap, false,
-            "For people with < 8 hardware threads",
+DEFINE_bool(threads_aint_cheap, false, "For people with < 8 hardware threads",
             "CPU");
+#define XE_NO_IPI_WORKERS 1
 namespace xe {
 namespace cpu {
 
@@ -123,54 +123,6 @@ void HWThread::ThreadFunc() {
   }
 }
 
-struct GuestIPI {
-  threading::AtomicListEntry list_entry_;
-  void (*function_)(void*);
-  void* ud_;
-};
-
-void HWThread::GuestIPIWorkerThreadFunc() {
-  std::vector<GuestIPI*> reversed_order{};
-  reversed_order.reserve(128);
-  while (true) {
-    // todo: add another event that signals that its time to terminate
-    threading::Wait(guest_ipi_dispatch_event_.get(), false);
-
-#if 0
-    auto list_entry = reinterpret_cast<GuestIPI*>(guest_ipi_list_.Pop());
-    if (!list_entry) {
-      continue;
-    }
-    while (!TrySendInterruptFromHost(list_entry->function_, list_entry->ud_)) {
-      threading::NanoSleep(10000);
-    }
-    delete list_entry;
-#else
-    auto list_entries = reinterpret_cast<GuestIPI*>(guest_ipi_list_.Flush());
-
-    GuestIPI* entry = list_entries;
-    if (!entry) {
-      ThreadDelay();
-      continue;
-    }
-    while (entry) {
-      reversed_order.push_back(entry);
-      entry = reinterpret_cast<GuestIPI*>(entry->list_entry_.next_);
-    }
-
-    std::reverse(reversed_order.begin(), reversed_order.end());
-
-    for (auto&& ipi : reversed_order) {
-      while (!TrySendInterruptFromHost(ipi->function_, ipi->ud_)) {
-        // threading::MaybeYield();
-      }
-      delete ipi;
-    }
-    reversed_order.clear();
-#endif
-  }
-}
-
 HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
     : cpu_number_(cpu_number),
       idle_process_threadstate_(thread_state),
@@ -192,19 +144,6 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
                        std::to_string(cpu_number));
 
   os_thread_->is_ppc_thread_ = true;
-  guest_ipi_dispatch_event_ = threading::Event::CreateAutoResetEvent(false);
-  params.stack_size = 512 * 1024;
-  params.initial_priority = threading::ThreadPriority::kBelowNormal;
-  params.create_suspended = false;
-  guest_ipi_dispatch_worker_ = threading::Thread::Create(
-
-      params, std::bind(&HWThread::GuestIPIWorkerThreadFunc, this));
-
-  // is putting it on the same os thread a good idea? nah, probably not
-  // but until we have real thread allocation logic thats where it goes
-  // guest_ipi_dispatch_worker_->set_affinity_mask(1ULL << cpu_number_);
-  guest_ipi_dispatch_worker_->set_name(
-      std::string("PPC HW Thread IPI Worker ") + std::to_string(cpu_number));
   interrupt_controller_ = std::make_unique<XenonInterruptController>(
       this, thread_state->context()->processor);
 }
@@ -239,6 +178,10 @@ struct GuestInterruptWrapper {
   void* ud;
   HWThread* thiz;
 };
+
+static bool may_run_interrupt_proc(ppc::PPCContext_s* context) {
+  return context->ExternalInterruptsEnabled();
+}
 
 uintptr_t HWThread::IPIWrapperFunction(void* ud) {
   auto interrupt_wrapper = reinterpret_cast<GuestInterruptWrapper*>(ud);
@@ -294,72 +237,32 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   wrapper->thiz = this;
   // ipi wrapper returns 0 if current context has interrupts disabled
   volatile uintptr_t result_from_call = 0;
-  if (cvars::emulate_guest_interrupts_in_software) {
-    auto processor = idle_process_threadstate_->context()->processor;
-    auto pcr = processor->GetPCRForCPU(this->cpu_number_);
 
-    kernel::X_KPCR* p_pcr =
-        processor->memory()->TranslateVirtual<kernel::X_KPCR*>(pcr);
+  ppc::PPCInterruptRequest* request =
+      this->interrupt_controller()->AllocateInterruptRequest();
 
-    ppc::PPCInterruptRequest request;
-    request.func_ = IPIWrapperFunction;
-    request.ud_ = (void*)wrapper;
-    request.result_out_ = (uintptr_t*)&result_from_call;
-    request.wait = wait_done;
+  request->func_ = IPIWrapperFunction;
+  request->ud_ = (void*)wrapper;
+  request->may_run_ = may_run_interrupt_proc;
+  request->result_out_ = (uintptr_t*)&result_from_call;
+  request->wait = wait_done;
 
-    while (result_from_call == 0) {
-      result_from_call = NO_RESULT_MAGIC;
-      while (!xe::atomic_cas(reinterpret_cast<uint64_t>(p_pcr),
-                             reinterpret_cast<uint64_t>(&request),
-                             &p_pcr->emulated_interrupt)) {
-        ThreadDelay();
-      }
+  this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
 
-      while (p_pcr->emulated_interrupt ==
-             reinterpret_cast<uint64_t>(&request)) {
-        ThreadDelay();
-      }
-      // guest has read the interrupt, now wait for it to change our value
-
-      while (result_from_call == NO_RESULT_MAGIC) {
-        ThreadDelay();
-      }
-
-      if (result_from_call == 0) {
-        continue;
-      } else {
-        if (!wait_done) {
-          return true;
-        } else {
-          while (result_from_call != 2) {
-            ThreadDelay();
-          }
-          return true;
-        }
-      }
-    }
-
+  if (!wait_done) {
     return true;
-
   } else {
-    while (!os_thread_->IPI(IPIWrapperFunction, wrapper,
-                            (uintptr_t*)&result_from_call) ||
-           result_from_call == 0) {
-      threading::NanoSleep(10000);
+    while (result_from_call != 2) {
+      ThreadDelay();
     }
+    return true;
   }
+
   return true;
 }
 bool HWThread::SendGuestIPI(void (*ipi_func)(void*), void* ud) {
   // todo: pool this structure!
-
-  auto msg = new GuestIPI();
-  msg->list_entry_.next_ = nullptr;
-  msg->function_ = ipi_func;
-  msg->ud_ = ud;
-  guest_ipi_list_.Push(&msg->list_entry_);
-  guest_ipi_dispatch_event_->Set();
-  return true;
+  return TrySendInterruptFromHost(ipi_func, ud, false);
 }
 
 uint64_t HWThread::mftb() const {

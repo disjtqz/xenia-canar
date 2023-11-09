@@ -17,8 +17,10 @@
 #include "xenia/base/mutex.h"
 #include "xenia/base/vec128.h"
 #include "xenia/guest_pointers.h"
+#include "xenia/base/threading.h"
 namespace xe {
 namespace cpu {
+class XenonInterruptController;
 class Processor;
 class ThreadState;
 }  // namespace cpu
@@ -30,15 +32,19 @@ class KernelState;
 namespace xe {
 namespace cpu {
 namespace ppc {
+struct alignas(64) PPCContext_s;
 
 #if defined(DEBUG) || 1
 #define XE_TRACE_LAST_INTERRUPT_ADDR 1
 #endif
 struct PPCInterruptRequest {
+  threading::AtomicListEntry list_entry_;
+  bool (*may_run_)(PPCContext_s* in_context);
   uintptr_t (*func_)(void* ud);
   void* ud_;
   uintptr_t* result_out_;
   bool wait;
+  uintptr_t extra_data_[4];
 };
 // Map:
 // 0-31: GPR
@@ -568,6 +574,7 @@ typedef struct alignas(64) PPCContext_s {
       return raised_status;
     }
   }
+  XenonInterruptController* GetExternalInterruptController();
 
 } PPCContext;
 #pragma pack(pop)

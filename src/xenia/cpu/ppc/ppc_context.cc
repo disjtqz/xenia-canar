@@ -198,23 +198,35 @@ bool PPCContext::CompareRegWithString(const char* name, const char* value,
 XE_NOINLINE
 static void ReallyDoInterrupt(PPCContext* context) {
   auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
-  if (kpcr->emulated_interrupt != reinterpret_cast<uint64_t>(kpcr)) {
-    auto xchged = xe::atomic_exchange(reinterpret_cast<uint64_t>(kpcr),
-                                      &kpcr->emulated_interrupt);
-    if (xchged != reinterpret_cast<uint64_t>(kpcr)) {
-      auto ireq = reinterpret_cast<PPCInterruptRequest*>(xchged);
+  auto interrupt_controller = context->GetExternalInterruptController();
+  if (interrupt_controller->queued_interrupts_.depth()) {
+    auto xchged = interrupt_controller->queued_interrupts_.Flush();
+    if (xchged) {
+      auto current = xchged;
 
-      auto ireq_deref = *ireq;
+      while (current) {
+        auto next = current->next_;
+        auto ireq = reinterpret_cast<PPCInterruptRequest*>(current);
 
-      if (ireq_deref.result_out_) {
-        *ireq_deref.result_out_ = context->ExternalInterruptsEnabled();
-      }
-
-      uintptr_t result = ireq_deref.func_(ireq_deref.ud_);
-      if (ireq_deref.wait) {
-        if (ireq_deref.result_out_) {
-          *ireq_deref.result_out_ = result;
+        auto ireq_deref = *ireq;
+        bool run_interrupt = true;
+        if (ireq_deref.may_run_) {
+          run_interrupt = ireq_deref.may_run_(context);
         }
+        if (run_interrupt) {
+
+          uintptr_t result = ireq_deref.func_(ireq_deref.ud_);
+          if (ireq_deref.wait) {
+            if (ireq_deref.result_out_) {
+              *ireq_deref.result_out_ = result;
+            }
+          }
+          interrupt_controller->FreeInterruptRequest(ireq);
+        } else {
+          // requeue
+          interrupt_controller->queued_interrupts_.Push(current);
+        }
+        current = next;
       }
     }
   }
@@ -224,9 +236,9 @@ void PPCContext::CheckInterrupt() {
   if (!cvars::emulate_guest_interrupts_in_software) {
     return;
   } else {
-    auto kpcr = this->TranslateVirtualGPR<kernel::X_KPCR*>(this->r[13]);
+    auto controller = GetExternalInterruptController();
 
-    if (kpcr->emulated_interrupt == reinterpret_cast<uint64_t>(kpcr)) {
+    if (!controller->queued_interrupts_.depth()) {
       return;
     } else {
       ReallyDoInterrupt(this);
@@ -264,6 +276,11 @@ void PPCContext::RestoreGPRSnapshot(const PPCGprSnapshot* in) {
 
   this->lr = in->lr;
   this->msr = in->msr;
+}
+
+XenonInterruptController* PPCContext::GetExternalInterruptController() {
+  auto kpcr = this->TranslateVirtualGPR<kernel::X_KPCR*>(this->r[13]);
+  return reinterpret_cast<XenonInterruptController*>(kpcr->emulated_interrupt);
 }
 
 }  // namespace ppc

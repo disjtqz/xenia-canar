@@ -1852,8 +1852,14 @@ void X64Emitter::EmitEmulatedInterruptCheck() {
 
   mov(eax, dword[GetContextReg() + offsetof(ppc::PPCContext, r[13])]);
   // assume PCR is never in physical memory!
-  add(rax, GetMembaseReg());
-  cmp(qword[rax + offsetof(kernel::X_KPCR, emulated_interrupt)], rax);
+  //add(rax, GetMembaseReg());
+  mov(rax, qword[GetMembaseReg() + rax +
+                 offsetof(kernel::X_KPCR, emulated_interrupt)]);
+
+  cmp(word[rax + offsetof(cpu::XenonInterruptController, queued_interrupts_)],
+      0);
+
+  //cmp(qword[rax + offsetof(kernel::X_KPCR, emulated_interrupt)], rax);
 
   Xbyak::Label& do_emulated_interrupt_label = AddToTail(
       [&after_interrupt_check](X64Emitter& e, Xbyak::Label& our_tail_label) {

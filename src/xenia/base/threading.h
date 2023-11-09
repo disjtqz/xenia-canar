@@ -415,7 +415,7 @@ struct ThreadPriority {
   static const int32_t kHighest = 2;
 };
 
-  // NtWaitForAlertByThreadId
+// NtWaitForAlertByThreadId
 bool WaitForAlert(int64_t nanoseconds);
 // NtAlertThreadByThreadId
 bool AlertThreadById(uint32_t thread_id);
@@ -491,7 +491,8 @@ class Thread : public WaitHandle {
   // threads that had been waiting for the thread to terminate.
   virtual void Terminate(int exit_code) = 0;
 
-  virtual bool IPI(IPIFunction ipi_function, void* userdata, uintptr_t* result_out = nullptr) = 0;
+  virtual bool IPI(IPIFunction ipi_function, void* userdata,
+                   uintptr_t* result_out = nullptr) = 0;
 
  protected:
   std::string name_;
@@ -516,7 +517,7 @@ class Fiber : public WaitHandle {
 };
 
 struct alignas(16) AtomicListEntry {
-  AtomicListEntry* next_=nullptr;
+  AtomicListEntry* next_ = nullptr;
 };
 
 struct alignas(16) AtomicListHeader {
@@ -526,6 +527,7 @@ struct alignas(16) AtomicListHeader {
   AtomicListEntry* Flush();
   void Push(AtomicListEntry* entry);
   AtomicListEntry* Pop();
+  uint16_t depth() const { return *reinterpret_cast<const uint16_t*>(this); }
 };
 
 }  // namespace threading
