@@ -215,7 +215,7 @@ static void ReallyDoInterrupt(PPCContext* context) {
         }
         if (run_interrupt) {
 
-          uintptr_t result = ireq_deref.func_(ireq_deref.ud_);
+          uintptr_t result = ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
           if (ireq_deref.wait) {
             if (ireq_deref.result_out_) {
               *ireq_deref.result_out_ = result;

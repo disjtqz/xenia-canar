@@ -117,14 +117,14 @@ class HWDecrementer {
 class HWThread {
   void ThreadFunc();
 
-  void GuestIPIWorkerThreadFunc();
   bool HandleInterrupts();
 
   void RunRunnable(RunnableThread* runnable);
   // dpcs?
   void RunIdleProcess();
 
-  static uintptr_t IPIWrapperFunction(void* ud);
+  static uintptr_t IPIWrapperFunction(ppc::PPCContext_s* context,
+                                      ppc::PPCInterruptRequest* request, void* ud);
   volatile bool ready_ = false;
   std::unique_ptr<threading::Thread> os_thread_;
 

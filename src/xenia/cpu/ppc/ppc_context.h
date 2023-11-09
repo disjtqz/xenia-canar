@@ -40,7 +40,7 @@ struct alignas(64) PPCContext_s;
 struct PPCInterruptRequest {
   threading::AtomicListEntry list_entry_;
   bool (*may_run_)(PPCContext_s* in_context);
-  uintptr_t (*func_)(void* ud);
+  uintptr_t (*func_)(PPCContext_s* context, PPCInterruptRequest* request, void* ud);
   void* ud_;
   uintptr_t* result_out_;
   bool wait;

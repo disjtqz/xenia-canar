@@ -183,40 +183,28 @@ static bool may_run_interrupt_proc(ppc::PPCContext_s* context) {
   return context->ExternalInterruptsEnabled();
 }
 
-uintptr_t HWThread::IPIWrapperFunction(void* ud) {
+uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
+                                       ppc::PPCInterruptRequest* request,
+                                       void* ud) {
   auto interrupt_wrapper = reinterpret_cast<GuestInterruptWrapper*>(ud);
 
-  if (interrupt_wrapper->thiz->AreInterruptsDisabled()) {
-    // retry!
-    return 0;
-  }
-  // todo: need to set current thread to idle thread!!
-  // auto old_ts = cpu::ThreadState::Get();
-  // auto new_ts = interrupt_wrapper->thiz->idle_process_threadstate_;
-  // cpu::ThreadState::Bind(new_ts);
-  // auto new_ctx = new_ts->context();
-
-  // uint64_t msr = new_ctx->msr;
-  // new_ctx->DisableEI();
-  auto current_context = cpu::ThreadState::GetContext();
   ppc::PPCGprSnapshot snap;
-  current_context->TakeGPRSnapshot(&snap);
+  context->TakeGPRSnapshot(&snap);
 
-  auto kpcr = current_context->TranslateVirtualGPR<kernel::X_KPCR*>(
-      current_context->r[13]);
+  auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(
+      context->r[13]);
 
   auto old_irql = kpcr->current_irql;
+
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
-  kpcr = current_context->TranslateVirtualGPR<kernel::X_KPCR*>(
-      current_context->r[13]);
+
+  kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(
+      context->r[13]);
+
   auto new_irql = kpcr->current_irql;
   xenia_assert(old_irql == new_irql);
 
-  current_context->RestoreGPRSnapshot(&snap);
-
-  // new_ctx->msr = msr;
-  // cpu::ThreadState::Bind(old_ts);
-  delete interrupt_wrapper;
+  context->RestoreGPRSnapshot(&snap);
   return 2;
 }
 #define NO_RESULT_MAGIC 0x69420777777ULL
@@ -230,7 +218,11 @@ void HWThread::ThreadDelay() {
 }
 bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
                                         bool wait_done) {
-  GuestInterruptWrapper* wrapper = new GuestInterruptWrapper();
+  ppc::PPCInterruptRequest* request =
+      this->interrupt_controller()->AllocateInterruptRequest();
+  GuestInterruptWrapper* wrapper =
+      reinterpret_cast<GuestInterruptWrapper*>(&request->extra_data_[0]);
+
 
   wrapper->ipi_func = ipi_func;
   wrapper->ud = ud;
@@ -238,8 +230,7 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   // ipi wrapper returns 0 if current context has interrupts disabled
   volatile uintptr_t result_from_call = 0;
 
-  ppc::PPCInterruptRequest* request =
-      this->interrupt_controller()->AllocateInterruptRequest();
+
 
   request->func_ = IPIWrapperFunction;
   request->ud_ = (void*)wrapper;
