@@ -110,7 +110,7 @@ class XenonInterruptController {
   void RecomputeNextEventCycles();
   void EnqueueTimedInterrupts();
 
-  uint64_t CreateRelativeUsTimestamp(uint64_t nanoseconds);
+  uint64_t CreateRelativeUsTimestamp(uint64_t microseconds);
 };
 
 }  // namespace cpu

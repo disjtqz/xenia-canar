@@ -128,6 +128,7 @@ class HWThread {
   void (*decrementer_interrupt_callback_)(void* ud);
   void* decrementer_ud_;
 
+  uint32_t host_thread_id_;
   static void DecrementerInterruptEnqueueProc(
       XenonInterruptController* controller, uint32_t slot, void* ud); 
  public:

@@ -164,9 +164,9 @@ void XenonInterruptController::EnqueueTimedInterrupts() {
 }
 
 uint64_t XenonInterruptController::CreateRelativeUsTimestamp(
-    uint64_t nanoseconds) {
+    uint64_t microseconds) {
   return (Clock::host_tick_count_platform() / tick_microsecond_frequency) +
-         nanoseconds;
+         microseconds;
 }
 
 }  // namespace cpu

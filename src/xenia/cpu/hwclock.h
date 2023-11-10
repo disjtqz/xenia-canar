@@ -15,6 +15,7 @@ namespace xe {
 namespace cpu {
 
 class Processor;
+#define     XE_USE_TIMED_INTERRUPTS_FOR_CLOCK 1
 
 // raises the clock interrupt on cpu 0 every 1 millisecond
 class HWClock {

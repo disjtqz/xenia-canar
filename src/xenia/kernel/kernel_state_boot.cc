@@ -560,6 +560,24 @@ void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
   SetupIdleThreadPriority(context, kpcr);
 }
 
+void ClockInterruptEnqueueProc(cpu::XenonInterruptController* controller,
+                               uint32_t slot, void* ud) {
+  // immediately reschedule ourselves to keep drift at a minimum
+
+  cpu::CpuTimedInterrupt reschedule_args{};
+  reschedule_args.destination_microseconds_ =
+      controller->CreateRelativeUsTimestamp(1000ULL);
+  reschedule_args.ud_ = ud;
+  reschedule_args.enqueue_ = ClockInterruptEnqueueProc;
+  controller->SetTimedInterruptArgs(slot, &reschedule_args);
+
+  auto thiz = reinterpret_cast<cpu::HWThread*>(ud);
+
+  thiz->SendGuestIPI(GuestClockInterruptForwarder, kernel_state());
+
+  // don't free our slot, we repeat forever
+}
+
 void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
                                        void* ud) {
   KernelState* ks = reinterpret_cast<KernelState*>(ud);
@@ -573,10 +591,9 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
 
   auto kpcr = GetKPCR(context);
   auto cpunum = ks->GetPCRCpuNum(kpcr);
-  kpcr->emulated_interrupt = reinterpret_cast<uintptr_t>(
-      context->processor->GetCPUThread(cpunum)->interrupt_controller());
-      //reinterpret_cast<uint64_t>(kpcr);
-  
+  auto hwthread = context->processor->GetCPUThread(cpunum);
+  auto interrupt_controller = hwthread->interrupt_controller();
+  kpcr->emulated_interrupt = reinterpret_cast<uintptr_t>(interrupt_controller);
 
   kpcr->prcb_data.current_cpu = cpunum;
   kpcr->prcb_data.processor_mask = 1U << cpunum;
@@ -586,6 +603,21 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   } else {
     ks->BootCPU1Through5(context, kpcr);
   }
+  // todo: all cpus won't be executing this at exactly the same time, so they'll
+  // all be a bit off, but that may not matter much
+#if XE_USE_TIMED_INTERRUPTS_FOR_CLOCK==1
+  cpu::CpuTimedInterrupt clock_cti;
+  clock_cti.destination_microseconds_ =
+      interrupt_controller->CreateRelativeUsTimestamp(1000ULL);  // one second
+
+  clock_cti.ud_ = reinterpret_cast<void*>(hwthread);
+  clock_cti.enqueue_ = ClockInterruptEnqueueProc;
+
+  //this slot stays allocated forever
+  uint32_t clock_slot = interrupt_controller->AllocateTimedInterruptSlot();
+  interrupt_controller->SetTimedInterruptArgs(clock_slot, &clock_cti);
+  interrupt_controller->RecomputeNextEventCycles();
+#endif
 }
 void KernelState::BootKernel() {
   XELOGD("Booting kernel");
@@ -617,6 +649,7 @@ void KernelState::BootKernel() {
     threading::NanoSleep(10000);  // 10 microseconds
   }
   XELOGD("All processor HW threads have booted up");
+
   processor()->GetHWClock()->SetInterruptCallback(HWClockCallback);
 
   auto bundle =
@@ -627,7 +660,9 @@ void KernelState::BootKernel() {
   bundle->interrupt_time = initial_systemtime;
   bundle->system_time = initial_systemtime;
   bundle->tick_count = initial_ms;
+#if XE_USE_TIMED_INTERRUPTS_FOR_CLOCK == 0
   processor()->GetHWClock()->Start();
+#endif
 }
 
 }  // namespace kernel

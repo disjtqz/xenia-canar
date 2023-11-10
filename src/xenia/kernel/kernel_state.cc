@@ -1189,8 +1189,6 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
   if (callback_data[0] == 0) {
     xboxkrnl::xeKeEnterBackgroundMode(context);
   }
-  
-
 }
 
 void KernelState::CPInterruptIPI(void* ud) {

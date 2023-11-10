@@ -84,6 +84,7 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   os_thread_->is_ppc_thread_ = true;
   interrupt_controller_ = std::make_unique<XenonInterruptController>(
       this, thread_state->context()->processor);
+  host_thread_id_ = os_thread_->system_id();
 }
 HWThread::~HWThread() {
   xenia_assert(false);  // dctor not implemented yet
@@ -172,7 +173,6 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   request->wait = wait_done;
 
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
-
   if (!wait_done) {
     return true;
   } else {
