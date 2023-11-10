@@ -1455,7 +1455,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
   auto kthread = GetKThread(context);
   while (true) {
     kpcr->prcb_data.running_idle_thread = kpcr->prcb_data.idle_thread;
-
+    uint32_t spin_count = 0;
     while (!kpcr->generic_software_interrupt) {
       xenia_assert(context->ExternalInterruptsEnabled());
 
@@ -1463,6 +1463,16 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
       cpu::HWThread::ThreadDelay();
+      ++spin_count;
+      //todo: check whether a timed interrupt would be missed due to wait
+      if (!(spin_count & (0x1FFF))) {
+        auto cpu_thread = context->processor->GetCPUThread(
+            context->kernel_state->GetPCRCpuNum(kpcr)
+        );
+        cpu_thread->IdleSleep(1000 * 100);//100 microseconds
+
+      }
+
       _mm_pause();
     }
 

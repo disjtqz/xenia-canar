@@ -45,7 +45,10 @@ void HWThread::RunIdleProcess() {
     idle_process_function_(cpu::ThreadState::Get()->context());
   }
 }
+
+thread_local HWThread* this_hw_thread = nullptr;
 void HWThread::ThreadFunc() {
+  this_hw_thread = this;
   idle_process_fiber_ = threading::Fiber::CreateFromThread();
   cpu::ThreadState::Bind(idle_process_threadstate_);
 
@@ -68,13 +71,13 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
       runnable_thread_list_() {
   threading::Thread::CreationParameters params;
   params.create_suspended = true;
-  params.initial_priority = threading::ThreadPriority::kNormal;
+  params.initial_priority = threading::ThreadPriority::kBelowNormal;
   params.stack_size = 16 * 1024 * 1024;
 
   os_thread_ =
       threading::Thread::Create(params, std::bind(&HWThread::ThreadFunc, this));
 
-  if (cvars::threads_aint_cheap) {
+  if (!cvars::threads_aint_cheap) {
     os_thread_->set_affinity_mask(1ULL << cpu_number_);
   }
 
@@ -85,6 +88,7 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   interrupt_controller_ = std::make_unique<XenonInterruptController>(
       this, thread_state->context()->processor);
   host_thread_id_ = os_thread_->system_id();
+  wake_idle_event_ = threading::Event::CreateAutoResetEvent(false);
 }
 HWThread::~HWThread() {
   xenia_assert(false);  // dctor not implemented yet
@@ -173,6 +177,10 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   request->wait = wait_done;
 
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
+
+  if (this_hw_thread != this) {
+    wake_idle_event_->Set();
+  }
   if (!wait_done) {
     return true;
   } else {
@@ -203,7 +211,7 @@ void HWThread::SetDecrementerTicks(int32_t ticks) {
     interrupt_controller()->FreeTimedInterruptSlot(decrementer_interrupt_slot_);
     decrementer_interrupt_slot_ = ~0u;
   }
-  //0x7FFFFFFF just means cancel
+  // 0x7FFFFFFF just means cancel
   if (ticks != 0x7FFFFFFF) {
     double wait_time_in_microseconds =
         (static_cast<double>(ticks) / static_cast<double>(TIMEBASE_FREQUENCY)) *
@@ -229,6 +237,9 @@ void HWThread::SetDecrementerInterruptCallback(void (*decr)(void* ud),
                                                void* ud) {
   decrementer_interrupt_callback_ = decr;
   decrementer_ud_ = ud;
+}
+void HWThread::IdleSleep(int64_t nanoseconds) {
+  threading::NanoWait(wake_idle_event_.get(), false, nanoseconds);
 }
 
 uint64_t HWThread::mftb() const {

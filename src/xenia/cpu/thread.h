@@ -131,6 +131,8 @@ class HWThread {
   uint32_t host_thread_id_;
   static void DecrementerInterruptEnqueueProc(
       XenonInterruptController* controller, uint32_t slot, void* ud); 
+
+  std::unique_ptr<threading::Event> wake_idle_event_;
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
   ~HWThread();
@@ -173,6 +175,8 @@ class HWThread {
 
   bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
                                 bool wait_done = false);
+
+  void IdleSleep(int64_t nanoseconds);
 
   uint64_t mftb() const;
   // SendGuestIPI is designed to run on a guest thread

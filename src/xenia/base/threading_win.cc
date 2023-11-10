@@ -273,6 +273,32 @@ WaitResult Wait(WaitHandle* wait_handle, bool is_alertable,
   }
 }
 
+WaitResult NanoWait(WaitHandle* wait_handle, bool is_alertable,
+                    int64_t nanoseconds) {
+  HANDLE handle = wait_handle->native_handle();
+  DWORD result;
+  BOOL bAlertable = is_alertable ? TRUE : FALSE;
+
+  LARGE_INTEGER timeout_big;
+  timeout_big.QuadPart = -(nanoseconds / 100LL);
+
+  result = NtWaitForSingleObjectPointer.invoke<NTSTATUS>(handle, bAlertable,
+                                                         &timeout_big);
+  
+  switch (result) {
+    case STATUS_WAIT_0:
+      return WaitResult::kSuccess;
+    case STATUS_ABANDONED_WAIT_0:
+      return WaitResult::kAbandoned;
+    case STATUS_USER_APC:
+      return WaitResult::kUserCallback;
+    case STATUS_TIMEOUT:
+      return WaitResult::kTimeout;
+    default:
+      return WaitResult::kFailed;
+  }
+}
+
 WaitResult SignalAndWait(WaitHandle* wait_handle_to_signal,
                          WaitHandle* wait_handle_to_wait_on, bool is_alertable,
                          std::chrono::milliseconds timeout) {
@@ -772,10 +798,12 @@ bool Win32Thread::IPI(IPIFunction ipi_function, void* userdata,
   USER_APC_OPTION UserApcOption;
   UserApcOption.UserApcFlags = QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC;
   UserApcOption.MemoryReserveHandle = nullptr;
-  NTSTATUS invoke_res = NtQueueApcThreadExPointer
-          .invoke<NTSTATUS, HANDLE, USER_APC_OPTION, void (*)(void*, void*, void*), void*, void*, void*>(
-      this->handle_, UserApcOption, IPIForwarder, ipi_function, userdata,
-      result_out);
+  NTSTATUS invoke_res =
+      NtQueueApcThreadExPointer
+          .invoke<NTSTATUS, HANDLE, USER_APC_OPTION,
+                  void (*)(void*, void*, void*), void*, void*, void*>(
+              this->handle_, UserApcOption, IPIForwarder, ipi_function,
+              userdata, result_out);
   xenia_assert(invoke_res == 0);
   ipi_mutex_.unlock();
   return true;

@@ -226,6 +226,9 @@ WaitResult Wait(
     WaitHandle* wait_handle, bool is_alertable,
     std::chrono::milliseconds timeout = std::chrono::milliseconds::max());
 
+WaitResult NanoWait(WaitHandle* wait_handle, bool is_alertable,
+                    int64_t nanoseconds);
+
 // Signals one object and waits on another object as a single operation.
 // Waits until the wait handle is in the signaled state, an alert triggers and
 // a user callback is queued to the thread, or the timeout interval elapses.

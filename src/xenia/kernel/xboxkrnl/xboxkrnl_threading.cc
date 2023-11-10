@@ -1111,6 +1111,10 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
     // bad hack. always check once reworked interrupt controller
     if (change_irql) {
       ctx->CheckInterrupt();
+    } else {
+      // should still check and enqueue timed interrupt, but not execute them.
+      // this is so timed interrupts that requeue themselves do not drift
+      ctx->CheckTimedInterrupt();
     }
   }
 
