@@ -324,21 +324,24 @@ void XThread::InitializeGuestObject() {
   // timeslice related
   guest_thread->unk_B4 = process->unk_0C;
 
+  guest_thread->tls_address = tls_static_address_;
+
+  guest_thread->stack_base = stack_base_;
+  guest_thread->stack_limit = stack_limit_;
+
   auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       context_here, &process->thread_list_spinlock);
+  context_here->kernel_state->LockDispatcherAtIrql(context_here);
 
   // todo: acquire dispatcher lock here?
 
   util::XeInsertTailList(&process->thread_list, &guest_thread->process_threads,
                          context_here);
   process->thread_count += 1;
+  context_here->kernel_state->UnlockDispatcherAtIrql(context_here);
   // todo: release dispatcher lock here?
   xboxkrnl::xeKeKfReleaseSpinLock(context_here, &process->thread_list_spinlock,
                                   old_irql);
-  guest_thread->tls_address = tls_static_address_;
-
-  guest_thread->stack_base = stack_base_;
-  guest_thread->stack_limit = stack_limit_;
 }
 
 bool XThread::AllocateStack(uint32_t size) {
@@ -452,16 +455,12 @@ X_STATUS XThread::Create() {
   // Initialize the KTHREAD object.
   InitializeGuestObject();
 
-
-
-
-
   xe::threading::Fiber::CreationParameters params;
 
   params.stack_size = 16_MiB;  // Allocate a big host stack.
 
-
-  if ((creation_params_.creation_flags & XE_FLAG_THREAD_INITIALLY_SUSPENDED) != 0) {
+  if ((creation_params_.creation_flags & XE_FLAG_THREAD_INITIALLY_SUSPENDED) !=
+      0) {
     this->Suspend();
   }
   uint32_t affinity_by =
@@ -501,9 +500,6 @@ X_STATUS XThread::Create() {
     ReleaseHandle();
   });
 
-
-
-
   if (!fiber_) {
     // TODO(benvanik): translate error?
     XELOGE("CreateThread failed");
@@ -526,7 +522,6 @@ X_STATUS XThread::Exit(int exit_code) {
   running_ = false;
   ReleaseHandle();
 
-
   // TODO(chrispy): not sure if this order is correct, should it come after
   // apcs?
   auto kthread = guest_object<X_KTHREAD>();
@@ -547,13 +542,10 @@ X_STATUS XThread::Exit(int exit_code) {
   // TODO(benvanik): dispatch events? waiters? etc?
   RundownAPCs();
 
- 
-
   auto kprocess = cpu_context->TranslateVirtual(kthread->process);
 
   uint32_t old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       cpu_context, &kprocess->thread_list_spinlock);
-
 
   // xe::FatalError("Brokey!");
   //  NOTE: this does not return!
@@ -569,7 +561,7 @@ X_STATUS XThread::Exit(int exit_code) {
         cpu_context, cpu_context->TranslateVirtual<X_KQUEUE*>(queue_guest));
   }
 
-   // Set exit code.
+  // Set exit code.
   kthread->header.signal_state = 1;
   kthread->exit_status = exit_code;
 
@@ -579,9 +571,7 @@ X_STATUS XThread::Exit(int exit_code) {
   util::XeRemoveEntryList(&kthread->process_threads, cpu_context);
 
   kprocess->thread_count = kprocess->thread_count - 1;
-  
 
-  
   xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kprocess->thread_list_spinlock,
                                   0, false);
   kthread->thread_state = 4;

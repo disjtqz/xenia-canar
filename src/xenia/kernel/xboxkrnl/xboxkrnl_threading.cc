@@ -146,8 +146,9 @@ uint32_t ExCreateThread(xe::be<uint32_t>* handle_ptr, uint32_t stack_size,
 
   if (XSUCCEEDED(result)) {
     if (handle_ptr) {
-      if (creation_flags & 0x80) {
+      if (creation_flags & XE_FLAG_RETURN_KTHREAD_PTR) {
         *handle_ptr = thread->guest_object();
+        thread->Retain();
       } else {
         *handle_ptr = thread->handle();
       }
@@ -1509,6 +1510,7 @@ void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
       uint32_t sw_state;
       do {
         context->msr |= 0x8000ULL;
+        context->CheckInterrupt();
         xeHandleDPCsAndThreadSwapping(context);
         context->msr &= ~(0x8000ULL);
         sw_state = GetKPCR(context)->software_interrupt_state;
@@ -1529,9 +1531,9 @@ void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
       context->msr |= 0x8000ULL;
       xenia_assert(offsetof(X_KPCR, apc_software_interrupt_state) == 0x9);
       GetKPCR(context)->apc_software_interrupt_state = new_irql;
-
+      context->CheckInterrupt();
       xeProcessKernelApcs(context);
-
+      context->CheckInterrupt();
       context->msr &= ~0x8000ULL;
     } while (GetKPCR(context)->apc_software_interrupt_state);
     GetKPCR(context)->current_irql = new_irql;
@@ -1539,6 +1541,7 @@ void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
     context->msr = saved_msr;
   }
 restgplr:
+  context->CheckInterrupt();
   context->RestoreGPRSnapshot(&savegp);
 }
 
