@@ -561,10 +561,17 @@ X_STATUS XThread::Exit(int exit_code) {
   // return X_STATUS_SUCCESS;
   kernel_state()->LockDispatcherAtIrql(cpu_context);
 
+  uint32_t queue_guest = kthread->queue;
+
+  if (queue_guest) {
+    util::XeRemoveEntryList(&kthread->queue_related, cpu_context);
+    xboxkrnl::xeKeSignalQueue(
+        cpu_context, cpu_context->TranslateVirtual<X_KQUEUE*>(queue_guest));
+  }
+
    // Set exit code.
   kthread->header.signal_state = 1;
   kthread->exit_status = exit_code;
-  kthread->header.signal_state = 1;
 
   if (!util::XeIsListEmpty(&kthread->header.wait_list, cpu_context)) {
     xboxkrnl::xeDispatchSignalStateChange(cpu_context, &kthread->header, 0);

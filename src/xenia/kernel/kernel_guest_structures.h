@@ -305,8 +305,8 @@ struct X_KPCR {
   // this seems to be just garbage data? we can stash a pointer to context here
   // as a hack for now
   union {
-    uint8_t unk_38[8];                     // 0x38
-    //points to XenonInterruptController
+    uint8_t unk_38[8];  // 0x38
+    // points to XenonInterruptController
     uint64_t emulated_interrupt;  // 0x38
   };
   uint8_t unk_40[28];                      // 0x40
@@ -440,9 +440,8 @@ struct X_KTHREAD {
   XAPC on_suspend;                                // 0xD4
   X_KSEMAPHORE suspend_sema;                      // 0xFC
   X_LIST_ENTRY process_threads;                   // 0x110
-  EZPointer<X_KQUEUE> unkptr_118;                 // 0x118
-  xe::be<uint32_t> unk_11C;                       // 0x11C
-  xe::be<uint32_t> unk_120;                       // 0x120
+  EZPointer<X_KQUEUE> queue;                      // 0x118
+  X_LIST_ENTRY queue_related;                     // 0x11c
   xe::be<uint32_t> unk_124;                       // 0x124
   xe::be<uint32_t> unk_128;                       // 0x128
   xe::be<uint32_t> unk_12C;                       // 0x12C

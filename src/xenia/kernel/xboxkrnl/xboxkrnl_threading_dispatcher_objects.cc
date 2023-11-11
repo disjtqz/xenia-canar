@@ -393,7 +393,7 @@ void xeKeInitializeQueue(X_KQUEUE* queue, uint32_t count, PPCContext* context) {
 
 template <bool to_head>
 static int32_t InsertQueueUnderLock(PPCContext* context, X_KQUEUE* queue,
-                                     X_LIST_ENTRY* entry) {
+                                    X_LIST_ENTRY* entry) {
   auto old_irql = context->kernel_state->LockDispatcher(context);
   auto first_waitblock = context->TranslateVirtual<X_KWAIT_BLOCK*>(
       queue->header.wait_list.blink_ptr);
@@ -401,7 +401,7 @@ static int32_t InsertQueueUnderLock(PPCContext* context, X_KQUEUE* queue,
   int32_t old_signalstate = queue->header.signal_state;
   if (first_waitblock == (X_KWAIT_BLOCK*)&queue->header.wait_list ||
       queue->current_count >= queue->maximum_count ||
-      current_thread->unkptr_118.xlat() == queue &&
+      current_thread->queue.xlat() == queue &&
           current_thread->wait_reason == 4) {
     queue->header.signal_state = old_signalstate + 1;
     if (to_head) {
@@ -432,15 +432,39 @@ static int32_t InsertQueueUnderLock(PPCContext* context, X_KQUEUE* queue,
 }
 
 int32_t xeKeInsertQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
-    PPCContext* context) {
+                        PPCContext* context) {
   return InsertQueueUnderLock<false>(context, queue, entry);
 }
 int32_t xeKeInsertHeadQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
-                        PPCContext* context) {
+                            PPCContext* context) {
   return InsertQueueUnderLock<true>(context, queue, entry);
 }
 
+void xeKeSignalQueue(PPCContext* context, X_KQUEUE* queue) {
+  uint32_t new_currentcount = queue->current_count - 1U;
+  queue->current_count = new_currentcount;
+  if (new_currentcount >= queue->maximum_count) {
+    return;
+  }
 
+  if (util::XeIsListEmpty(&queue->header.wait_list, context) ||
+      util::XeIsListEmpty(&queue->entry_list_head, context)) {
+    return;
+  }
+
+  X_KWAIT_BLOCK* block = context->TranslateVirtual<X_KWAIT_BLOCK*>(
+      queue->header.wait_list.blink_ptr);
+  uint32_t entry_guest = queue->entry_list_head.flink_ptr;
+  X_LIST_ENTRY* entry = context->TranslateVirtual<X_LIST_ENTRY*>(entry_guest);
+
+  util::XeRemoveEntryList(entry, context);
+  entry->flink_ptr = 0u;
+
+  queue->header.signal_state--;
+  //send the list entry to the waiter
+  xeEnqueueThreadPostWait(context, context->TranslateVirtual(block->thread),
+                          static_cast<X_STATUS>(entry_guest), 0);
+}
 
 }  // namespace xboxkrnl
 }  // namespace kernel

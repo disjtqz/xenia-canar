@@ -631,7 +631,7 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
     thread->wait_timeout_timer.table_bucket_entry.flink_ptr = 0U;
     thread->wait_timeout_timer.table_bucket_entry.blink_ptr = 0U;
   }
-  auto unk_ptr = thread->unkptr_118;
+  auto unk_ptr = thread->queue;
   if (unk_ptr) {
     auto unk_counter = context->TranslateVirtualBE<uint32_t>(unk_ptr + 0x18);
     *unk_counter++;
@@ -1151,10 +1151,12 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
     stash->wait_list_entry.blink_ptr = v15;
     v15->flink_ptr = guest_stash;
     object->wait_list.blink_ptr = guest_stash;
-    auto v16 = this_thread->unkptr_118;
+
+    uint32_t v16 = this_thread->queue;
     if (v16) {
-      xenia_assert(false);
+      xeKeSignalQueue(context, context->TranslateVirtual<X_KQUEUE*>(v16));
     }
+
     auto v17 = (unsigned __int8)this_thread->unk_A4;
     this_thread->alertable = alertable;
     this_thread->processor_mode = processor_mode;
@@ -1417,11 +1419,10 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
     if (!XeInsertGlobalTimer(context, &thread->wait_timeout_timer, v6)) {
       break;
     }
-    auto v9 = thread->unkptr_118;
+    uint32_t v9 = thread->queue;
     v6 = thread->wait_timeout_timer.due_time;
     if (v9) {
-      xenia_assert(false);
-      xe::FatalError("unkptr_118 set!");
+        xeKeSignalQueue(context, context->TranslateVirtual<X_KQUEUE*>(v9));
     }
     thread->alertable = alertable;
     thread->processor_mode = mode;
@@ -1668,9 +1669,10 @@ X_STATUS xeKeWaitForMultipleObjects(
       v32->blink_ptr = &v17->wait_list_entry;
       v17 = v17->next_wait_block.xlat();
     } while (v17 != wait_blocks);
-    auto v34 = thread->unkptr_118;
+
+    uint32_t v34 = thread->queue;
     if (v34) {
-      xe::FatalError("unkptr_118 used!");
+      xeKeSignalQueue(context, context->TranslateVirtual<X_KQUEUE*>(v34));
     }
     thread->alertable = alertable;
     thread->processor_mode = mode;
