@@ -480,8 +480,14 @@ void KernelState::BootInitializeStatics() {
       0);
   // cpu2,remember all dpc cpu numbers are +1, because 0 means "any cpu"
   block->graphics_interrupt_dpc.desired_cpu_number = 3;
-}
 
+  uint32_t dpc_routine_for_cp = block->graphics_interrupt_dpc.routine;
+  for (unsigned i = 0; i < 6; ++i) {
+    block->command_processor_interrupt_dpcs[i].Initialize(dpc_routine_for_cp,
+                                                          0);
+    block->command_processor_interrupt_dpcs[i].desired_cpu_number = i + 1;
+  }
+}
 static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,
                                     X_KPCR* kpcr) {
   xboxkrnl::xeKeSetPriorityThread(context, kpcr->prcb_data.idle_thread.xlat(),

@@ -1187,7 +1187,9 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
   xenia_assert(kpcr->processtype_value_in_dpc == X_PROCTYPE_IDLE);
   xenia_assert(kpcr->prcb_data.dpc_active != 0);
   xenia_assert(context->msr == 0x9030);
-  xenia_assert(context->kernel_state->GetPCRCpuNum(kpcr) == 2);
+
+  xenia_assert(context->kernel_state->GetPCRCpuNum(kpcr) == 2 ||
+               callback_data[0] == 1);
   if (callback) {
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, context);
     context->processor->Execute(context->thread_state(), callback,
@@ -1214,11 +1216,17 @@ void KernelState::CPInterruptIPI(void* ud) {
 
   auto guest_globals = kernel_state->GetKernelGuestGlobals(current_context);
 
+  auto dpc_to_use =
+      params->interrupt_callback_data_ == 0
+          ? &guest_globals->graphics_interrupt_dpc
+          : &guest_globals
+                 ->command_processor_interrupt_dpcs[pcr->prcb_data.current_cpu];
+
+
   // in real xboxkrnl, it passes 0 for both args to the dpc,
   // but its more convenient for us to pass the interrupt
-  guest_globals->graphics_interrupt_dpc.context = params->source_;
-  xboxkrnl::xeKeInsertQueueDpc(
-      &guest_globals->graphics_interrupt_dpc, params->interrupt_callback_,
+  dpc_to_use->context = params->source_;
+  xboxkrnl::xeKeInsertQueueDpc(dpc_to_use, params->interrupt_callback_,
       params->interrupt_callback_data_, current_context);
 
   delete params;
