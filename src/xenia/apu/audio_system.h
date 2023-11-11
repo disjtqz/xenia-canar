@@ -50,9 +50,9 @@ class AudioSystem {
   bool is_paused() const { return paused_; }
   void Pause();
   void Resume();
-  static void GuestInterrupt(void* ud);
 
-
+  //called by kernelstate in boot. actually called prior to Setup
+  void StartGuestWorkerThread(kernel::KernelState* kernel);
  protected:
   explicit AudioSystem(cpu::Processor* processor);
 
@@ -60,7 +60,7 @@ class AudioSystem {
 
   void WorkerThreadMain();
 
-  void StartGuestWorkerThread();
+  
 
   virtual X_STATUS CreateDriver(size_t index,
                                 xe::threading::Semaphore* semaphore,
@@ -102,7 +102,6 @@ class AudioSystem {
   threading::Fence pause_fence_;
   std::unique_ptr<threading::Event> resume_event_;
 
-  std::unique_ptr<threading::Event> guest_received_event_;
   uint32_t client_callback_in_;
   uint32_t client_callback_arg_in_;
 

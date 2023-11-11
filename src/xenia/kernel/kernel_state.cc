@@ -63,7 +63,6 @@ KernelState::KernelState(Emulator* emulator)
   app_manager_ = std::make_unique<xam::AppManager>();
   achievement_manager_ = std::make_unique<AchievementManager>();
   user_profiles_.emplace(0, std::make_unique<xam::UserProfile>(0));
-
   BootKernel();
 
   auto content_root = emulator_->content_root();

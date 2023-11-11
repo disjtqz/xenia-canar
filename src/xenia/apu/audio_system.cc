@@ -84,7 +84,6 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
   worker_running_ = true;
 
   threading::Thread::CreationParameters crparams{};
-  guest_received_event_ = threading::Event::CreateAutoResetEvent(false);
   worker_thread_ = threading::Thread::Create(
       crparams, std::bind(&AudioSystem::WorkerThreadMain, this));
 
@@ -93,11 +92,12 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
 
   return X_STATUS_SUCCESS;
 }
-void AudioSystem::StartGuestWorkerThread() {
+void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
+  xenia_assert(!guest_thread_);
   auto context = cpu::ThreadState::GetContext();
   guest_thread_ =
       kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
-          kernel_state_, 65536U, 0x10000083u,
+          kernel, 65536U, 0x10000083u,
           [this]() {
             std::vector<GuestMessage*> messages_rev{};
             messages_rev.reserve(128);
@@ -137,33 +137,13 @@ void AudioSystem::StartGuestWorkerThread() {
               messages_rev.clear();
             }
             return true;
-          }, kernel_state_->GetSystemProcess()));
+          }, kernel->GetSystemProcess()));
   guest_thread_->Create();
   kernel::xboxkrnl::xeKeSetPriorityThread(
       context, guest_thread_->guest_object<kernel::X_KTHREAD>(), 25);
   kernel::xboxkrnl::xeKeResumeThread(context,
                                      guest_thread_->guest_object<kernel::X_KTHREAD>());
 }
-void AudioSystem::GuestInterrupt(void* ud) {
-#if 0
-  auto system = reinterpret_cast<AudioSystem*>(ud);
-  uint64_t args[] = {system->client_callback_arg_in_};
-  system->processor_->Execute(cpu::ThreadState::Get(),
-                              system->client_callback_in_, args,
-                              xe::countof(args));
-  system->guest_received_event_->Set();
-#else
-  auto context = cpu::ThreadState::GetContext();
-  
-  auto we = kernel::xboxkrnl::xeKfRaiseIrql(context, 0);
-  auto system = reinterpret_cast<AudioSystem*>(ud);
-  system->StartGuestWorkerThread();
-  system->guest_received_event_->Set();
-  kernel::xboxkrnl::xeKfRaiseIrql(context, we);
-  kernel::KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
-#endif
-}
-
 void AudioSystem::WorkerThreadMain() {
   // Initialize driver and ringbuffer.
   Initialize();
@@ -195,7 +175,6 @@ void AudioSystem::WorkerThreadMain() {
     bool pumped = false;
     if (result.first == xe::threading::WaitResult::kSuccess) {
       auto index = result.second;
-#if 1
       auto global_lock = global_critical_region_.Acquire();
       uint32_t client_callback = clients_[index].callback;
       uint32_t client_callback_arg = clients_[index].wrapped_callback_arg;
@@ -207,31 +186,6 @@ void AudioSystem::WorkerThreadMain() {
       msg->client_callback_ = client_callback_in_;
       msg->client_callback_arg_ = client_callback_arg_in_;
       guest_worker_messages_.Push(&msg->list_entry);
-
-      if (!guest_thread_) {
-        processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
-                                                   this);
-        threading::Wait(guest_received_event_.get(), false);
-        // StartGuestWorkerThread();
-      }
-      //threading::Wait(guest_received_event_.get(), false);
-      //  processor()->GetCPUThread(4)->SendGuestIPI(&AudioSystem::GuestInterrupt,
-      //   this);
-
-      //  guest_thread_->Resume();
-      //  threading::Wait(guest_received_event_.get(),
-      //  false);
-#endif
-      /* if (client_callback) {
-        SCOPE_profile_cpu_i("apu",
-      "xe::apu::AudioSystem->client_callback");
-        uint64_t args[] =
-      {client_callback_arg};
-        processor_->Execute(worker_thread_->thread_state(),
-      client_callback, args,
-      xe::countof(args));
-      }*/
-
       pumped = true;
     }
 

@@ -31,6 +31,7 @@
 #include "xenia/kernel/xnotifylistener.h"
 #include "xenia/kernel/xobject.h"
 #include "xenia/kernel/xthread.h"
+#include "xenia/apu/audio_system.h"
 namespace xe {
 namespace kernel {
 
@@ -678,7 +679,7 @@ void KernelState::BootInitializeCPU0InSystemThread(
     auto cpu_thread = processor()->GetCPUThread(i);
     cpu_thread->Boot();
   }
-
+  emulator()->audio_system()->StartGuestWorkerThread(this);
   BootInitializeXam(context);
 }
 
