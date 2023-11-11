@@ -490,6 +490,10 @@ static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,
     kpcr->prcb_data.running_idle_thread.m_ptr = 1;
   }
 }
+void KernelState::ForwardBootInitializeCPU0InSystemThread(
+    cpu::ppc::PPCContext* context) {
+  context->kernel_state->BootInitializeCPU0InSystemThread(context);
+}
 
 void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   KernelGuestGlobals* block =
@@ -499,18 +503,16 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
       &block->UsbdBootEnumerationDoneEvent.header.wait_list, context);
   xboxkrnl::xeKeSetEvent(context, &block->UsbdBootEnumerationDoneEvent, 1, 0);
 
-  for (unsigned i = 1; i < 6; ++i) {
-    SetupKPCRPageForCPU(i);
-  }
 
-  xboxkrnl::xeKfLowerIrql(context, 1);
-  for (unsigned i = 1; i < 6; ++i) {
-    auto cpu_thread = processor()->GetCPUThread(i);
-    cpu_thread->Boot();
-  }
+  xe::be<uint32_t> handle_ptr;
 
-  BootInitializeXam(context);
-
+  X_STATUS create_res = xboxkrnl::ExCreateThread(
+      &handle_ptr, 0x8000u, nullptr, 0,
+      kernel_trampoline_group_.NewLongtermTrampoline(
+          &KernelState::ForwardBootInitializeCPU0InSystemThread),0,
+      0x422);
+  xenia_assert(create_res == 0);
+  xboxkrnl::NtClose(handle_ptr);
   // this is deliberate, does not change the interrupt priority!
   kpcr->current_irql = 2;
   SetupIdleThreadPriority(context, kpcr);
@@ -663,6 +665,21 @@ void KernelState::BootKernel() {
 #if XE_USE_TIMED_INTERRUPTS_FOR_CLOCK == 0
   processor()->GetHWClock()->Start();
 #endif
+}
+
+void KernelState::BootInitializeCPU0InSystemThread(
+    cpu::ppc::PPCContext* context) {
+  for (unsigned i = 1; i < 6; ++i) {
+    SetupKPCRPageForCPU(i);
+  }
+
+  xboxkrnl::xeKfLowerIrql(context, 1);
+  for (unsigned i = 1; i < 6; ++i) {
+    auto cpu_thread = processor()->GetCPUThread(i);
+    cpu_thread->Boot();
+  }
+
+  BootInitializeXam(context);
 }
 
 }  // namespace kernel

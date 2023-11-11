@@ -364,6 +364,11 @@ class KernelState {
   */
   void BootInitializeStatics();
 
+  static void ForwardBootInitializeCPU0InSystemThread(
+      cpu::ppc::PPCContext* context);
+
+  //system thread gets created by cpu0 to perform additional init
+  void BootInitializeCPU0InSystemThread(cpu::ppc::PPCContext* context);
   // runs on cpu0
   void BootInitializeXam(cpu::ppc::PPCContext* context);
 
