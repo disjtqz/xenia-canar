@@ -160,6 +160,7 @@ void AudioSystem::GuestInterrupt(void* ud) {
   system->StartGuestWorkerThread();
   system->guest_received_event_->Set();
   kernel::xboxkrnl::xeKfRaiseIrql(context, we);
+  kernel::KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
 #endif
 }
 

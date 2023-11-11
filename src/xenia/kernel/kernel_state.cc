@@ -1010,6 +1010,11 @@ bool KernelState::Save(ByteStream* stream) {
   return true;
 }
 
+cpu::HWThread* KernelState::HWThreadFor(PPCContext* context) {
+  return context->processor->GetCPUThread(
+      context->kernel_state->GetPCRCpuNum(GetKPCR(context)));
+}
+
 // length of a guest timer tick is normally 1 millisecond
 void KernelState::SystemClockInterrupt() {
   // todo: set interrupt priority, irql
@@ -1051,6 +1056,11 @@ void KernelState::SystemClockInterrupt() {
 
     context->DisableEI();
 
+    /*
+    on real hw, how does the kernel guarantee that no other thread is writing
+    the timers at this point? this dispatcher lock acquire is a hack
+    */
+
     auto dispatcher = context->kernel_state->GetDispatcherLock(context);
 
     bool dispatcher_held = false;
@@ -1083,6 +1093,7 @@ void KernelState::SystemClockInterrupt() {
       kpcr->generic_software_interrupt = 2;
     }
   }
+  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   GenericExternalInterruptEpilog(context);
 }
 void KernelState::GenericExternalInterruptEpilog(
@@ -1185,7 +1196,7 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
     xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, context);
   }
-  //from markvblank
+  // from markvblank
   if (callback_data[0] == 0) {
     xboxkrnl::xeKeEnterBackgroundMode(context);
   }
@@ -1216,7 +1227,8 @@ void KernelState::CPInterruptIPI(void* ud) {
   // this causes all games to freeze!
   //  it is an external interrupt though, but i guess we need to wait until
   //  it exits an interrupt context
-  // GenericExternalInterruptEpilog(current_context);
+  KernelState::HWThreadFor(current_context)->interrupt_controller()->SetEOI(1);
+  GenericExternalInterruptEpilog(current_context);
 }
 
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
@@ -1464,13 +1476,11 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       context->CheckInterrupt();
       cpu::HWThread::ThreadDelay();
       ++spin_count;
-      //todo: check whether a timed interrupt would be missed due to wait
+      // todo: check whether a timed interrupt would be missed due to wait
       if (!(spin_count & (0x1FFF))) {
         auto cpu_thread = context->processor->GetCPUThread(
-            context->kernel_state->GetPCRCpuNum(kpcr)
-        );
-        cpu_thread->IdleSleep(1000 * 100);//100 microseconds
-
+            context->kernel_state->GetPCRCpuNum(kpcr));
+        cpu_thread->IdleSleep(1000 * 100);  // 100 microseconds
       }
 
       _mm_pause();
@@ -1499,6 +1509,7 @@ void KernelState::KernelDecrementerInterrupt(void* ud) {
   if (r5 == 0) {
     return;
   }
+  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   kpcr->generic_software_interrupt = r7;
   kpcr->unk_1B = r7;
   kpcr->timeslice_ended = r7;

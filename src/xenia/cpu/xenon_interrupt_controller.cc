@@ -169,5 +169,11 @@ uint64_t XenonInterruptController::CreateRelativeUsTimestamp(
          microseconds;
 }
 
+void XenonInterruptController::SetEOI(uint64_t value) { eoi_written_ = static_cast<uint32_t>(value); }
+
+uint64_t XenonInterruptController::GetEOI() {
+    return eoi_written_;
+}
+
 }  // namespace cpu
 }  // namespace xe

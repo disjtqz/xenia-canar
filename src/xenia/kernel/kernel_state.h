@@ -345,6 +345,8 @@ class KernelState {
   static void GraphicsInterruptDPC(cpu::ppc::PPCContext* context);
   static void CPInterruptIPI(void* ud);
 
+  static cpu::HWThread* HWThreadFor(cpu::ppc::PPCContext* context);
+
  private:
   static void LaunchModuleInterrupt(void* ud);
   void LoadKernelModule(object_ref<KernelModule> kernel_module);

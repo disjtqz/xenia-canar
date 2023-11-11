@@ -114,7 +114,8 @@ bool HWThread::AreInterruptsDisabled() {
   if (!context->ExternalInterruptsEnabled()) {
     return true;
   }
-  return false;
+
+  return this_hw_thread->interrupt_controller()->GetEOI() == 0;
 }
 struct GuestInterruptWrapper {
   void (*ipi_func)(void*);
@@ -137,6 +138,8 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
   auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
   auto old_irql = kpcr->current_irql;
+
+  interrupt_wrapper->thiz->interrupt_controller()->SetEOI(0);
 
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
 

@@ -79,6 +79,7 @@ class XenonInterruptController {
   uint64_t tick_microsecond_frequency;
   threading::AtomicListHeader free_interrupt_requests_;
 
+  uint32_t eoi_written_ = 1;
   uint32_t timed_event_slots_bitmap_=0;
   CpuTimedInterrupt timed_events_[4];
   void Initialize();
@@ -111,6 +112,8 @@ class XenonInterruptController {
   void EnqueueTimedInterrupts();
 
   uint64_t CreateRelativeUsTimestamp(uint64_t microseconds);
+  void SetEOI(uint64_t value);
+  uint64_t GetEOI();
 };
 
 }  // namespace cpu

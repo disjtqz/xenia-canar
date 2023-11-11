@@ -200,12 +200,12 @@ void PPCContext::ReallyDoInterrupt(PPCContext* context) {
   auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
   auto interrupt_controller = context->GetExternalInterruptController();
   if (interrupt_controller->queued_interrupts_.depth()) {
-    auto xchged = interrupt_controller->queued_interrupts_.Flush();
+    auto xchged = interrupt_controller->queued_interrupts_.Pop();
     if (xchged) {
       auto current = xchged;
 
       while (current) {
-        auto next = current->next_;
+        
         auto ireq = reinterpret_cast<PPCInterruptRequest*>(current);
 
         auto ireq_deref = *ireq;
@@ -225,8 +225,9 @@ void PPCContext::ReallyDoInterrupt(PPCContext* context) {
         } else {
           // requeue
           interrupt_controller->queued_interrupts_.Push(current);
+          return;
         }
-        current = next;
+        current = interrupt_controller->queued_interrupts_.Pop();
       }
     }
   }

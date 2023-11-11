@@ -294,12 +294,14 @@ void HandleCpuThreadDisownedIPI(void* ud) {
   // hack!!! don't know what the ipi that the kernel sends actually does
 
   auto kpcr = GetKPCR(context);
+  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   if (kpcr->prcb_data.running_idle_thread) {
     // just signal the idle loop to break
     GetKPCR(context)->generic_software_interrupt = 2;
     return;
   }
   GetKPCR(context)->generic_software_interrupt = 2;
+
   KernelState::GenericExternalInterruptEpilog(context);
 }
 
@@ -1839,6 +1841,7 @@ static void BackgroundModeIPI(void* ud) {
   KPCR->unk_1A = 1;
   KPCR->timeslice_ended = 1;
   KPCR->generic_software_interrupt = 2;
+  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   if (!KPCR->prcb_data.running_idle_thread) {
     xe::kernel::KernelState::GenericExternalInterruptEpilog(context);
   }

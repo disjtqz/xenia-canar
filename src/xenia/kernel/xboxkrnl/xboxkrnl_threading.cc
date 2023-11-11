@@ -1109,13 +1109,7 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
       ctx, 0, static_cast<uint32_t>(ctx->r[13]),
       ctx->HostToGuestVirtual(&lock->pcr_of_owner.value))) {
     // bad hack. always check once reworked interrupt controller
-    if (change_irql) {
-      ctx->CheckInterrupt();
-    } else {
-      // should still check and enqueue timed interrupt, but not execute them.
-      // this is so timed interrupts that requeue themselves do not drift
-      ctx->CheckTimedInterrupt();
-    }
+    ctx->CheckInterrupt();
   }
 
   return old_irql;
@@ -1875,6 +1869,7 @@ static void SendRunKernelApcIPI(void* ud) {
     XELOGE("Mismatched current thread in sendrunkernelapcipi");
     return;
   }
+  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   xeProcessKernelApcs(context);
 }
 
@@ -1995,7 +1990,7 @@ static void DPCIPIFunction(void* ud) {
   auto context = cpu::ThreadState::GetContext();
 
   auto kpcr = GetKPCR(context);
-
+  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   if (kpcr->prcb_data.running_idle_thread) {
     GetKPCR(context)->generic_software_interrupt = 2;
     return;
