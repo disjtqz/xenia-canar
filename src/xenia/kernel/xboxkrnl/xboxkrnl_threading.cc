@@ -2335,8 +2335,14 @@ dword_result_t KeInsertQueue_entry(pointer_t<X_KQUEUE> queue,
                                    const ppc_context_t& context) {
   return xeKeInsertQueue(queue, entry, context);
 }
-
 DECLARE_XBOXKRNL_EXPORT1(KeInsertQueue, kThreading, kImplemented);
+
+dword_result_t KeRundownQueue_entry(pointer_t<X_KQUEUE> queue,
+                                    const ppc_context_t& context) {
+  return context->HostToGuestVirtual(xeKeRundownQueue(context, queue));
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeRundownQueue, kThreading, kImplemented);
 
 dword_result_t KeQueryBackgroundProcessors_entry(const ppc_context_t& context) {
   return xeKeQueryBackgroundProcessors(context);

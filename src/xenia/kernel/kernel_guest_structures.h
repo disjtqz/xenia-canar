@@ -365,11 +365,11 @@ static_assert_size(X_EXTIMER, 0x80);
 // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-keinitializequeue
 // todo: figure out where thread_list_head links into 360 KTHREAD
 struct X_KQUEUE {
-  X_DISPATCH_HEADER header;        // 0x0
-  X_LIST_ENTRY entry_list_head;    // 0x10
-  xe::be<uint32_t> current_count;  // 0x18
-  xe::be<uint32_t> maximum_count;  // 0x1C
-  X_LIST_ENTRY thread_list_head;   // 0x20
+  X_DISPATCH_HEADER header;                               // 0x0
+  X_LIST_ENTRY entry_list_head;                           // 0x10
+  xe::be<uint32_t> current_count;                         // 0x18
+  xe::be<uint32_t> maximum_count;                         // 0x1C
+  util::X_TYPED_LIST<X_KTHREAD, 0x11C> thread_list_head;  // 0x20
 };
 static_assert_size(X_KQUEUE, 0x28);
 

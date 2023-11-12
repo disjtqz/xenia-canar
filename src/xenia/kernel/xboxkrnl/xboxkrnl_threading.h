@@ -207,6 +207,8 @@ int32_t xeKeInsertHeadQueue(X_KQUEUE* queue, X_LIST_ENTRY* entry,
 
 void xeKeSignalQueue(PPCContext* context, X_KQUEUE* queue);
 
+X_LIST_ENTRY* xeKeRundownQueue(PPCContext* context, X_KQUEUE* queue);
+
 uint32_t xeKeQueryBackgroundProcessors(PPCContext* context);
 void xeKeSetBackgroundProcessors(PPCContext* context, uint32_t new_bgproc);
 void xeKeEnterBackgroundMode(PPCContext* context);

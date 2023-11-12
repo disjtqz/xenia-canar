@@ -461,9 +461,29 @@ void xeKeSignalQueue(PPCContext* context, X_KQUEUE* queue) {
   entry->flink_ptr = 0u;
 
   queue->header.signal_state--;
-  //send the list entry to the waiter
+  // send the list entry to the waiter
   xeEnqueueThreadPostWait(context, context->TranslateVirtual(block->thread),
                           static_cast<X_STATUS>(entry_guest), 0);
+}
+
+X_LIST_ENTRY* xeKeRundownQueue(PPCContext* context, X_KQUEUE* queue) {
+  uint32_t old_irql = context->kernel_state->LockDispatcher(context);
+  auto v4 = context->TranslateVirtual(queue->entry_list_head.flink_ptr);
+  if (v4 == &queue->entry_list_head) {
+    v4 = 0;
+  } else {
+    util::XeRemoveEntryList(&queue->entry_list_head, context);
+  }
+  auto v5 = &queue->thread_list_head;
+  while (!v5->empty(context)) {
+    auto kthread = v5->HeadObject(context);
+    kthread->queue = 0U;
+
+    util::XeRemoveEntryList(&kthread->queue_related, context);
+  }
+  xeDispatcherSpinlockUnlock(
+      context, context->kernel_state->GetDispatcherLock(context), old_irql);
+  return v4;
 }
 
 }  // namespace xboxkrnl

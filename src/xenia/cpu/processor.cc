@@ -49,7 +49,7 @@ DEFINE_path(trace_function_data_path, "", "File to write trace data to.",
 DEFINE_bool(break_on_start, false, "Break into the debugger on startup.",
             "CPU");
 
-DEFINE_bool(use_reserve_in_host_code, true,
+DEFINE_bool(use_reserve_in_host_code, false,
             "If true try to emulate RESERVE behavior in kernel code, and try "
             "to emulate stores cancelling reservations in certain places. If "
             "false host atomics are used.",
