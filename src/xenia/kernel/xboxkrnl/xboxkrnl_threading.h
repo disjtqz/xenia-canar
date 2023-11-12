@@ -209,6 +209,9 @@ void xeKeSignalQueue(PPCContext* context, X_KQUEUE* queue);
 
 X_LIST_ENTRY* xeKeRundownQueue(PPCContext* context, X_KQUEUE* queue);
 
+uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
+                         unsigned char wait_mode, int64_t* timeout);
+
 uint32_t xeKeQueryBackgroundProcessors(PPCContext* context);
 void xeKeSetBackgroundProcessors(PPCContext* context, uint32_t new_bgproc);
 void xeKeEnterBackgroundMode(PPCContext* context);

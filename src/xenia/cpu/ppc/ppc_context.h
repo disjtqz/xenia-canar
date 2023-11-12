@@ -15,9 +15,9 @@
 #include <string>
 
 #include "xenia/base/mutex.h"
+#include "xenia/base/threading.h"
 #include "xenia/base/vec128.h"
 #include "xenia/guest_pointers.h"
-#include "xenia/base/threading.h"
 namespace xe {
 namespace cpu {
 class XenonInterruptController;
@@ -40,7 +40,8 @@ struct alignas(64) PPCContext_s;
 struct PPCInterruptRequest {
   threading::AtomicListEntry list_entry_;
   bool (*may_run_)(PPCContext_s* in_context);
-  uintptr_t (*func_)(PPCContext_s* context, PPCInterruptRequest* request, void* ud);
+  uintptr_t (*func_)(PPCContext_s* context, PPCInterruptRequest* request,
+                     void* ud);
   void* ud_;
   uintptr_t* result_out_;
   bool wait;
@@ -461,7 +462,7 @@ typedef struct alignas(64) PPCContext_s {
   uint64_t reserved_val;
   uint8_t* virtual_membase;
   uint32_t raised_status;
-#if XE_TRACE_LAST_INTERRUPT_ADDR==1
+#if XE_TRACE_LAST_INTERRUPT_ADDR == 1
   uint64_t recent_interrupt_addr_;
 #endif
   template <typename T = uint8_t*>
@@ -580,6 +581,18 @@ typedef struct alignas(64) PPCContext_s {
   void CheckTimedInterrupt();
   XE_NOINLINE
   void EnqueueTimedInterrupts();
+
+  template <typename T>
+  T* stack_alloc(uint32_t& out_orig_r1, uint32_t N = 1) {
+    uint32_t r1 = static_cast<uint32_t>(r[1]);
+    out_orig_r1 = r1;
+    uint32_t nbytes = static_cast<uint32_t>(sizeof(T)) * N;
+
+    r[1] = r1 - (nbytes + 16);
+    return TranslateVirtual<T*>(r1 - nbytes);
+  }
+
+  void stack_free(uint32_t orig_r1) { r[1] = static_cast<uint64_t>(orig_r1); }
 } PPCContext;
 #pragma pack(pop)
 constexpr size_t ppcctx_size = sizeof(PPCContext);

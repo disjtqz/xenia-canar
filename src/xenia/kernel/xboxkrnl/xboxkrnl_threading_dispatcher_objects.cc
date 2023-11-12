@@ -486,6 +486,129 @@ X_LIST_ENTRY* xeKeRundownQueue(PPCContext* context, X_KQUEUE* queue) {
   return v4;
 }
 
+uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
+                         unsigned char wait_mode, int64_t* timeout) {
+  auto this_thread = GetKThread(context);
+  if (this_thread->unk_A6)
+    this_thread->unk_A6 = 0;
+  else
+    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+
+  auto v8 = context->TranslateVirtual(this_thread->queue);
+  this_thread->queue = context->HostToGuestVirtual(queue);
+  if (queue == v8) {
+    --queue->current_count;
+  } else {
+    auto v9 = &this_thread->queue_related;
+    if (v8) {
+      auto v10 = v9->flink_ptr;
+      auto v11 = this_thread->queue_related.blink_ptr;
+      v11->flink_ptr = v9->flink_ptr;
+      v10->blink_ptr = v11;
+      xeKeSignalQueue(context, v8);
+    }
+    auto v12 = queue->thread_list_head.blink_ptr;
+    v9->flink_ptr = &queue->thread_list_head;
+    this_thread->queue_related.blink_ptr = v12;
+    v12->flink_ptr = v9;
+    queue->thread_list_head.blink_ptr = v9;
+  }
+  auto v13 = timeout;
+  auto v14 = &queue->entry_list_head;
+  int64_t v20;
+  int64_t tmp_timeout;
+  uint32_t v15;
+  uint32_t orig_stack;
+  auto scratch_waitblock = context->stack_alloc<X_KWAIT_BLOCK>(orig_stack);
+  while (1) {
+    v15 = v14->flink_ptr;
+    if (v15 != context->HostToGuestVirtual(v14) &&
+        queue->current_count < queue->maximum_count) {
+      auto queue_newcount = queue->current_count + 1;
+      --queue->header.signal_state;
+      queue->current_count = queue_newcount;
+      util::XeRemoveEntryList(v15, context);
+      context->TranslateVirtual<X_LIST_ENTRY*>(v15)->flink_ptr = 0u;
+      goto LABEL_36;
+    }
+    if (this_thread->deferred_apc_software_interrupt_state &&
+        !this_thread->unk_A4) {
+      ++queue->current_count;
+      xeDispatcherSpinlockUnlock(
+          context, context->kernel_state->GetDispatcherLock(context),
+          this_thread->unk_A4);
+      goto LABEL_31;
+    }
+    if (wait_mode && this_thread->unk_8A) {
+      v15 = X_STATUS_USER_APC;
+      goto LABEL_35;
+    }
+    this_thread->wait_result = 0;
+    this_thread->wait_blocks = scratch_waitblock;
+    scratch_waitblock->object = &queue->header;
+    scratch_waitblock->wait_result_xstatus = 0;
+    scratch_waitblock->thread = this_thread;
+    scratch_waitblock->wait_type = 1;
+    if (!timeout) {
+      scratch_waitblock->next_wait_block = scratch_waitblock;
+      goto LABEL_26;
+    }
+    if (!*timeout) {
+      break;
+    }
+    scratch_waitblock->next_wait_block = &this_thread->wait_timeout_block;
+    this_thread->wait_timeout_timer.header.wait_list.flink_ptr =
+        &this_thread->wait_timeout_block.wait_list_entry;
+    this_thread->wait_timeout_timer.header.wait_list.blink_ptr =
+        &this_thread->wait_timeout_block.wait_list_entry;
+    this_thread->wait_timeout_block.next_wait_block = scratch_waitblock;
+
+    if (!XeInsertGlobalTimer(context, &this_thread->wait_timeout_timer,
+                             *timeout))
+      break;
+    v20 = this_thread->wait_timeout_timer.due_time;
+  LABEL_26:
+    auto v16 = queue->header.wait_list.blink_ptr;
+    scratch_waitblock->wait_list_entry.flink_ptr = &queue->header.wait_list;
+    scratch_waitblock->wait_list_entry.blink_ptr = v16;
+    v16->flink_ptr = &scratch_waitblock->wait_list_entry;
+    queue->header.wait_list.blink_ptr = &scratch_waitblock->wait_list_entry;
+    this_thread->alertable = 0;
+    this_thread->processor_mode = wait_mode;
+    this_thread->wait_reason = 4;
+    this_thread->thread_state = 5;
+
+    auto result = xeSchedulerSwitchThread2(context);
+    this_thread->wait_reason = 0;
+    if (result != X_STATUS_KERNEL_APC) {
+      context->stack_free(orig_stack);
+      return result;
+    }
+    if (timeout) {
+      if (*timeout < 0) {
+        tmp_timeout =
+            context->kernel_state->GetKernelInterruptTime() - *timeout;
+        timeout = &tmp_timeout;
+      } else {
+        timeout = v13;
+      }
+    }
+
+  LABEL_31:
+    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    --queue->current_count;
+  }
+  v15 = X_STATUS_TIMEOUT;
+LABEL_35:
+  ++queue->current_count;
+LABEL_36:
+  xeDispatcherSpinlockUnlock(context,
+                             context->kernel_state->GetDispatcherLock(context),
+                             this_thread->unk_A4);
+  context->stack_free(orig_stack);
+  return v15;
+}
+
 }  // namespace xboxkrnl
 }  // namespace kernel
 }  // namespace xe

@@ -1181,7 +1181,6 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       }
     }
   LABEL_41:
-    // context->CheckInterrupt();
     this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
   }
   auto obj_type = object->type;

@@ -181,7 +181,7 @@ enum : uint16_t {
 //  pretty much the vista KWAIT_BLOCK verbatim, except that sparebyte is gone
 //  and WaitType is 2 bytes instead of 1
 struct X_KWAIT_BLOCK {
-  X_LIST_ENTRY wait_list_entry;
+  X_LIST_ENTRY wait_list_entry; //0x0
   EZPointer<X_KTHREAD> thread;
   EZPointer<X_DISPATCH_HEADER> object;
   EZPointer<X_KWAIT_BLOCK> next_wait_block;

@@ -2344,6 +2344,16 @@ dword_result_t KeRundownQueue_entry(pointer_t<X_KQUEUE> queue,
 
 DECLARE_XBOXKRNL_EXPORT1(KeRundownQueue, kThreading, kImplemented);
 
+dword_result_t KeRemoveQueue_entry(pointer_t<X_KQUEUE> queue, dword_t wait_mode,
+                                   lpqword_t timeout,
+                                   const ppc_context_t& context) {
+  int64_t timeout_host = timeout.guest_address() ? *timeout : 0;
+  return xeKeRemoveQueue(context, queue, wait_mode & 0xff,
+                         timeout.guest_address() ? &timeout_host : nullptr);
+}
+
+DECLARE_XBOXKRNL_EXPORT1(KeRemoveQueue, kThreading, kImplemented);
+
 dword_result_t KeQueryBackgroundProcessors_entry(const ppc_context_t& context) {
   return xeKeQueryBackgroundProcessors(context);
 }
