@@ -1418,10 +1418,13 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
     xthrd->thread_state()->context()->r[13] = context->r[13];
 
     xthrd->SwitchToDirect();
+    
   }
   if (GetKPCR(context) != old_kpcr) {
     XELOGE("Thread was switched from one HW thread to another.");
   }
+  xenia_assert(GetKPCR(context)->prcb_data.current_cpu ==
+               GetKThread(context)->current_cpu);
   // XThread::SetCurrentThread(saved_currthread);
 
   // r31 after the swap = our thread

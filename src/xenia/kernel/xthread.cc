@@ -74,7 +74,11 @@ XThread::XThread(KernelState* kernel_state, uint32_t stack_size,
   creation_params_.xapi_thread_startup = xapi_thread_startup;
   creation_params_.start_address = start_address;
   creation_params_.start_context = start_context;
+  X_HANDLE threadid_handle;
+  kernel_state->object_table()->DuplicateHandle(this->handle(),
+                                                &threadid_handle);
 
+  thread_id_ = threadid_handle;
   // top 8 bits = processor ID (or 0 for default)
   // bit 0 = 1 to create suspended
   creation_params_.creation_flags = creation_flags;
@@ -291,14 +295,15 @@ void XThread::InitializeGuestObject() {
   guest_thread->stack_alloc_base = this->stack_base_;
   guest_thread->create_time = context_here->kernel_state->GetKernelSystemTime();
   util::XeInitializeListHead(&guest_thread->timer_list, memory());
-  guest_thread->thread_id = this->handle();
+
+  guest_thread->thread_id = thread_id_;
   guest_thread->start_address = this->creation_params_.start_address;
   guest_thread->unk_154 = thread_guest_ptr + 340;
   uint32_t v9 = thread_guest_ptr;
   guest_thread->last_error = 0;
   guest_thread->unk_158 = v9 + 340;
   guest_thread->creation_flags = this->creation_params_.creation_flags;
-  
+
   guest_thread->host_xthread_stash = reinterpret_cast<void*>(this);
 
   guest_thread->thread_state = 0;
@@ -333,6 +338,8 @@ void XThread::InitializeGuestObject() {
   xboxkrnl::xeKeKfReleaseSpinLock(context_here, &process->thread_list_spinlock,
                                   old_irql);
 }
+
+uint32_t XThread::thread_id() const { return thread_id_; }
 
 bool XThread::AllocateStack(uint32_t size) {
   uint32_t kstack = xboxkrnl::xeMmCreateKernelStack(
@@ -542,8 +549,6 @@ X_STATUS XThread::Exit(int exit_code) {
   }
   util::XeRemoveEntryList(&kthread->process_threads, cpu_context);
 
-  kprocess->thread_count = kprocess->thread_count - 1;
-
   xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kprocess->thread_list_spinlock,
                                   0, false);
   kthread->thread_state = 4;
@@ -730,12 +735,6 @@ void XThread::assert_valid() {
   auto context = current_threadstate->context();
 
   xenia_assert(GetKThread(context) == guest_object<X_KTHREAD>());
-  X_HANDLE handle_res = 0;
-  bool got_handle = kernel_state()->object_table()->HostHandleForGuestObject(
-      guest_object(), handle_res);
-  xenia_assert(got_handle);
-
-  xenia_assert(handle_res == handle());
 
   xenia_assert(GetFlsXThread() == this);
 }

@@ -74,7 +74,7 @@ class XThread : public XObject {
   bool main_thread() const { return main_thread_; }
   bool is_running() const { return running_; }
 
-  uint32_t thread_id() const { return handle(); }
+  uint32_t thread_id() const;
   uint32_t last_error();
   void set_last_error(uint32_t error_code);
   void set_name(const std::string_view name);
@@ -160,7 +160,7 @@ class XThread : public XObject {
   bool guest_thread_ = false;
   bool main_thread_ = false;  // Entry-point thread
   bool running_ = false;
-
+  uint32_t thread_id_;
   int32_t priority_ = 0;
 };
 
@@ -175,6 +175,7 @@ class XHostThread : public XThread {
   static void XHostThreadForwarder(cpu::ppc::PPCContext* context, void* ud1, void* ud2);
   std::function<int()> host_fn_;
   uint32_t host_trampoline;
+  
 };
 
 }  // namespace kernel

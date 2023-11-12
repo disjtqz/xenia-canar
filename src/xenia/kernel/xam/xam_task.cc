@@ -161,6 +161,7 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
     xboxkrnl::xeObDereferenceObject(ctx,
                                     ctx->HostToGuestVirtual(resulting_kthread));
 
+    xboxkrnl::NtClose(XThread::FromGuest(resulting_kthread)->handle());
   } else {
     xenia_assert(false);  // unhandled task type
   }
