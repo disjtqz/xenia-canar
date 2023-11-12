@@ -284,7 +284,7 @@ WaitResult NanoWait(WaitHandle* wait_handle, bool is_alertable,
 
   result = NtWaitForSingleObjectPointer.invoke<NTSTATUS>(handle, bAlertable,
                                                          &timeout_big);
-  
+
   switch (result) {
     case STATUS_WAIT_0:
       return WaitResult::kSuccess;
@@ -873,6 +873,7 @@ class Win32Fiber : public Fiber {
   }
   Win32Fiber() : callback({}) { this_fiber_ = ConvertThreadToFiber(this); }
   virtual void* native_handle() const override { return (void*)done_signal_; }
+  virtual void SetTerminated() override { SetEvent(this->done_signal_); }
   virtual ~Win32Fiber() {
     WaitForSingleObject(done_signal_, INFINITE);
     CloseHandle(done_signal_);

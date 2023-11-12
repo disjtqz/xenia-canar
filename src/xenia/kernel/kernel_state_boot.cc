@@ -12,6 +12,7 @@
 #include <string>
 
 #include "third_party/fmt/include/fmt/format.h"
+#include "xenia/apu/audio_system.h"
 #include "xenia/base/assert.h"
 #include "xenia/base/byte_stream.h"
 #include "xenia/base/logging.h"
@@ -31,7 +32,6 @@
 #include "xenia/kernel/xnotifylistener.h"
 #include "xenia/kernel/xobject.h"
 #include "xenia/kernel/xthread.h"
-#include "xenia/apu/audio_system.h"
 namespace xe {
 namespace kernel {
 
@@ -172,10 +172,50 @@ static void IPIInterruptProc(PPCContext* context) {}
 // ues _KTHREAD list_entry field at 0x94
 // this dpc uses none of the routine args
 static void DestroyThreadDpc(PPCContext* context) {
-  XELOGD("DestroyThreadDpc");
-  //  context->kernel_state->LockDispatcherAtIrql(context);
+  ShiftedPointer<X_LIST_ENTRY, X_KTHREAD, 0x94> v10 = nullptr;
 
-  // context->kernel_state->UnlockDispatcherAtIrql(context);
+  context->kernel_state->LockDispatcherAtIrql(context);
+  auto v6 = &GetKPCR(context)->prcb_data.terminating_threads_list;
+  while (1) {
+    v10 = context->TranslateVirtual(v6->flink_ptr);
+    if (v10.m_base == v6) {
+      break;
+    }
+    auto v7 = ADJ(v10)->ready_prcb_entry.flink_ptr;
+    auto thrd = ADJ(v10);
+    auto v9 = ADJ(v10)->ready_prcb_entry.blink_ptr;
+    v9->flink_ptr = v7;
+    v7->blink_ptr = v9;
+    --context->TranslateVirtual(thrd->process)->thread_count;
+    context->kernel_state->UnlockDispatcherAtIrql(context);
+    context->kernel_state->object_table()->RemoveHandle(thrd->thread_id);
+
+    
+    if (!thrd->unk_CB) {
+      xboxkrnl::xeMmDeleteKernelStack(thrd->stack_alloc_base,
+                                      thrd->stack_limit);
+    }
+    //todo: this needs to be kept uncommented for now, until object rework
+  //  xboxkrnl::xeObDereferenceObject(context, context->HostToGuestVirtual(thrd));
+    xboxkrnl::xeObDereferenceObject(context, thrd);
+    context->kernel_state->LockDispatcherAtIrql(context);
+  }
+  auto kgb = context->kernel_state->GetKernelGuestGlobals(context);
+  auto title_process = &kgb->title_process;
+
+  if (title_process->is_terminating) {
+    if (!title_process->thread_count) {
+      auto term_event = &kgb->title_terminated_event;
+
+      term_event->header.signal_state = 1;
+
+      if (!util::XeIsListEmpty(&term_event->header.wait_list, context)) {
+        xboxkrnl::xeDispatchSignalStateChange(context, &term_event->header, 1);
+      }
+    }
+  }
+  xboxkrnl::xeDispatcherSpinlockUnlock(context, &kgb->dispatcher_lock,
+                                       IRQL_DISPATCH);
 }
 
 static void ThreadSwitchHelper(PPCContext* context, X_KPROCESS* process) {
@@ -511,13 +551,17 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   xboxkrnl::xeKeSetEvent(context, &block->UsbdBootEnumerationDoneEvent, 1, 0);
 
 
+  block->title_terminated_event.header.type = 1;
+  util::XeInitializeListHead(&block->title_terminated_event.header.wait_list,
+                             context);
+
   xe::be<uint32_t> handle_ptr;
 
   X_STATUS create_res = xboxkrnl::ExCreateThread(
       &handle_ptr, 0x8000u, nullptr, 0,
       kernel_trampoline_group_.NewLongtermTrampoline(
-          &KernelState::ForwardBootInitializeCPU0InSystemThread),0,
-      0x422);
+          &KernelState::ForwardBootInitializeCPU0InSystemThread),
+      0, 0x422);
   xenia_assert(create_res == 0);
   xboxkrnl::NtClose(handle_ptr);
   // this is deliberate, does not change the interrupt priority!
@@ -614,7 +658,7 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   }
   // todo: all cpus won't be executing this at exactly the same time, so they'll
   // all be a bit off, but that may not matter much
-#if XE_USE_TIMED_INTERRUPTS_FOR_CLOCK==1
+#if XE_USE_TIMED_INTERRUPTS_FOR_CLOCK == 1
   cpu::CpuTimedInterrupt clock_cti;
   clock_cti.destination_microseconds_ =
       interrupt_controller->CreateRelativeUsTimestamp(1000ULL);  // one second
@@ -622,7 +666,7 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   clock_cti.ud_ = reinterpret_cast<void*>(hwthread);
   clock_cti.enqueue_ = ClockInterruptEnqueueProc;
 
-  //this slot stays allocated forever
+  // this slot stays allocated forever
   uint32_t clock_slot = interrupt_controller->AllocateTimedInterruptSlot();
   interrupt_controller->SetTimedInterruptArgs(clock_slot, &clock_cti);
   interrupt_controller->RecomputeNextEventCycles();

@@ -63,6 +63,7 @@ class XThread : public XObject {
   static uint32_t GetCurrentThreadHandle();
   static uint32_t GetCurrentThreadId();
 
+  static XThread* FromGuest(X_KTHREAD* guest_thread);
   static uint32_t GetLastError();
   static void SetLastError(uint32_t error_code);
 

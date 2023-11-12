@@ -1389,14 +1389,13 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
     kpcr->apc_software_interrupt_state =
         guest->deferred_apc_software_interrupt_state;
   };
-  X_HANDLE host_handle;
 
   xenia_assert(GetKPCR(context)->prcb_data.current_thread.xlat() == guest);
 
   auto old_kpcr = GetKPCR(context);
+  auto xthrd = XThread::FromGuest(guest);
 
-  if (!object_table()->HostHandleForGuestObject(
-          context->HostToGuestVirtual(guest), host_handle)) {
+  if (!xthrd) {
     xenia_assert(GetKPCR(context)->prcb_data.idle_thread.xlat() == guest);
     // if theres no host object for this guest thread, its definitely the idle
     // thread for this processor
@@ -1413,9 +1412,9 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
     GetKPCR(context)->prcb_data.current_thread = guest;
     hw_thread->YieldToScheduler();
   } else {
-    auto xthrd = object_table()->LookupObject<XThread>(host_handle).release();
     pre_swap();
 
+    //wait, what if we're switching threads because we changed the affinity of the current thread? would that break this?
     xthrd->thread_state()->context()->r[13] = context->r[13];
 
     xthrd->SwitchToDirect();

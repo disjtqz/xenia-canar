@@ -514,7 +514,9 @@ class Fiber : public WaitHandle {
   static Fiber* GetCurrentFiber();
 
   static std::unique_ptr<Fiber> CreateFromThread();
-
+  // use this to signal explicitly that the fiber is done
+  //otherwise you can deadlock in the destructor if your fiber has finished, but will never actually return
+  virtual void SetTerminated() = 0;
   virtual void SwitchTo() = 0;
   virtual ~Fiber() {}
 };

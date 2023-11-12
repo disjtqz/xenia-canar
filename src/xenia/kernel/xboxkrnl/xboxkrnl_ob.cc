@@ -281,7 +281,7 @@ uint32_t xeObReferenceObjectByHandle(uint32_t handle, uint32_t object_type_ptr,
   }
   // Caller takes the reference.
   // It's released in ObDereferenceObject.
-  object->RetainHandle();
+  object->Retain();
 
   xenia_assert(native_ptr != 0);
   if (out_object_ptr) {
@@ -323,6 +323,29 @@ dword_result_t ObReferenceObjectByName_entry(pointer_t<X_ANSI_STRING> name,
 }
 DECLARE_XBOXKRNL_EXPORT1(ObReferenceObjectByName, kNone, kImplemented);
 
+void xeObDereferenceObject(PPCContext* context, void* ptr) {
+  XObject* object = nullptr;
+  auto header = &reinterpret_cast<X_OBJECT_HEADER*>(ptr)[-1];
+
+  if (header->object_type_ptr ==
+      context->kernel_state->GetKernelGuestGlobals() +
+          offsetof32(KernelGuestGlobals, ExThreadObjectType)) {
+    object = XThread::FromGuest(reinterpret_cast<X_KTHREAD*>(ptr));
+  } else {
+    object = XObject::GetNativeObject<XObject>(kernel_state(), ptr).release();
+  }
+  if (object) {
+    object->Release();
+
+  } else {
+    if (ptr) {
+      XELOGW("Unregistered guest object provided to ObDereferenceObject {:08X}",
+             (uintptr_t)ptr);
+    }
+  }
+  return;
+}
+
 void xeObDereferenceObject(PPCContext* context, uint32_t native_ptr) {
   // Check if a dummy value from ObReferenceObjectByHandle.
   if (native_ptr == 0xDEADF00D) {
@@ -332,19 +355,7 @@ void xeObDereferenceObject(PPCContext* context, uint32_t native_ptr) {
     XELOGE("Null native ptr in ObDereferenceObject!");
     return;
   }
-
-  auto object = XObject::GetNativeObject<XObject>(
-      kernel_state(), kernel_memory()->TranslateVirtual(native_ptr));
-  if (object) {
-    object->ReleaseHandle();
-
-  } else {
-    if (native_ptr) {
-      XELOGW("Unregistered guest object provided to ObDereferenceObject {:08X}",
-             native_ptr);
-    }
-  }
-  return;
+  xeObDereferenceObject(context, context->TranslateVirtual(native_ptr));
 }
 
 void ObDereferenceObject_entry(dword_t native_ptr, const ppc_context_t& ctx) {
@@ -352,12 +363,21 @@ void ObDereferenceObject_entry(dword_t native_ptr, const ppc_context_t& ctx) {
 }
 DECLARE_XBOXKRNL_EXPORT1(ObDereferenceObject, kNone, kImplemented);
 
-void ObReferenceObject_entry(dword_t native_ptr) {
-  // Check if a dummy value from ObReferenceObjectByHandle.
-  auto object = XObject::GetNativeObject<XObject>(
-      kernel_state(), kernel_memory()->TranslateVirtual(native_ptr));
+void ObReferenceObject_entry(dword_t native_ptr, const ppc_context_t& context) {
+
+    XObject* object = nullptr;
+  auto hdr = context->TranslateVirtual<X_OBJECT_HEADER*>(native_ptr);
+  auto header = &hdr[-1];
+
+  if (header->object_type_ptr ==
+      context->kernel_state->GetKernelGuestGlobals() +
+          offsetof32(KernelGuestGlobals, ExThreadObjectType)) {
+    object = XThread::FromGuest(reinterpret_cast<X_KTHREAD*>(hdr));
+  } else {
+    object = XObject::GetNativeObject<XObject>(kernel_state(), hdr).release();
+  }
   if (object) {
-    object->RetainHandle();
+    object->Retain();
   } else {
     if (native_ptr) {
       XELOGW("Unregistered guest object provided to ObReferenceObject {:08X}",

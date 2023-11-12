@@ -64,11 +64,9 @@ uint32_t FromXdkProtectFlags(uint32_t protect) {
   return result;
 }
 
-dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
-                                             lpdword_t region_size_ptr,
-                                             dword_t alloc_type,
-                                             dword_t protect_bits,
-                                             dword_t debug_memory, const ppc_context_t& context) {
+dword_result_t NtAllocateVirtualMemory_entry(
+    lpdword_t base_addr_ptr, lpdword_t region_size_ptr, dword_t alloc_type,
+    dword_t protect_bits, dword_t debug_memory, const ppc_context_t& context) {
   // NTSTATUS
   // _Inout_  PVOID *BaseAddress,
   // _Inout_  PSIZE_T RegionSize,
@@ -120,7 +118,7 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
       page_size = 64 * 1024;
     }
   }
-  
+
   // Round the base address down to the nearest page boundary.
   uint32_t adjusted_base = *base_addr_ptr - (*base_addr_ptr % page_size);
   // For some reason, some games pass in negative sizes.
@@ -701,12 +699,13 @@ DECLARE_XBOXKRNL_EXPORT1(ExAllocatePool, kMemory, kImplemented);
 
 void xeFreePool(PPCContext* context, uint32_t base_address) {
   auto memory = context->kernel_state->memory();
-  //if 4kb aligned, there is no pool header!
+  // if 4kb aligned, there is no pool header!
   uint32_t released_region_size = 0;
   if ((base_address & (4096 - 1)) == 0) {
     memory->SystemHeapFree(base_address, &released_region_size);
   } else {
-    memory->SystemHeapFree(base_address - sizeof(X_POOL_ALLOC_HEADER), &released_region_size);
+    memory->SystemHeapFree(base_address - sizeof(X_POOL_ALLOC_HEADER),
+                           &released_region_size);
   }
   xenia_assert(released_region_size != 0);
 
@@ -773,11 +772,12 @@ dword_result_t MmCreateKernelStack_entry(dword_t stack_size, dword_t r4) {
 }
 DECLARE_XBOXKRNL_EXPORT1(MmCreateKernelStack, kMemory, kImplemented);
 
-dword_result_t MmDeleteKernelStack_entry(lpvoid_t stack_base,
-                                         lpvoid_t stack_end) {
+uint32_t xeMmDeleteKernelStack(uint32_t stack_base, uint32_t stack_end) {
   uint32_t released_region_size = 0;
   // Release the stack (where stack_end is the low address)
-  if (kernel_memory()->LookupHeap(0x70000000)->Release(stack_end, &released_region_size)) {
+  if (kernel_memory()
+          ->LookupHeap(0x70000000)
+          ->Release(stack_end, &released_region_size)) {
     xenia_assert(released_region_size);
     kernel_state()->object_table()->FlushGuestToHostMapping(
         stack_end, released_region_size);
@@ -785,6 +785,11 @@ dword_result_t MmDeleteKernelStack_entry(lpvoid_t stack_base,
   }
 
   return X_STATUS_UNSUCCESSFUL;
+}
+
+dword_result_t MmDeleteKernelStack_entry(lpvoid_t stack_base,
+                                         lpvoid_t stack_end) {
+  return xeMmDeleteKernelStack(stack_base, stack_end);
 }
 DECLARE_XBOXKRNL_EXPORT1(MmDeleteKernelStack, kMemory, kImplemented);
 

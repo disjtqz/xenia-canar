@@ -17,6 +17,8 @@ namespace kernel {
 namespace xboxkrnl {
 uint32_t xeObReferenceObjectByHandle(uint32_t handle, uint32_t object_type_ptr,
                                      uint32_t* out_object_ptr);
+void xeObDereferenceObject(PPCContext* context, void* ptr);
+
 void xeObDereferenceObject(PPCContext* context, uint32_t native_ptr);
 void xeObSplitName(X_ANSI_STRING input_string,
                    X_ANSI_STRING* leading_path_component,

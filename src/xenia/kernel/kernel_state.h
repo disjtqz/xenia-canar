@@ -130,6 +130,7 @@ struct KernelGuestGlobals {
 
   XDPC command_processor_interrupt_dpcs[6]; //one per hw thread
 
+  X_KEVENT title_terminated_event;
 };
 
 struct X_KPCR_PAGE;
