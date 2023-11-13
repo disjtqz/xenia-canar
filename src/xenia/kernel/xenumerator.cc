@@ -8,7 +8,9 @@
  */
 
 #include "xenia/kernel/xenumerator.h"
-
+#include "xenia/kernel/kernel_state.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_ob.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 namespace xe {
 namespace kernel {
 
@@ -24,11 +26,19 @@ X_STATUS XEnumerator::Initialize(uint32_t user_index, uint32_t app_id,
                                  uint32_t open_message, uint32_t close_message,
                                  uint32_t flags, uint32_t extra_size,
                                  void** extra_buffer) {
-  auto native_object = CreateNative(sizeof(X_KENUMERATOR) + extra_size);
-  if (!native_object) {
-    return X_STATUS_NO_MEMORY;
-  }
-  auto guest_object = reinterpret_cast<X_KENUMERATOR*>(native_object);
+  auto context = cpu::ThreadState::Get()->context();
+  uint32_t guest_objptr = 0;
+  auto guest_globals = context->TranslateVirtual<KernelGuestGlobals*>(
+      kernel_state()->GetKernelGuestGlobals());
+  X_STATUS create_status = xboxkrnl::xeObCreateObject(
+      &guest_globals->XamEnumeratorObjectType, nullptr,
+      sizeof(X_KENUMERATOR) + extra_size, &guest_objptr, context);
+
+  xenia_assert(create_status == X_STATUS_SUCCESS);
+  xenia_assert(guest_objptr != 0);
+  SetNativePointer(guest_objptr);
+
+  auto guest_object = context->TranslateVirtual<X_KENUMERATOR*>(guest_objptr);
   guest_object->app_id = app_id;
   guest_object->open_message = open_message;
   guest_object->close_message = close_message;
@@ -38,7 +48,7 @@ X_STATUS XEnumerator::Initialize(uint32_t user_index, uint32_t app_id,
   guest_object->flags = flags;
   if (extra_buffer) {
     *extra_buffer =
-        !extra_buffer ? nullptr : &native_object[sizeof(X_KENUMERATOR)];
+        !extra_buffer ? nullptr : &guest_object[sizeof(X_KENUMERATOR)];
   }
   return X_STATUS_SUCCESS;
 }

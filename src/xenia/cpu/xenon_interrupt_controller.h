@@ -82,6 +82,8 @@ class XenonInterruptController {
   uint32_t eoi_written_ = 1;
   uint32_t timed_event_slots_bitmap_=0;
   CpuTimedInterrupt timed_events_[4];
+
+  uintptr_t* eoi_write_mirror_ = nullptr;
   void Initialize();
 
   void SetInterruptSource(uint64_t src);
@@ -114,6 +116,8 @@ class XenonInterruptController {
   uint64_t CreateRelativeUsTimestamp(uint64_t microseconds);
   void SetEOI(uint64_t value);
   uint64_t GetEOI();
+
+  void SetEOIWriteMirror(uintptr_t* v) { eoi_write_mirror_ = v; }
 };
 
 }  // namespace cpu

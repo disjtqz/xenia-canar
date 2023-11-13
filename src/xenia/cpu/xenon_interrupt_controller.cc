@@ -16,8 +16,7 @@ namespace xe {
 namespace cpu {
 XenonInterruptController::XenonInterruptController(HWThread* thread,
                                                    Processor* processor)
-    : cpu_number_(thread->cpu_number()),
-      owner_(thread), processor_(processor) {
+    : cpu_number_(thread->cpu_number()), owner_(thread), processor_(processor) {
   Initialize();
 }
 
@@ -136,7 +135,8 @@ void XenonInterruptController::RecomputeNextEventCycles() {
     }
 
     uint64_t rdtsc_cycles = Clock::HostTickTimestampToQuickTimestamp(
-        timed_events_[i].destination_microseconds_ * tick_microsecond_frequency);
+        timed_events_[i].destination_microseconds_ *
+        tick_microsecond_frequency);
 
     if (rdtsc_cycles < lowest_cycles) {
       lowest_cycles = rdtsc_cycles;
@@ -169,11 +169,14 @@ uint64_t XenonInterruptController::CreateRelativeUsTimestamp(
          microseconds;
 }
 
-void XenonInterruptController::SetEOI(uint64_t value) { eoi_written_ = static_cast<uint32_t>(value); }
-
-uint64_t XenonInterruptController::GetEOI() {
-    return eoi_written_;
+void XenonInterruptController::SetEOI(uint64_t value) {
+  eoi_written_ = static_cast<uint32_t>(value);
+  if (eoi_written_ && eoi_write_mirror_) {
+    *eoi_write_mirror_ = 2;
+  }
 }
+
+uint64_t XenonInterruptController::GetEOI() { return eoi_written_; }
 
 }  // namespace cpu
 }  // namespace xe

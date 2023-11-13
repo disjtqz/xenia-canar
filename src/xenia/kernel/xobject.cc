@@ -13,6 +13,7 @@
 
 #include "xenia/base/byte_stream.h"
 #include "xenia/base/clock.h"
+#include "xenia/cpu/processor.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
@@ -59,7 +60,29 @@ XObject::~XObject() {
     auto header = memory()->TranslateVirtual<X_OBJECT_HEADER*>(ptr);
 
     kernel_state()->object_table()->UnmapGuestObjectHostHandle(ptr);
-    memory()->SystemHeapFree(ptr);
+
+    auto context = cpu::ThreadState::GetContext();
+    auto type =
+        context->TranslateVirtual<X_OBJECT_TYPE*>(header->object_type_ptr);
+    //from ObDereferenceObject
+
+    if (type->delete_proc) {
+      uint64_t args[] = {guest_object_ptr_};
+      context->processor->Execute(context->thread_state(), type->delete_proc,
+                                  args, 1);
+    }
+    void* object_base = header;
+    if (header->flags & OBJECT_HEADER_FLAG_NAMED_OBJECT) {
+      object_base = &reinterpret_cast<X_OBJECT_HEADER_NAME_INFO*>(header)[-1];
+    }
+
+    {
+      uint64_t free_args[] = {context->HostToGuestVirtual(object_base)};
+      context->processor->Execute(context->thread_state(), type->free_proc,
+                                  free_args, 1);
+    }
+    guest_object_ptr_ = 0;
+    allocated_guest_object_ = false;
   }
 }
 
@@ -192,8 +215,8 @@ uint32_t XObject::TimeoutTicksToMs(int64_t timeout_ticks) {
 X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
                        uint32_t alertable, uint64_t* opt_timeout) {
   return xboxkrnl::xeKeWaitForSingleObject(
-      cpu::ThreadState::GetContext(), guest_object<X_DISPATCH_HEADER>(),wait_reason,
-      processor_mode, alertable, (int64_t*)opt_timeout);
+      cpu::ThreadState::GetContext(), guest_object<X_DISPATCH_HEADER>(),
+      wait_reason, processor_mode, alertable, (int64_t*)opt_timeout);
 }
 uint8_t* XObject::CreateNative(uint32_t size) {
   uint32_t total_size = size + sizeof(X_OBJECT_HEADER);
@@ -228,6 +251,7 @@ void XObject::SetNativePointer(uint32_t native_ptr, bool uninitialized) {
   kernel_state()->object_table()->MapGuestObjectToHostHandle(native_ptr,
                                                              handle());
   guest_object_ptr_ = native_ptr;
+  allocated_guest_object_ = true;
 }
 
 object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,

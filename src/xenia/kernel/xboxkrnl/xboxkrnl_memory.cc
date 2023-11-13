@@ -674,7 +674,7 @@ uint32_t xeAllocatePoolTypeWithTag(PPCContext* context, uint32_t size,
     return addr + sizeof(X_POOL_ALLOC_HEADER);
   } else {
     return kernel_state()->memory()->SystemHeapAlloc(size, 4096);
-  }
+}
 }
 
 dword_result_t ExAllocatePoolTypeWithTag_entry(dword_t size, dword_t tag,

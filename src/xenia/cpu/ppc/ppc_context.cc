@@ -214,6 +214,9 @@ void PPCContext::ReallyDoInterrupt(PPCContext* context) {
           run_interrupt = ireq_deref.may_run_(context);
         }
         if (run_interrupt) {
+          if (ireq_deref.wait) {
+            interrupt_controller->SetEOIWriteMirror(ireq_deref.result_out_);
+          }
           uintptr_t result =
               ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
           if (ireq_deref.wait) {

@@ -1486,10 +1486,10 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       cpu::HWThread::ThreadDelay();
       ++spin_count;
       // todo: check whether a timed interrupt would be missed due to wait
-      if (!(spin_count & (0x1FFF))) {
+      if (!(spin_count & (0xFF))) {
         auto cpu_thread = context->processor->GetCPUThread(
             context->kernel_state->GetPCRCpuNum(kpcr));
-        cpu_thread->IdleSleep(1000 * 100);  // 100 microseconds
+        cpu_thread->IdleSleep(1000 * 500);  // 500 microseconds
       }
 
       _mm_pause();

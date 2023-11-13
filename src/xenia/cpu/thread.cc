@@ -72,7 +72,7 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   threading::Thread::CreationParameters params;
   params.create_suspended = true;
   params.initial_priority = threading::ThreadPriority::kBelowNormal;
-  params.stack_size = 16 * 1024 * 1024;
+  params.stack_size = 1 * 1024 * 1024;
 
   os_thread_ =
       threading::Thread::Create(params, std::bind(&HWThread::ThreadFunc, this));

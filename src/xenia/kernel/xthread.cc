@@ -135,6 +135,8 @@ XThread::~XThread() {
     delete thread_state_;
   }
   kernel_state()->memory()->SystemHeapFree(tls_static_address_);
+
+  
 }
 
 bool XThread::IsInThread() {

@@ -402,20 +402,20 @@ void KernelState::BootInitializeStatics() {
       &block->XboxKernelDefaultObject.wait_list,
       oddobject_offset + offsetof32(X_DISPATCH_HEADER, wait_list));
 
-  // init thread object
-  block->ExThreadObjectType.pool_tag = 0x65726854;
-  block->ExThreadObjectType.allocate_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(AllocateThread);
-
-  block->ExThreadObjectType.free_proc =
-      kernel_trampoline_group_.NewLongtermTrampoline(FreeThread);
-
   // several object types just call freepool/allocatepool
   uint32_t trampoline_allocatepool =
       kernel_trampoline_group_.NewLongtermTrampoline(
           SimpleForwardAllocatePoolTypeWithTag);
   uint32_t trampoline_freepool =
       kernel_trampoline_group_.NewLongtermTrampoline(SimpleForwardFreePool);
+  // init thread object
+  block->ExThreadObjectType.pool_tag = 0x65726854;
+  block->ExThreadObjectType.allocate_proc =
+      trampoline_allocatepool;  // kernel_trampoline_group_.NewLongtermTrampoline(AllocateThread);
+
+  block->ExThreadObjectType.free_proc = trampoline_freepool;
+      //kernel_trampoline_group_.NewLongtermTrampoline(FreeThread);
+
 
   // init event object
   block->ExEventObjectType.pool_tag = 0x76657645;
@@ -602,6 +602,11 @@ void KernelState::BootInitializeXam(cpu::ppc::PPCContext* context) {
           XamNotifyListenerDeleteProc);
   globals->XamNotifyListenerObjectType.unknown_size_or_object_ = 0xC;
   globals->XamNotifyListenerObjectType.pool_tag = 0x66746F4E;
+
+  globals->XamEnumeratorObjectType.allocate_proc = trampoline_allocatepool;
+  globals->XamEnumeratorObjectType.free_proc = trampoline_freepool;
+  globals->XamEnumeratorObjectType.unknown_size_or_object_ =
+      context->HostToGuestVirtual(&globals->XamDefaultObject);
   // todo: Enumerator!
 }
 
