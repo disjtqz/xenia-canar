@@ -267,6 +267,10 @@ struct PPCGprSnapshot {
   uint64_t ctr;
   uint64_t lr;
   uint64_t msr;
+  uint32_t crs[8];
+  uint8_t xer_ca;
+  uint8_t xer_ov;
+  uint8_t xer_so;
 };
 
 #pragma pack(push, 8)
@@ -281,80 +285,84 @@ typedef struct alignas(64) PPCContext_s {
   bool status_raised;
   ThreadState* thread_state() { return reinterpret_cast<ThreadState*>(this); }
   union {
-    uint32_t value;
     struct {
-      uint8_t cr0_lt;  // Negative (LT) - result is negative
-      uint8_t cr0_gt;  // Positive (GT) - result is positive (and not zero)
-      uint8_t cr0_eq;  // Zero (EQ) - result is zero or a stwcx/stdcx completed
-                       // successfully
-      uint8_t cr0_so;  // Summary Overflow (SO) - copy of XER[SO]
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr0_lt;  // Negative (LT) - result is negative
+          uint8_t cr0_gt;  // Positive (GT) - result is positive (and not zero)
+          uint8_t cr0_eq;  // Zero (EQ) - result is zero or a stwcx/stdcx
+                           // completed successfully
+          uint8_t cr0_so;  // Summary Overflow (SO) - copy of XER[SO]
+        };
+      } cr0;  // 0xA24
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr1_fx;   // FP exception summary - copy of FPSCR[FX]
+          uint8_t cr1_fex;  // FP enabled exception summary - copy of FPSCR[FEX]
+          uint8_t cr1_vx;   // FP invalid operation exception summary - copy of
+                            // FPSCR[VX]
+          uint8_t cr1_ox;   // FP overflow exception - copy of FPSCR[OX]
+        };
+      } cr1;
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr2_0;
+          uint8_t cr2_1;
+          uint8_t cr2_2;
+          uint8_t cr2_3;
+        };
+      } cr2;
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr3_0;
+          uint8_t cr3_1;
+          uint8_t cr3_2;
+          uint8_t cr3_3;
+        };
+      } cr3;
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr4_0;
+          uint8_t cr4_1;
+          uint8_t cr4_2;
+          uint8_t cr4_3;
+        };
+      } cr4;
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr5_0;
+          uint8_t cr5_1;
+          uint8_t cr5_2;
+          uint8_t cr5_3;
+        };
+      } cr5;
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr6_all_equal;
+          uint8_t cr6_1;
+          uint8_t cr6_none_equal;
+          uint8_t cr6_3;
+        };
+      } cr6;
+      union {
+        uint32_t value;
+        struct {
+          uint8_t cr7_0;
+          uint8_t cr7_1;
+          uint8_t cr7_2;
+          uint8_t cr7_3;
+        };
+      } cr7;
     };
-  } cr0;  // 0xA24
-  union {
-    uint32_t value;
-    struct {
-      uint8_t cr1_fx;   // FP exception summary - copy of FPSCR[FX]
-      uint8_t cr1_fex;  // FP enabled exception summary - copy of FPSCR[FEX]
-      uint8_t
-          cr1_vx;  // FP invalid operation exception summary - copy of FPSCR[VX]
-      uint8_t cr1_ox;  // FP overflow exception - copy of FPSCR[OX]
-    };
-  } cr1;
-  union {
-    uint32_t value;
-    struct {
-      uint8_t cr2_0;
-      uint8_t cr2_1;
-      uint8_t cr2_2;
-      uint8_t cr2_3;
-    };
-  } cr2;
-  union {
-    uint32_t value;
-    struct {
-      uint8_t cr3_0;
-      uint8_t cr3_1;
-      uint8_t cr3_2;
-      uint8_t cr3_3;
-    };
-  } cr3;
-  union {
-    uint32_t value;
-    struct {
-      uint8_t cr4_0;
-      uint8_t cr4_1;
-      uint8_t cr4_2;
-      uint8_t cr4_3;
-    };
-  } cr4;
-  union {
-    uint32_t value;
-    struct {
-      uint8_t cr5_0;
-      uint8_t cr5_1;
-      uint8_t cr5_2;
-      uint8_t cr5_3;
-    };
-  } cr5;
-  union {
-    uint32_t value;
-    struct {
-      uint8_t cr6_all_equal;
-      uint8_t cr6_1;
-      uint8_t cr6_none_equal;
-      uint8_t cr6_3;
-    };
-  } cr6;
-  union {
-    uint32_t value;
-    struct {
-      uint8_t cr7_0;
-      uint8_t cr7_1;
-      uint8_t cr7_2;
-      uint8_t cr7_3;
-    };
-  } cr7;
-
+    uint32_t crs[8];
+  };
   union {
     uint32_t value;
     struct {

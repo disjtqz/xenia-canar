@@ -596,10 +596,13 @@ uint32_t xeNtClearEvent(uint32_t handle) {
   X_STATUS result = X_STATUS_SUCCESS;
 
   auto ev = kernel_state()->object_table()->LookupObject<XEvent>(handle);
+  if (ev) {
+    ev->guest_object<X_KEVENT>()->header.signal_state = 0;
 
-  ev->guest_object<X_KEVENT>()->header.signal_state = 0;
-
-  return result;
+    return result;
+  } else {
+    return X_STATUS_INVALID_HANDLE;
+  }
 }
 
 dword_result_t NtClearEvent_entry(dword_t handle) {
