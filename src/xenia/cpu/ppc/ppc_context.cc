@@ -219,11 +219,6 @@ void PPCContext::ReallyDoInterrupt(PPCContext* context) {
           }
           uintptr_t result =
               ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
-          if (ireq_deref.wait) {
-            if (ireq_deref.result_out_) {
-              *ireq_deref.result_out_ = result;
-            }
-          }
           interrupt_controller->FreeInterruptRequest(ireq);
         } else {
           // requeue

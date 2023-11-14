@@ -78,7 +78,7 @@ dword_result_t NtAllocateVirtualMemory_entry(
   assert_not_null(region_size_ptr);
 
   // Set to TRUE when allocation is from devkit memory area.
-  assert_true(debug_memory == 0);
+ // assert_true(debug_memory == 0);
 
   // This allocates memory from the kernel heap, which is initialized on startup
   // and shared by both the kernel implementation and user code.
@@ -266,7 +266,7 @@ dword_result_t NtFreeVirtualMemory_entry(lpdword_t base_addr_ptr,
   // _In_     BOOLEAN DebugMemory
 
   // Set to TRUE when freeing external devkit memory.
-  assert_true(debug_memory == 0);
+ // assert_true(debug_memory == 0);
 
   if (!base_addr_value) {
     return X_STATUS_MEMORY_NOT_ALLOCATED;

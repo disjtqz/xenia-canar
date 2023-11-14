@@ -1110,8 +1110,8 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
       ctx, 0, static_cast<uint32_t>(ctx->r[13]),
       ctx->HostToGuestVirtual(&lock->pcr_of_owner.value))) {
     // bad hack. always check once reworked interrupt controller
-    ctx->CheckInterrupt();
-  }
+      ctx->CheckInterrupt();
+    }
 
   return old_irql;
 }
@@ -1213,7 +1213,7 @@ void xeKeLeaveCriticalRegion(PPCContext* context) {
       GetKPCR(context)->apc_software_interrupt_state = 1;
 
       // not very confident in this
-      if (1 <= GetKPCR(context)->current_irql) {
+      if (GetKPCR(context)->current_irql <= IRQL_APC) {
         xeDispatchProcedureCallInterrupt(
             GetKPCR(context)->current_irql,
             GetKPCR(context)->software_interrupt_state, context);
@@ -1872,8 +1872,10 @@ static void SendRunKernelApcIPI(void* ud) {
     XELOGE("Mismatched current thread in sendrunkernelapcipi");
     return;
   }
+  kpcr->apc_software_interrupt_state = 1;
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
-  xeProcessKernelApcs(context);
+  context->CheckInterrupt();
+  KernelState::GenericExternalInterruptEpilog(context);
 }
 
 void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,

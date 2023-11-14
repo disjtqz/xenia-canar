@@ -297,11 +297,6 @@ class KernelState {
   uint32_t CreateKeTimestampBundle();
   void SystemClockInterrupt();
 
-  void BeginDPCImpersonation(cpu::ppc::PPCContext* context,
-                             DPCImpersonationScope& scope);
-  void EndDPCImpersonation(cpu::ppc::PPCContext* context,
-                           DPCImpersonationScope& end_scope);
-
   void EmulateCPInterruptDPC(uint32_t interrupt_callback,
                              uint32_t interrupt_callback_data, uint32_t source,
                              uint32_t cpu);

@@ -107,24 +107,16 @@ void HWThread::YieldToScheduler() {
   this->idle_process_fiber_->SwitchTo();
 }
 
-// todo: handle interrupt controller/irql shit, that matters too
-// theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
-bool HWThread::AreInterruptsDisabled() {
-  auto context = cpu::ThreadState::Get()->context();
-  if (!context->ExternalInterruptsEnabled()) {
-    return true;
-  }
-
-  return this_hw_thread->interrupt_controller()->GetEOI() == 0;
-}
 struct GuestInterruptWrapper {
   void (*ipi_func)(void*);
   void* ud;
   HWThread* thiz;
 };
-
+// todo: handle interrupt controller/irql shit, that matters too
+// theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
 static bool may_run_interrupt_proc(ppc::PPCContext_s* context) {
-  return context->ExternalInterruptsEnabled();
+  return context->ExternalInterruptsEnabled() &&
+         this_hw_thread->interrupt_controller()->GetEOI() != 0;
 }
 
 uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,

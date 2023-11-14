@@ -91,7 +91,6 @@ class XThread : public XObject {
                   uint32_t arg1, uint32_t arg2);
 
   int32_t priority() const { return priority_; }
-  int32_t QueryPriority();
 
   // Xbox thread IDs:
   // 0 - core 0, thread 0 - user
@@ -102,15 +101,10 @@ class XThread : public XObject {
   // 5 - core 2, thread 1 - user
   void SetAffinity(uint32_t affinity);
   uint8_t active_cpu() const;
-  void SetActiveCpu(uint8_t cpu_index, bool initial = false);
 
   void assert_valid();
 
-  bool GetTLSValue(uint32_t slot, uint32_t* value_out);
-  bool SetTLSValue(uint32_t slot, uint32_t value);
-
   uint32_t suspend_count();
-  X_STATUS Resume(uint32_t* out_suspend_count = nullptr);
   X_STATUS Suspend(uint32_t* out_suspend_count = nullptr);
   X_STATUS Delay(uint32_t processor_mode, uint32_t alertable,
                  uint64_t interval);
@@ -146,8 +140,6 @@ class XThread : public XObject {
 
   std::unique_ptr<threading::Fiber> fiber_;
   cpu::ThreadState* thread_state_;
-  // for enqueuing to cpu
-  cpu::RunnableThread runnable_entry_;
 
   // uint32_t thread_id_ = 0;
   uint32_t tls_static_address_ = 0;

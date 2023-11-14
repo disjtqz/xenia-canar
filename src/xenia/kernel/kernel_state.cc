@@ -325,11 +325,15 @@ void KernelState::LaunchModuleInterrupt(void* ud) {
   launch->thread->set_name("Main XThread");
 
   X_STATUS result = launch->thread->Create();
+  kernel->HWThreadFor(cpu::ThreadState::GetContext())
+      ->interrupt_controller()
+      ->SetEOI(1);
   if (XFAILED(result)) {
     XELOGE("Could not create launch thread: {:08X}", result);
 
     delete launch->thread;
     launch->thread = nullptr;
+
     return;
   }
 
@@ -1156,24 +1160,6 @@ uint8_t KernelState::GetConnectedUsers() const {
 
   return input_sys->GetConnectedSlots();
 }
-// todo: definitely need to do more to pretend to be in a dpc
-void KernelState::BeginDPCImpersonation(cpu::ppc::PPCContext* context,
-                                        DPCImpersonationScope& scope) {
-  auto kpcr = GetKPCR(context);
-  xenia_assert(kpcr->prcb_data.dpc_active == 0);
-  scope.previous_irql_ = kpcr->current_irql;
-
-  kpcr->current_irql = 2;
-  kpcr->prcb_data.dpc_active = 1;
-}
-void KernelState::EndDPCImpersonation(cpu::ppc::PPCContext* context,
-                                      DPCImpersonationScope& end_scope) {
-  auto kpcr = GetKPCR(context);
-  xenia_assert(kpcr->prcb_data.dpc_active == 1);
-  kpcr->current_irql = end_scope.previous_irql_;
-  kpcr->prcb_data.dpc_active = 0;
-}
-
 struct IPIParams {
   cpu::Processor* processor_;
   uint32_t source_;
@@ -1184,7 +1170,7 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
   uint32_t callback = static_cast<uint32_t>(context->r[5]);
   uint64_t callback_data[] = {context->r[4], context->r[6]};
   auto kpcr = GetKPCR(context);
-  xenia_assert(kpcr->processtype_value_in_dpc == X_PROCTYPE_IDLE);
+ // xenia_assert(kpcr->processtype_value_in_dpc == X_PROCTYPE_IDLE);
   xenia_assert(kpcr->prcb_data.dpc_active != 0);
   xenia_assert(context->msr == 0x9030);
 
@@ -1194,7 +1180,7 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, context);
     context->processor->Execute(context->thread_state(), callback,
                                 callback_data, countof(callback_data));
-    xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
+    //xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, context);
   }
   // from markvblank
@@ -1204,9 +1190,12 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
 }
 
 void KernelState::CPInterruptIPI(void* ud) {
-  IPIParams* params = reinterpret_cast<IPIParams*>(ud);
   auto current_ts = cpu::ThreadState::Get();
   auto current_context = current_ts->context();
+  //88 is level for vsync interrupt, 84 is level for cp interrupt
+  auto old_irql = xboxkrnl::xeKfRaiseIrql(current_context,88);
+  IPIParams* params = reinterpret_cast<IPIParams*>(ud);
+
   auto kernel_state = current_context->kernel_state;
 
   auto pcr =
@@ -1231,20 +1220,15 @@ void KernelState::CPInterruptIPI(void* ud) {
 
   delete params;
 
-  // this causes all games to freeze!
-  //  it is an external interrupt though, but i guess we need to wait until
-  //  it exits an interrupt context
+
   KernelState::HWThreadFor(current_context)->interrupt_controller()->SetEOI(1);
-  GenericExternalInterruptEpilog(current_context);
+  xboxkrnl::xeKfLowerIrql(current_context, old_irql);
+//  GenericExternalInterruptEpilog(current_context);
 }
 
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
                                         uint32_t interrupt_callback_data,
                                         uint32_t source, uint32_t cpu) {
-  if (!interrupt_callback) {
-    return;
-  }
-
   // auto thread = kernel::XThread::GetCurrentThread();
   // assert_not_null(thread);
 
@@ -1269,7 +1253,7 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   auto hwthread = processor_->GetCPUThread(cpu);
   // while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
   // }
-  hwthread->SendGuestIPI(CPInterruptIPI, params);
+  hwthread->TrySendInterruptFromHost(CPInterruptIPI, params, true);
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {
@@ -1431,10 +1415,10 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
   if (!from_idle_loop) {
     X_KTHREAD* thread_to_load_from = GetKThread(context);
     xenia_assert(thread_to_load_from != guest);
-    auto r3 = thread_to_load_from->unk_A4;
+    uint32_t r3 = thread_to_load_from->unk_A4;
     auto wait_result = thread_to_load_from->wait_result;
     GetKPCR(context)->current_irql = r3;
-    auto intstate = GetKPCR(context)->software_interrupt_state;
+    uint32_t intstate = GetKPCR(context)->software_interrupt_state;
     if (r3 < intstate) {
       xboxkrnl::xeDispatchProcedureCallInterrupt(r3, intstate, context);
     }
@@ -1480,6 +1464,10 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
     while (!kpcr->generic_software_interrupt) {
       xenia_assert(context->ExternalInterruptsEnabled());
 
+      xenia_assert(context->processor
+                       ->GetCPUThread(context->kernel_state->GetPCRCpuNum(kpcr))
+                       ->interrupt_controller()
+                       ->GetEOI() == 1);
       xenia_assert(GetKThread(context) == kthread);
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
@@ -1489,7 +1477,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       if (!(spin_count & (0xFF))) {
         auto cpu_thread = context->processor->GetCPUThread(
             context->kernel_state->GetPCRCpuNum(kpcr));
-        cpu_thread->IdleSleep(1000 * 500);  // 500 microseconds
+        cpu_thread->IdleSleep(1000 * 200);  // 200 microseconds
       }
 
       _mm_pause();
@@ -1516,6 +1504,7 @@ void KernelState::KernelDecrementerInterrupt(void* ud) {
       context->kernel_state->GetPCRCpuNum(kpcr));
   cpu->SetDecrementerTicks(r6);
   if (r5 == 0) {
+    KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
     return;
   }
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);

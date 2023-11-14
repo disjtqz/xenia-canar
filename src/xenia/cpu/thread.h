@@ -138,7 +138,6 @@ class HWThread {
   ~HWThread();
 
   uint32_t cpu_number() const { return cpu_number_; }
-  bool AreInterruptsDisabled();
 
   void SetBootFunction(void (*f)(ppc::PPCContext*, void*), void* ud) {
     boot_function_ = f;

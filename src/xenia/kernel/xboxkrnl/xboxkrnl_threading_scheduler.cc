@@ -1839,9 +1839,9 @@ static void BackgroundModeIPI(void* ud) {
 
   context = xe::cpu::ThreadState::GetContext();
   KPCR = xe::kernel::GetKPCR(context);
-  KPCR->unk_1A = 1;
-  KPCR->timeslice_ended = 1;
   KPCR->generic_software_interrupt = 2;
+  KPCR->unk_1A = 0x20;
+  KPCR->timeslice_ended = 0x20;
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   if (!KPCR->prcb_data.running_idle_thread) {
     xe::kernel::KernelState::GenericExternalInterruptEpilog(context);

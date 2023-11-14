@@ -173,6 +173,7 @@ void XenonInterruptController::SetEOI(uint64_t value) {
   eoi_written_ = static_cast<uint32_t>(value);
   if (eoi_written_ && eoi_write_mirror_) {
     *eoi_write_mirror_ = 2;
+    eoi_write_mirror_ = nullptr;
   }
 }
 

@@ -443,7 +443,8 @@ X_STATUS XThread::Create() {
 
   if ((creation_params_.creation_flags & XE_FLAG_THREAD_INITIALLY_SUSPENDED) !=
       0) {
-    this->Suspend();
+    xboxkrnl::xeKeSuspendThread(cpu::ThreadState::GetContext(),
+                                guest_object<X_KTHREAD>());
   }
   uint32_t affinity_by =
       static_cast<uint8_t>(creation_params_.creation_flags >> 24);
@@ -693,8 +694,6 @@ void XThread::RundownAPCs() {
   xboxkrnl::xeRundownApcs(thread_state_->context());
 }
 
-int32_t XThread::QueryPriority() { return priority_; }
-
 void XThread::SetAffinity(uint32_t affinity) {
   auto context = cpu::ThreadState::GetContext();
 
@@ -740,39 +739,9 @@ void XThread::assert_valid() {
 
   xenia_assert(GetFlsXThread() == this);
 }
-bool XThread::GetTLSValue(uint32_t slot, uint32_t* value_out) {
-  if (slot * 4 > tls_total_size_) {
-    return false;
-  }
-  auto mem = memory()->TranslateVirtual(tls_dynamic_address_ + slot * 4);
-  *value_out = xe::load_and_swap<uint32_t>(mem);
-  return true;
-}
-
-bool XThread::SetTLSValue(uint32_t slot, uint32_t value) {
-  if (slot * 4 >= tls_total_size_) {
-    return false;
-  }
-
-  auto mem = memory()->TranslateVirtual(tls_dynamic_address_ + slot * 4);
-  xe::store_and_swap<uint32_t>(mem, value);
-  return true;
-}
 
 uint32_t XThread::suspend_count() {
   return guest_object<X_KTHREAD>()->suspend_count;
-}
-
-X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
-  auto guest_thread = guest_object<X_KTHREAD>();
-
-  int count =
-      xboxkrnl::xeKeResumeThread(cpu::ThreadState::GetContext(), guest_thread);
-
-  if (out_suspend_count) {
-    *out_suspend_count = count;
-  }
-  return 0;
 }
 
 X_STATUS XThread::Suspend(uint32_t* out_suspend_count) {
