@@ -310,7 +310,7 @@ object_ref<XModule> KernelState::GetModule(const std::string_view name,
 }
 struct LaunchInterrupt {
   object_ref<UserModule>* module;
-  XThread* thread;
+  XThread* volatile thread;
 };
 
 void KernelState::LaunchModuleInterrupt(void* ud) {
@@ -325,9 +325,6 @@ void KernelState::LaunchModuleInterrupt(void* ud) {
   launch->thread->set_name("Main XThread");
 
   X_STATUS result = launch->thread->Create();
-  kernel->HWThreadFor(cpu::ThreadState::GetContext())
-      ->interrupt_controller()
-      ->SetEOI(1);
   if (XFAILED(result)) {
     XELOGE("Could not create launch thread: {:08X}", result);
 
@@ -346,6 +343,14 @@ void KernelState::LaunchModuleInterrupt(void* ud) {
   // launch->thread->Resume();
 }
 
+LaunchInterrupt* volatile g_launchinterrupt = nullptr;
+
+void KernelState::CPU0WaitForLaunch(cpu::ppc::PPCContext* context) {
+  while (!g_launchinterrupt) {
+    threading::NanoSleep(1000 * 500);
+  }
+  LaunchModuleInterrupt((void*)g_launchinterrupt);
+}
 object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   if (!module->is_executable()) {
     return nullptr;
@@ -383,6 +388,7 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   LaunchInterrupt li;
   li.module = &module;
   li.thread = nullptr;
+#if 0
   while (!processor()->GetCPUThread(0)->TrySendInterruptFromHost(
       LaunchModuleInterrupt, &li, true)) {
     threading::NanoSleep(10000);
@@ -393,6 +399,13 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
     return nullptr;
   }
 
+#else
+  g_launchinterrupt = &li;
+  while (g_launchinterrupt->thread == nullptr) {
+    threading::NanoSleep(10000);
+  }
+  return object_ref<XThread>(li.thread);
+#endif
 #endif
 }
 
@@ -1109,6 +1122,122 @@ void KernelState::GenericExternalInterruptEpilog(
   }
 }
 
+void KernelState::TriggerTrueExternalInterrupt(cpu::ppc::PPCContext* context) {
+  auto kpcr = GetKPCR(context);
+  auto ic = context->kernel_state->InterruptControllerFromPCR(context, kpcr);
+
+  uint32_t r7 = kpcr->use_alternative_stack;
+  uint32_t r4 = kpcr->current_irql;
+  uint32_t r1 = (uint32_t)context->r[1];
+  uint8_t* r1_ptr = context->TranslateVirtual(r1);
+  uint32_t r3 = r1;
+  uint32_t r9;
+  uint32_t CTR;
+  uint32_t r0;
+  bool cr3;
+  auto r5 = ic;
+
+  bool cr2 = r7 == 0;
+  if (!cr2) {
+    goto loc_8009BC44;
+  }
+
+  uint32_t r8 = kpcr->alt_stack_base_ptr;
+  r1_ptr[0x150] = r4;
+  cr3 = r4 > 1;
+  if (cr3) {
+    goto loc_8009BC30;
+  }
+  r4 = 2;
+  kpcr->current_irql = 2;
+loc_8009BC30:
+  kpcr->use_alternative_stack = r1;
+  r8 -= 0x140;
+  r8 = r1 - r8;
+  r9 = r1 + 0x700;
+  // stwux
+  store_and_swap<uint32_t>(context->TranslateVirtual(r1 + r8), r9);
+loc_8009BC44:
+  uint32_t r6 = (uint32_t)ic->ReadRegisterOffset(0x50);
+  r6 += offsetof(X_KPCR, interrupt_handlers);
+
+  r6 = *reinterpret_cast<xe::be<uint32_t>*>(reinterpret_cast<char*>(kpcr) + r6);
+  r8 = r6 & 1;
+  if (r8 != 0) {
+    goto handle_kinterrupt_external;
+  }
+  CTR = r6;
+  context->r[3] = r3;
+  context->r[4] = r4;
+  context->r[5] = r5->GuestMMIOAddress();
+  // bctr
+  context->processor->ExecuteRaw(context->thread_state(), CTR);
+
+  r1 = r3;
+  context->r[1] = r1;
+loc_8009BC68:
+  r8 = -1;
+
+  if (!cr2) {
+    goto loc_8009BC98;
+  }
+  r3 = r1_ptr[0x150];
+  r4 = kpcr->software_interrupt_state;
+  r0 = 0;
+  kpcr->use_alternative_stack = r0;
+
+  if (cr3) {
+    goto loc_8009BC98;
+  }
+  /*
+   cmplw     r3, r4
+    bge+      loc_8009BC94
+  */
+
+  if (r3 >= r4) {
+    goto loc_8009BC94;
+  }
+  xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
+  goto loc_8009BC98;
+
+loc_8009BC94:
+  kpcr->current_irql = r3;
+
+loc_8009BC98:;
+
+handle_kinterrupt_external:
+  r6 &= ~3;
+  auto kinterrupt = context->TranslateVirtual<X_KINTERRUPT*>(r6);
+  r7 = kinterrupt->irql;
+  r8 = kinterrupt->service_routine;
+  store_and_swap<uint32_t>(context->TranslateVirtual(r3 + 0x154), r6);
+  *context->TranslateVirtual(r3 + 0x158) = r4;
+  r4 = kinterrupt->service_context;
+  auto r9_spin = &kinterrupt->spinlock;
+  kpcr->current_irql = r7;
+  r5->WriteRegisterOffset(0x8, r7);
+
+  r7 = (uint32_t)r5->ReadRegisterOffset(0x8);
+  context->EnableEI();
+
+  xboxkrnl::xeKeKfAcquireSpinLock(context, r9_spin, false);
+  CTR = r8;
+  r3 = r6;
+  context->processor->ExecuteRaw(context->thread_state(), CTR);
+  r7 = *context->TranslateVirtualBE<uint32_t>(r1);
+  r0 = 0;
+  r1 = r7 - 0x700;
+  r6 = load_and_swap<uint32_t>(context->TranslateVirtual(r1 + 0x154));
+  r4 = *context->TranslateVirtual(r3 + 0x158);
+  r9 = r6 + 8;
+  r9_spin->pcr_of_owner.value = 0;
+  context->DisableEI();
+  kpcr->current_irql = r4;
+  r5->WriteRegisterOffset(0x68, r4);
+  r4 = (uint32_t)r5->ReadRegisterOffset(0x8);
+  goto loc_8009BC68;
+}
+
 uint32_t KernelState::GetKeTimestampBundle() {
   return this->GetKernelGuestGlobals() +
          offsetof(KernelGuestGlobals, KeTimestampBundle);
@@ -1170,7 +1299,7 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
   uint32_t callback = static_cast<uint32_t>(context->r[5]);
   uint64_t callback_data[] = {context->r[4], context->r[6]};
   auto kpcr = GetKPCR(context);
- // xenia_assert(kpcr->processtype_value_in_dpc == X_PROCTYPE_IDLE);
+  // xenia_assert(kpcr->processtype_value_in_dpc == X_PROCTYPE_IDLE);
   xenia_assert(kpcr->prcb_data.dpc_active != 0);
   xenia_assert(context->msr == 0x9030);
 
@@ -1180,7 +1309,7 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, context);
     context->processor->Execute(context->thread_state(), callback,
                                 callback_data, countof(callback_data));
-    //xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
+    // xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, context);
   }
   // from markvblank
@@ -1192,8 +1321,8 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
 void KernelState::CPInterruptIPI(void* ud) {
   auto current_ts = cpu::ThreadState::Get();
   auto current_context = current_ts->context();
-  //88 is level for vsync interrupt, 84 is level for cp interrupt
-  auto old_irql = xboxkrnl::xeKfRaiseIrql(current_context,88);
+  // 88 is level for vsync interrupt, 84 is level for cp interrupt
+  auto old_irql = xboxkrnl::xeKfRaiseIrql(current_context, 88);
   IPIParams* params = reinterpret_cast<IPIParams*>(ud);
 
   auto kernel_state = current_context->kernel_state;
@@ -1211,19 +1340,18 @@ void KernelState::CPInterruptIPI(void* ud) {
           : &guest_globals
                  ->command_processor_interrupt_dpcs[pcr->prcb_data.current_cpu];
 
-
   // in real xboxkrnl, it passes 0 for both args to the dpc,
   // but its more convenient for us to pass the interrupt
   dpc_to_use->context = params->source_;
   xboxkrnl::xeKeInsertQueueDpc(dpc_to_use, params->interrupt_callback_,
-      params->interrupt_callback_data_, current_context);
+                               params->interrupt_callback_data_,
+                               current_context);
 
   delete params;
 
-
   KernelState::HWThreadFor(current_context)->interrupt_controller()->SetEOI(1);
   xboxkrnl::xeKfLowerIrql(current_context, old_irql);
-//  GenericExternalInterruptEpilog(current_context);
+  //  GenericExternalInterruptEpilog(current_context);
 }
 
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
@@ -1398,11 +1526,11 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
   } else {
     pre_swap();
 
-    //wait, what if we're switching threads because we changed the affinity of the current thread? would that break this?
+    // wait, what if we're switching threads because we changed the affinity of
+    // the current thread? would that break this?
     xthrd->thread_state()->context()->r[13] = context->r[13];
 
     xthrd->SwitchToDirect();
-    
   }
   if (GetKPCR(context) != old_kpcr) {
     XELOGE("Thread was switched from one HW thread to another.");

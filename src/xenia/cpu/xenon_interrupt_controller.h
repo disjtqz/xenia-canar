@@ -84,13 +84,13 @@ class XenonInterruptController {
   CpuTimedInterrupt timed_events_[4];
 
   uintptr_t* eoi_write_mirror_ = nullptr;
-  void Initialize();
+
 
   void SetInterruptSource(uint64_t src);
   static void InterruptFunction(void* ud);
 
  public:
-
+  void Initialize();
   ppc::PPCInterruptRequest* AllocateInterruptRequest();
   void FreeInterruptRequest(ppc::PPCInterruptRequest* request);
   XenonInterruptController(HWThread* thread, Processor* processor);

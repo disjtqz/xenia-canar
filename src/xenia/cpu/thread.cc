@@ -49,6 +49,7 @@ void HWThread::RunIdleProcess() {
 thread_local HWThread* this_hw_thread = nullptr;
 void HWThread::ThreadFunc() {
   this_hw_thread = this;
+  interrupt_controller()->Initialize();
   idle_process_fiber_ = threading::Fiber::CreateFromThread();
   cpu::ThreadState::Bind(idle_process_threadstate_);
 
@@ -131,10 +132,11 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
 
   auto old_irql = kpcr->current_irql;
 
-  interrupt_wrapper->thiz->interrupt_controller()->SetEOI(0);
+  this_hw_thread->interrupt_controller()->SetEOI(0);
 
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
-
+  this_hw_thread->interrupt_controller()->SetEOI(1);
+  //xenia_assert(interrupt_wrapper->thiz->interrupt_controller()->GetEOI());
   kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
   auto new_irql = kpcr->current_irql;

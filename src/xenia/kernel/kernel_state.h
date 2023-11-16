@@ -346,6 +346,8 @@ class KernelState {
 
   static cpu::HWThread* HWThreadFor(cpu::ppc::PPCContext* context);
 
+  static void TriggerTrueExternalInterrupt(cpu::ppc::PPCContext* context);
+
  private:
   static void LaunchModuleInterrupt(void* ud);
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
@@ -354,6 +356,7 @@ class KernelState {
   void SetProcessTLSVars(X_KPROCESS* process, int num_slots, int tls_data_size,
                          int tls_static_data_address);
 
+  void CPU0WaitForLaunch(cpu::ppc::PPCContext* context);
   void BootKernel();
   void CreateDispatchThread();
   /*

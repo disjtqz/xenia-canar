@@ -736,6 +736,7 @@ void KernelState::BootInitializeCPU0InSystemThread(
   }
   emulator()->audio_system()->StartGuestWorkerThread(this);
   BootInitializeXam(context);
+  CPU0WaitForLaunch(context);
 }
 
 }  // namespace kernel

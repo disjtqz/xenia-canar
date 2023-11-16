@@ -376,6 +376,19 @@ static_assert_size(X_KQUEUE, 0x28);
 // just an alias, they are identical structures
 using X_KIO_COMPLETION = X_KQUEUE;
 
+struct X_KINTERRUPT {
+  xe::be<uint32_t> service_routine;  // 0x0
+  xe::be<uint32_t> service_context;  // 0x4
+  X_KSPINLOCK spinlock;              // 0x8
+  xe::be<uint32_t> service_count;    // 0xC
+  uint8_t unk_10;                    // 0x10
+  uint8_t irql;                      // 0x11
+  uint8_t unk_12;                    // 0x12
+  uint8_t unk_13;                    // 0x13
+};
+
+static_assert_size(X_KINTERRUPT, 0x14);
+
 struct X_KTHREAD {
   X_DISPATCH_HEADER header;  // 0x0
   util::X_TYPED_LIST<X_KMUTANT, offsetof(X_KMUTANT, unk_list)>

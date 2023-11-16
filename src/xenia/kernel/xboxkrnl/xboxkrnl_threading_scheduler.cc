@@ -1421,7 +1421,7 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
     uint32_t v9 = thread->queue;
     v6 = thread->wait_timeout_timer.due_time;
     if (v9) {
-        xeKeSignalQueue(context, context->TranslateVirtual<X_KQUEUE*>(v9));
+      xeKeSignalQueue(context, context->TranslateVirtual<X_KQUEUE*>(v9));
     }
     thread->alertable = alertable;
     thread->processor_mode = mode;

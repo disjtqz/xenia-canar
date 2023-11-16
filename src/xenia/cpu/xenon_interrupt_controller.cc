@@ -14,11 +14,13 @@
 #include "xenia/cpu/thread.h"
 namespace xe {
 namespace cpu {
+
+thread_local XenonInterruptController* this_thread_interrupt_controller;
 XenonInterruptController::XenonInterruptController(HWThread* thread,
                                                    Processor* processor)
-    : cpu_number_(thread->cpu_number()), owner_(thread), processor_(processor) {
-  Initialize();
-}
+    : cpu_number_(thread->cpu_number()),
+      owner_(thread),
+      processor_(processor) {}
 
 XenonInterruptController::~XenonInterruptController() {}
 
@@ -42,6 +44,7 @@ static void WriteRegisterStub(void* ppc_context, void* ud, uint32_t addr,
 }
 
 void XenonInterruptController::Initialize() {
+  this_thread_interrupt_controller = this;
   memset(data_, 0, sizeof(data_));
   processor_->memory()->AddVirtualMappedRange(GuestMMIOAddress(), 0xFFFF0000,
                                               0xFFFF, this, ReadRegisterStub,
@@ -170,6 +173,9 @@ uint64_t XenonInterruptController::CreateRelativeUsTimestamp(
 }
 
 void XenonInterruptController::SetEOI(uint64_t value) {
+  if (this_thread_interrupt_controller != this) {
+    xenia_assert(false);
+  }
   eoi_written_ = static_cast<uint32_t>(value);
   if (eoi_written_ && eoi_write_mirror_) {
     *eoi_write_mirror_ = 2;

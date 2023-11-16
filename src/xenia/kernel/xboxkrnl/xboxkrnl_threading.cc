@@ -1100,6 +1100,7 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
     auto kpcr = GetKPCR(ctx);
     old_irql = kpcr->current_irql;
     kpcr->current_irql = 2;
+    xenia_assert(old_irql <= 2);
   }
   if (lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13])) {
     // lock is already held!
@@ -1879,7 +1880,7 @@ static void SendRunKernelApcIPI(void* ud) {
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   context->CheckInterrupt();
   KernelState::GenericExternalInterruptEpilog(context);
-}
+  }
 
 void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
                               int priority_increment) {
