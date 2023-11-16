@@ -1849,6 +1849,15 @@ void X64Emitter::EmitEmulatedInterruptCheck() {
     return;
   }
   Xbyak::Label& after_interrupt_check = NewCachedLabel();
+  auto interval_ptr = GetBackendCtxPtr(offsetof(X64BackendContext, flags) + 3);
+  interval_ptr.setBit(8);
+  inc(interval_ptr);
+
+  jnz(after_interrupt_check);
+
+
+
+  
   Xbyak::Label& rerun_due_to_timer = NewCachedLabel();
 
   L(rerun_due_to_timer);

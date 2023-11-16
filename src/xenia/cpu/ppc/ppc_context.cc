@@ -246,7 +246,12 @@ void PPCContext::AssertCurrent() {
 }
 
 void PPCContext::TakeGPRSnapshot(PPCGprSnapshot* out) {
+  swcache::PrefetchW(&out->r[13]);
+  swcache::PrefetchL1(&this->r[14]);
   unsigned i;
+  for (i = 0; i < 8; ++i) {
+    out->crs[i] = this->crs[i];
+  }
   for (i = 0; i < 13; ++i) {
     out->r[i] = this->r[i];
   }
@@ -258,15 +263,19 @@ void PPCContext::TakeGPRSnapshot(PPCGprSnapshot* out) {
 
   out->lr = this->lr;
   out->msr = this->msr;
-  for (unsigned i = 0; i < 8; ++i) {
-    out->crs[i] = this->crs[i];
-  }
+
   out->xer_ca = xer_ca;
   out->xer_ov = xer_ov;
   out->xer_so = xer_so;
 }
 void PPCContext::RestoreGPRSnapshot(const PPCGprSnapshot* in) {
+  swcache::PrefetchW(&this->r[14]);
+  swcache::PrefetchL1(&in->r[14]);
+
   unsigned i;
+  for (i = 0; i < 8; ++i) {
+    this->crs[i] = in->crs[i];
+  }
   for (i = 0; i < 13; ++i) {
     this->r[i] = in->r[i];
   }
@@ -279,9 +288,7 @@ void PPCContext::RestoreGPRSnapshot(const PPCGprSnapshot* in) {
   this->lr = in->lr;
   this->msr = in->msr;
 
-  for (i = 0; i < 8; ++i) {
-    this->crs[i] = in->crs[i];
-  }
+
   xer_ca = in->xer_ca;
   xer_ov = in->xer_ov;
   xer_so = in->xer_so;

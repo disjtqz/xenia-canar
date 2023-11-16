@@ -89,9 +89,7 @@ void EnableAffinityConfiguration() {
   SetProcessAffinityMask(process_handle, system_affinity_mask);
 }
 
-uint32_t current_thread_system_id() {
-  return static_cast<uint32_t>(GetCurrentThreadId());
-}
+uint32_t current_thread_system_id() { return __readgsdword(0x48); }
 
 // https://msdn.microsoft.com/en-us/library/xcb2z8hs.aspx
 #pragma pack(push, 8)

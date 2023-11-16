@@ -263,11 +263,12 @@ enum class PPCRegister {
 };
 struct PPCGprSnapshot {
   // snapshot of all gpregs except for r13
+  uint32_t crs[8];
   uint64_t r[31];
   uint64_t ctr;
   uint64_t lr;
   uint64_t msr;
-  uint32_t crs[8];
+  
   uint8_t xer_ca;
   uint8_t xer_ov;
   uint8_t xer_so;
