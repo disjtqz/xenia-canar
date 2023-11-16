@@ -27,6 +27,8 @@
 #include "xenia/ui/windowed_app_context.h"
 #include "xenia/xbox.h"
 
+#define XE_USE_TIMED_INTERRUPTS_FOR_VSYNC 1
+
 namespace xe {
 class Emulator;
 }  // namespace xe
@@ -85,6 +87,8 @@ class GraphicsSystem {
 
   bool Save(ByteStream* stream);
   bool Restore(ByteStream* stream);
+  void SetupVsync();
+  void SetKernelState(xe::kernel::KernelState* ks);
 
  protected:
   GraphicsSystem();
@@ -121,6 +125,12 @@ class GraphicsSystem {
   std::unique_ptr<ui::Presenter> presenter_;
 
   std::atomic_flag host_gpu_loss_reported_;
+#if XE_USE_TIMED_INTERRUPTS_FOR_VSYNC
+  int64_t vsync_relative_ts_;
+
+  static void VsyncInterruptEnqueueProcedure(
+      cpu::XenonInterruptController* controller, uint32_t slot, void* ud);
+#endif
 };
 
 }  // namespace gpu

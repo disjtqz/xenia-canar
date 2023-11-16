@@ -100,6 +100,34 @@ X_STATUS GraphicsSystem::Setup(cpu::Processor* processor,
       reinterpret_cast<cpu::MMIOReadCallback>(ReadRegisterThunk),
       reinterpret_cast<cpu::MMIOWriteCallback>(WriteRegisterThunk));
 
+  // vsync_worker_thread_->thread()->set_priority(
+  //    threading::ThreadPriority::kLowest);
+  if (cvars::trace_gpu_stream) {
+    BeginTracing();
+  }
+
+  return X_STATUS_SUCCESS;
+}
+
+void GraphicsSystem::SetupVsync() {
+#if XE_USE_TIMED_INTERRUPTS_FOR_VSYNC
+  vsync_relative_ts_ = cvars::vsync ? (1000ULL * 1000ULL) / cvars::vsync_fps
+                                    : (1000ULL * 1000ULL);
+  auto vsync_target_thread = processor()->GetCPUThread(2);
+
+  auto interrupt_controller = vsync_target_thread->interrupt_controller();
+
+  cpu::CpuTimedInterrupt vsync_cti;
+  vsync_cti.destination_microseconds_ =
+      interrupt_controller->CreateRelativeUsTimestamp(
+          vsync_relative_ts_);  // one second
+
+  vsync_cti.ud_ = reinterpret_cast<void*>(this);
+  vsync_cti.enqueue_ = &GraphicsSystem::VsyncInterruptEnqueueProcedure;
+  uint32_t clock_slot = interrupt_controller->AllocateTimedInterruptSlot();
+  interrupt_controller->SetTimedInterruptArgs(clock_slot, &vsync_cti);
+  interrupt_controller->RecomputeNextEventCycles();
+#else
   // 60hz vsync timer.
   vsync_worker_running_ = true;
   threading::Thread::CreationParameters crparams{};
@@ -142,15 +170,24 @@ X_STATUS GraphicsSystem::Setup(cpu::Processor* processor,
   });
   // As we run vblank interrupts the debugger must be able to suspend us.
   vsync_worker_thread_->set_name("GPU VSync");
-  // vsync_worker_thread_->thread()->set_priority(
-  //    threading::ThreadPriority::kLowest);
-  if (cvars::trace_gpu_stream) {
-    BeginTracing();
-  }
-
-  return X_STATUS_SUCCESS;
+#endif
 }
+#if XE_USE_TIMED_INTERRUPTS_FOR_VSYNC
 
+void GraphicsSystem::VsyncInterruptEnqueueProcedure(
+    cpu::XenonInterruptController* controller, uint32_t slot, void* ud) {
+  GraphicsSystem* thiz = reinterpret_cast<GraphicsSystem*>(ud);
+
+  cpu::CpuTimedInterrupt reschedule_args{};
+  reschedule_args.destination_microseconds_ =
+      controller->GetSlotUsTimestamp(slot) + thiz->vsync_relative_ts_;
+  reschedule_args.ud_ = ud;
+  reschedule_args.enqueue_ = &GraphicsSystem::VsyncInterruptEnqueueProcedure;
+  controller->SetTimedInterruptArgs(slot, &reschedule_args);
+
+  thiz->MarkVblank();
+}
+#endif
 void GraphicsSystem::Shutdown() {
   if (command_processor_) {
     EndTracing();
@@ -346,6 +383,11 @@ bool GraphicsSystem::Restore(ByteStream* stream) {
   interrupt_callback_data_ = stream->Read<uint32_t>();
 
   return command_processor_->Restore(stream);
+}
+
+void GraphicsSystem::SetKernelState(xe::kernel::KernelState* ks) {
+  kernel_state_ = ks;
+  command_processor()->SetKernelState(ks);
 }
 
 }  // namespace gpu

@@ -148,6 +148,8 @@ class CommandProcessor {
   bool Save(ByteStream* stream);
   bool Restore(ByteStream* stream);
 
+  void SetKernelState(xe::kernel::KernelState* ks) { kernel_state_ = ks;
+  }
  protected:
   struct IndexBufferInfo {
     xenos::IndexFormat format = xenos::IndexFormat::kInt16;

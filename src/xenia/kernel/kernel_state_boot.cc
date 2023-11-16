@@ -19,6 +19,7 @@
 #include "xenia/base/string.h"
 #include "xenia/cpu/processor.h"
 #include "xenia/emulator.h"
+#include "xenia/gpu/graphics_system.h"
 #include "xenia/hid/input_system.h"
 #include "xenia/kernel/user_module.h"
 #include "xenia/kernel/util/shim_utils.h"
@@ -190,13 +191,13 @@ static void DestroyThreadDpc(PPCContext* context) {
     context->kernel_state->UnlockDispatcherAtIrql(context);
     context->kernel_state->object_table()->RemoveHandle(thrd->thread_id);
 
-    
     if (!thrd->unk_CB) {
       xboxkrnl::xeMmDeleteKernelStack(thrd->stack_alloc_base,
                                       thrd->stack_limit);
     }
-    //todo: this needs to be kept uncommented for now, until object rework
-  //  xboxkrnl::xeObDereferenceObject(context, context->HostToGuestVirtual(thrd));
+    // todo: this needs to be kept uncommented for now, until object rework
+    //  xboxkrnl::xeObDereferenceObject(context,
+    //  context->HostToGuestVirtual(thrd));
     xboxkrnl::xeObDereferenceObject(context, thrd);
     context->kernel_state->LockDispatcherAtIrql(context);
   }
@@ -414,8 +415,7 @@ void KernelState::BootInitializeStatics() {
       trampoline_allocatepool;  // kernel_trampoline_group_.NewLongtermTrampoline(AllocateThread);
 
   block->ExThreadObjectType.free_proc = trampoline_freepool;
-      //kernel_trampoline_group_.NewLongtermTrampoline(FreeThread);
-
+  // kernel_trampoline_group_.NewLongtermTrampoline(FreeThread);
 
   // init event object
   block->ExEventObjectType.pool_tag = 0x76657645;
@@ -550,7 +550,6 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
       &block->UsbdBootEnumerationDoneEvent.header.wait_list, context);
   xboxkrnl::xeKeSetEvent(context, &block->UsbdBootEnumerationDoneEvent, 1, 0);
 
-
   block->title_terminated_event.header.type = 1;
   util::XeInitializeListHead(&block->title_terminated_event.header.wait_list,
                              context);
@@ -624,7 +623,7 @@ void ClockInterruptEnqueueProc(cpu::XenonInterruptController* controller,
 
   cpu::CpuTimedInterrupt reschedule_args{};
   reschedule_args.destination_microseconds_ =
-      controller->CreateRelativeUsTimestamp(1000ULL);
+      controller->GetSlotUsTimestamp(slot) + 1000ULL;
   reschedule_args.ud_ = ud;
   reschedule_args.enqueue_ = ClockInterruptEnqueueProc;
   controller->SetTimedInterruptArgs(slot, &reschedule_args);
@@ -676,6 +675,12 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   interrupt_controller->SetTimedInterruptArgs(clock_slot, &clock_cti);
   interrupt_controller->RecomputeNextEventCycles();
 #endif
+
+  if (cpunum == 2) {
+    auto graphics_system = ks->emulator()->graphics_system();
+    graphics_system->SetKernelState(context->kernel_state);
+    graphics_system->SetupVsync();
+  }
 }
 void KernelState::BootKernel() {
   XELOGD("Booting kernel");

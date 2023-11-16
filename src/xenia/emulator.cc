@@ -266,6 +266,11 @@ X_STATUS Emulator::Setup(
 
   patcher_ = std::make_unique<xe::patcher::Patcher>(storage_root_);
 
+    // Setup the core components.
+  result = graphics_system_->Setup(
+      processor_.get(), nullptr,
+      display_window_ ? &display_window_->app_context() : nullptr,
+      display_window_ != nullptr);
   // Shared kernel state.
   kernel_state_ = std::make_unique<xe::kernel::KernelState>(this);
 #define LOAD_KERNEL_MODULE(t) \
@@ -278,11 +283,7 @@ X_STATUS Emulator::Setup(
   plugin_loader_ = std::make_unique<xe::patcher::PluginLoader>(
       kernel_state_.get(), storage_root() / "plugins");
 
-  // Setup the core components.
-  result = graphics_system_->Setup(
-      processor_.get(), kernel_state_.get(),
-      display_window_ ? &display_window_->app_context() : nullptr,
-      display_window_ != nullptr);
+
   if (result) {
     return result;
   }

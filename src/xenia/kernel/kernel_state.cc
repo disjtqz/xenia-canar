@@ -1381,7 +1381,7 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   auto hwthread = processor_->GetCPUThread(cpu);
   // while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
   // }
-  hwthread->TrySendInterruptFromHost(CPInterruptIPI, params, true);
+  hwthread->TrySendInterruptFromHost(CPInterruptIPI, params, source!=0);//do not block if we're the vsync interrupt and on cpu 2! we will freeze
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {

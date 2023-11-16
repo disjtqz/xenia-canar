@@ -109,6 +109,9 @@ class XenonInterruptController {
   uint32_t AllocateTimedInterruptSlot();
   void FreeTimedInterruptSlot(uint32_t slot);
   void SetTimedInterruptArgs(uint32_t slot, CpuTimedInterrupt* data);
+  uint64_t GetSlotUsTimestamp(uint32_t slot) {
+    return timed_events_[slot].destination_microseconds_;
+  }
 
   void RecomputeNextEventCycles();
   void EnqueueTimedInterrupts();
