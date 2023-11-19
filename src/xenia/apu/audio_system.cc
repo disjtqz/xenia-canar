@@ -112,11 +112,11 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
                 auto status = kernel::xboxkrnl::xeNtYieldExecution(
                     cpu::ThreadState::GetContext());
                 context->CheckInterrupt();
-                if (status == X_STATUS_NO_YIELD_PERFORMED) {
-                  int64_t wait_time = -20000 * 1; //2 ms
+                /* if (status == X_STATUS_NO_YIELD_PERFORMED) {
+                  int64_t wait_time = -20000 * 1; //1 ms
                   kernel::xboxkrnl::xeKeDelayExecutionThread(context, 1, true,
                                                              &wait_time);
-                }
+                }*/
                 continue;
               }
 

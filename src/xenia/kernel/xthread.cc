@@ -135,8 +135,6 @@ XThread::~XThread() {
     delete thread_state_;
   }
   kernel_state()->memory()->SystemHeapFree(tls_static_address_);
-
-  
 }
 
 bool XThread::IsInThread() {
@@ -510,6 +508,8 @@ X_STATUS XThread::Exit(int exit_code) {
 
   kthread->terminated = 1;
 
+  xenia_assert(util::XeIsListEmpty(&kthread->timer_list, cpu_context));
+
   xboxkrnl::xeKeEnterCriticalRegion(cpu_context);
   uint32_t old_irql2 =
       xboxkrnl::xeKeKfAcquireSpinLock(cpu_context, &kthread->apc_lock);
@@ -608,7 +608,6 @@ void XThread::Execute() {
   XELOGKERNEL("XThread::Execute thid {} (handle={:08X}, '{}', native={:08X})",
               thread_id(), handle(), "", 69420);
 
-  
   auto context = thread_state_->context();
   auto kthrd = guest_object<X_KTHREAD>();
   xenia_assert(context->TranslateVirtual(kthrd->another_prcb_ptr) ==
