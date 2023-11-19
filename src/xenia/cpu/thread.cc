@@ -136,7 +136,7 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
   bool cr3;
   context->DisableEI();
   if (cr2) {
-    cr3 = old_irql > 1;
+    cr3 = 1 < old_irql;
     if (!cr3) {
       kpcr->current_irql = 2;
     }

@@ -98,6 +98,9 @@ struct KernelGuestGlobals {
       X_KSPINLOCK dispatcher_lock;  // called the "dispatcher lock" in nt 3.5
                                     // ppc .dbg file. Used basically everywhere
                                     // that DISPATCHER_HEADER'd objects appear
+
+  X_KSPINLOCK timer_table_spinlock;//does not exist on real hw
+
   // this lock is only used in some Ob functions. It's odd that it is used at
   // all, as each table already has its own spinlock.
   alignas(128) X_KSPINLOCK ob_lock;
@@ -297,7 +300,7 @@ class KernelState {
   uint32_t CreateKeTimestampBundle();
   void SystemClockInterrupt();
 
-  void EmulateCPInterruptDPC(uint32_t interrupt_callback,
+  void EmulateCPInterrupt(uint32_t interrupt_callback,
                              uint32_t interrupt_callback_data, uint32_t source,
                              uint32_t cpu);
   uint32_t LockDispatcher(cpu::ppc::PPCContext* context);

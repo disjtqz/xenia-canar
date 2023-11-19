@@ -296,7 +296,6 @@ void HandleCpuThreadDisownedIPI(void* ud) {
   auto kpcr = GetKPCR(context);
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   GetKPCR(context)->generic_software_interrupt = 2;
-
 }
 
 void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
@@ -531,10 +530,30 @@ void xeHandleDPCsAndThreadSwapping(PPCContext* context, bool from_idle_loop) {
     if (!GetKPCR(context)->prcb_data.queued_dpcs_list_head.empty(context) ||
         GetKPCR(context)->timer_pending) {
       // todo: incomplete!
-      SCHEDLOG(context,
-               "xeHandleDPCsAndThreadSwapping - entering xeExecuteDPCList2");
-      xeExecuteDPCList2(context, GetKPCR(context)->timer_pending,
-                        GetKPCR(context)->prcb_data.queued_dpcs_list_head, 0);
+      if (from_idle_loop) {
+        xeExecuteDPCList2(context, GetKPCR(context)->timer_pending,
+                          GetKPCR(context)->prcb_data.queued_dpcs_list_head, 0);
+      } else {
+        uint32_t altstack = GetKPCR(context)->use_alternative_stack;
+
+        xenia_assert(altstack == 0);
+
+        uint32_t r4 = GetKPCR(context)->alt_stack_base_ptr;
+        GetKPCR(context)->use_alternative_stack =
+            static_cast<uint32_t>(context->r[1]);
+        /*
+          addi      r4, r4, -320
+     subf      r4, r1, r4
+       addi      r5, r1, 0xF0
+                stwux     r5, r1, r4
+        */
+
+        SCHEDLOG(context,
+                 "xeHandleDPCsAndThreadSwapping - entering xeExecuteDPCList2");
+        xeExecuteDPCList2(context, GetKPCR(context)->timer_pending,
+                          GetKPCR(context)->prcb_data.queued_dpcs_list_head, 0);
+        GetKPCR(context)->use_alternative_stack = 0;
+      }
     }
     set_msr_interrupt_bits(context, 0xFFFF8000);
 

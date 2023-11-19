@@ -402,9 +402,8 @@ void X64Emitter::MarkSourceOffset(const Instr* i) {
   entry->code_offset = static_cast<uint32_t>(getSize());
 
   if (cvars::emit_source_annotations) {
-    nop(2);
+    nop(1);
     mov(eax, entry->guest_address);
-    nop(2);
   }
 
   if (debug_info_flags_ & DebugInfoFlags::kDebugInfoTraceFunctionCoverage) {

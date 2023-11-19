@@ -1296,12 +1296,14 @@ dword_result_t KfRaiseIrql_entry(dword_t new_irql, const ppc_context_t& ctx) {
 DECLARE_XBOXKRNL_EXPORT2(KfRaiseIrql, kThreading, kImplemented, kHighFrequency);
 
 void AddTimer(PPCContext* context, X_KTIMER* timer) {
-  auto& timers = context
-                     ->TranslateVirtual<KernelGuestGlobals*>(
-                         context->kernel_state->GetKernelGuestGlobals())
-                     ->running_timers;
+  auto globals = context->kernel_state->GetKernelGuestGlobals(context);
 
+  auto lock = &globals->timer_table_spinlock;
+
+  xboxkrnl::xeKeKfAcquireSpinLock(context, lock, false);
+  auto& timers = globals->running_timers;
   timers.InsertHead(timer, context);
+  xboxkrnl::xeKeKfReleaseSpinLock(context, lock, 0, false);
 }
 
 int XeInsertGlobalTimer(PPCContext* context, X_KTIMER* timer, int64_t time) {
@@ -1350,12 +1352,13 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
   auto kernel = context->kernel_state;
   std::vector<X_KTIMER*> expired_timers;
   expired_timers.reserve(32);
-  auto globals = context->TranslateVirtual<KernelGuestGlobals*>(
-      kernel->GetKernelGuestGlobals());
+  auto globals = kernel->GetKernelGuestGlobals(context);
 
   uint32_t original_irql = kernel->LockDispatcher(context);
   uint64_t current_interrupt_time = globals->KeTimestampBundle.interrupt_time;
 
+  xboxkrnl::xeKeKfAcquireSpinLock(context, &globals->timer_table_spinlock,
+                                  false);
   for (auto&& timer : globals->running_timers.IterateForward(context)) {
     if (timer.due_time <= current_interrupt_time) {
       expired_timers.push_back(&timer);
@@ -1365,6 +1368,8 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
   for (auto&& timer_to_remove : expired_timers) {
     util::XeRemoveEntryList(&timer_to_remove->table_bucket_entry, context);
   }
+  xboxkrnl::xeKeKfReleaseSpinLock(context, &globals->timer_table_spinlock, 0,
+                                  false);
 
   // make sure we run timers in order of their expiration. i think this ordering
   // is guaranteed by the kernel

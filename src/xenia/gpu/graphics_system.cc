@@ -303,7 +303,7 @@ void GraphicsSystem::SetInterruptCallback(uint32_t callback,
 }
 
 void GraphicsSystem::DispatchInterruptCallback(uint32_t source, uint32_t cpu) {
-  kernel_state()->EmulateCPInterruptDPC(interrupt_callback_,
+  kernel_state()->EmulateCPInterrupt(interrupt_callback_,
                                         interrupt_callback_data_, source, cpu);
 }
 

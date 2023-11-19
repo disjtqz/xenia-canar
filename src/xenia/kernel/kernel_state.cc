@@ -330,17 +330,7 @@ void KernelState::LaunchModuleInterrupt(void* ud) {
 
     delete launch->thread;
     launch->thread = nullptr;
-
-    return;
   }
-
-  // Waits for a debugger client, if desired.
-  // kernel->emulator()->processor()->PreLaunch();
-
-  // Resume the thread now.
-  // If the debugger has requested a suspend this will just decrement the
-  // suspend count without resuming it until the debugger wants.
-  // launch->thread->Resume();
 }
 
 LaunchInterrupt* volatile g_launchinterrupt = nullptr;
@@ -355,58 +345,17 @@ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
   if (!module->is_executable()) {
     return nullptr;
   }
-#if 0
-  SetExecutableModule(module);
-  XELOGI("KernelState: Launching module...");
 
-  // Create a thread to run in.
-  // We start suspended so we can run the debugger prep.
-  auto thread = object_ref<XThread>(
-      new XThread(kernel_state(), module->stack_size(), 0,
-                  module->entry_point(), 0, X_CREATE_SUSPENDED, true, true));
-
-  // We know this is the 'main thread'.
-  thread->set_name("Main XThread");
-
-  X_STATUS result = thread->Create();
-  if (XFAILED(result)) {
-    XELOGE("Could not create launch thread: {:08X}", result);
-    return nullptr;
-  }
-
-  // Waits for a debugger client, if desired.
-  emulator()->processor()->PreLaunch();
-
-  // Resume the thread now.
-  // If the debugger has requested a suspend this will just decrement the
-  // suspend count without resuming it until the debugger wants.
-  thread->Resume();
-
-  return thread;
-#else
   // this is pretty bad
   LaunchInterrupt li;
   li.module = &module;
   li.thread = nullptr;
-#if 0
-  while (!processor()->GetCPUThread(0)->TrySendInterruptFromHost(
-      LaunchModuleInterrupt, &li, true)) {
-    threading::NanoSleep(10000);
-  }
-  if (li.thread) {
-    return object_ref<XThread>(li.thread);
-  } else {
-    return nullptr;
-  }
 
-#else
   g_launchinterrupt = &li;
   while (g_launchinterrupt->thread == nullptr) {
     threading::NanoSleep(10000);
   }
   return object_ref<XThread>(li.thread);
-#endif
-#endif
 }
 
 object_ref<UserModule> KernelState::GetExecutableModule() {
@@ -1071,27 +1020,27 @@ void KernelState::SystemClockInterrupt() {
       check timers!
     */
 
-    auto globals =
-        context->TranslateVirtual<KernelGuestGlobals*>(GetKernelGuestGlobals());
+    auto globals = GetKernelGuestGlobals(context);
 
-    auto old_msr = context->msr;
+    // auto old_msr = context->msr;
 
-    context->DisableEI();
+    // context->DisableEI();
 
     /*
     on real hw, how does the kernel guarantee that no other thread is writing
     the timers at this point? this dispatcher lock acquire is a hack
     */
 
-    auto dispatcher = context->kernel_state->GetDispatcherLock(context);
+    auto dispatcher = &globals->timer_table_spinlock;
 
     bool dispatcher_held = false;
     if (dispatcher->pcr_of_owner == (uint32_t)context->r[13]) {
       dispatcher_held = true;
     }
     if (!dispatcher_held) {
-      context->kernel_state->LockDispatcherAtIrql(context);
+      xboxkrnl::xeKeKfAcquireSpinLock(context, dispatcher, false);
     }
+
     for (auto& timer : globals->running_timers.IterateForward(context)) {
       if (timer.due_time <= time_imprecise) {
         kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
@@ -1100,9 +1049,9 @@ void KernelState::SystemClockInterrupt() {
       }
     }
     if (!dispatcher_held) {
-      context->kernel_state->UnlockDispatcherAtIrql(context);
+      xboxkrnl::xeKeKfReleaseSpinLock(context, dispatcher, 0, false);
     }
-    context->msr = old_msr;
+    // context->msr = old_msr;
   }
 
   auto current_thread = kpcr->prcb_data.current_thread.xlat();
@@ -1115,13 +1064,14 @@ void KernelState::SystemClockInterrupt() {
       kpcr->generic_software_interrupt = 2;
     }
   }
- 
+
   ic->WriteRegisterOffset(0x8, old_irql);
-  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
-  GenericExternalInterruptEpilog(context, old_irql);
+  kpcr->current_irql = old_irql;
+  // KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
+  // GenericExternalInterruptEpilog(context, old_irql);
 }
-void KernelState::GenericExternalInterruptEpilog(
-    cpu::ppc::PPCContext* context, uint32_t r3) {
+void KernelState::GenericExternalInterruptEpilog(cpu::ppc::PPCContext* context,
+                                                 uint32_t r3) {
   auto kpcr = GetKPCR(context);
   uint32_t r4 = kpcr->software_interrupt_state;
   if (r3 < r4) {
@@ -1332,7 +1282,8 @@ void KernelState::CPInterruptIPI(void* ud) {
   auto current_context = current_ts->context();
   auto pcr =
       current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
-  auto ic = current_context->kernel_state->InterruptControllerFromPCR(current_context, pcr);
+  auto ic = current_context->kernel_state->InterruptControllerFromPCR(
+      current_context, pcr);
   // 88 is level for vsync interrupt, 84 is level for cp interrupt
   IPIParams* params = reinterpret_cast<IPIParams*>(ud);
 
@@ -1340,9 +1291,7 @@ void KernelState::CPInterruptIPI(void* ud) {
   pcr->current_irql = params->interrupt_callback_data_ == 0 ? 88 : 84;
   ic->WriteRegisterOffset(8, pcr->current_irql);
 
-
   auto kernel_state = current_context->kernel_state;
-
 
   auto kthread =
       current_context->TranslateVirtual(pcr->prcb_data.current_thread);
@@ -1363,16 +1312,15 @@ void KernelState::CPInterruptIPI(void* ud) {
                                current_context);
 
   delete params;
-  
+
   ic->WriteRegisterOffset(8, old_irql);
   KernelState::HWThreadFor(current_context)->interrupt_controller()->SetEOI(1);
-  
-  GenericExternalInterruptEpilog(current_context, old_irql);
+  pcr->current_irql = old_irql;
 }
 
-void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
-                                        uint32_t interrupt_callback_data,
-                                        uint32_t source, uint32_t cpu) {
+void KernelState::EmulateCPInterrupt(uint32_t interrupt_callback,
+                                     uint32_t interrupt_callback_data,
+                                     uint32_t source, uint32_t cpu) {
   // auto thread = kernel::XThread::GetCurrentThread();
   // assert_not_null(thread);
 
@@ -1380,8 +1328,6 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   if (cpu == 0xFFFFFFFF) {
     cpu = 2;
   }
-  // thread->SetActiveCpu(cpu);
-
   /*
     in reality, our interrupt is a callback that is called in a dpc which is
     scheduled by the actual interrupt
@@ -1541,6 +1487,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
     pre_swap();
     XThread::SetCurrentThread(nullptr);
     GetKPCR(context)->prcb_data.current_thread = guest;
+    GetKPCR(context)->use_alternative_stack = 1;
     hw_thread->YieldToScheduler();
   } else {
     pre_swap();
@@ -1548,7 +1495,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
     // wait, what if we're switching threads because we changed the affinity of
     // the current thread? would that break this?
     xthrd->thread_state()->context()->r[13] = context->r[13];
-
+    GetKPCR(context)->use_alternative_stack = 0;
     xthrd->SwitchToDirect();
   }
   if (GetKPCR(context) != old_kpcr) {
@@ -1618,6 +1565,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       xenia_assert(GetKThread(context) == kthread);
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
+      #if 0
       cpu::HWThread::ThreadDelay();
       ++spin_count;
       // todo: check whether a timed interrupt would be missed due to wait
@@ -1628,6 +1576,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
                                          //  }
 
       _mm_pause();
+      #endif
     }
 
     /*
