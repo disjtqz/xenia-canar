@@ -607,7 +607,12 @@ class reenter_exception {
 void XThread::Execute() {
   XELOGKERNEL("XThread::Execute thid {} (handle={:08X}, '{}', native={:08X})",
               thread_id(), handle(), "", 69420);
+
+  
   auto context = thread_state_->context();
+  auto kthrd = guest_object<X_KTHREAD>();
+  xenia_assert(context->TranslateVirtual(kthrd->another_prcb_ptr) ==
+               &GetKPCR(context)->prcb_data);
   cpu::ppc::PPCGprSnapshot snapshot{};
   context->TakeGPRSnapshot(&snapshot);
   xboxkrnl::xeKfLowerIrql(thread_state_->context(), IRQL_PASSIVE);

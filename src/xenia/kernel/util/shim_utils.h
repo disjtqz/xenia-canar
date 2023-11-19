@@ -600,6 +600,7 @@ struct ExportRegistrerHelper {
     };
     struct Y {
       static void Trampoline(PPCContext* ppc_context) {
+        ppc_context->CheckInterrupt();
         Param::Init init = {
             ppc_context,
             0,
@@ -614,6 +615,7 @@ struct ExportRegistrerHelper {
                                std::make_index_sequence<sizeof...(Ps)>());
           result.Store(ppc_context);
         }
+        ppc_context->CheckInterrupt();
       }
     };
     export_entry->function_data.trampoline = &X::Trampoline;

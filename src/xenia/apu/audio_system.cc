@@ -66,6 +66,7 @@ AudioSystem::AudioSystem(cpu::Processor* processor)
   xma_decoder_ = std::make_unique<xe::apu::XmaDecoder>(processor_);
 
   resume_event_ = xe::threading::Event::CreateAutoResetEvent(false);
+  signal_event_ = xe::threading::Event::CreateAutoResetEvent(false);
   assert_not_null(resume_event_);
 }
 
@@ -132,7 +133,7 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
                                            countof(args));
                 delete order;
                 context->CheckInterrupt();
-                //guest_received_event_->Set();
+                signal_event_->Set();
               }
               messages_rev.clear();
             }
@@ -186,6 +187,7 @@ void AudioSystem::WorkerThreadMain() {
       msg->client_callback_ = client_callback_in_;
       msg->client_callback_arg_ = client_callback_arg_in_;
       guest_worker_messages_.Push(&msg->list_entry);
+      threading::Wait(signal_event_.get(), false);
       pumped = true;
     }
 

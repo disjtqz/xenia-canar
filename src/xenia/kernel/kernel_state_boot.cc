@@ -107,20 +107,19 @@ void SimpleForwardAllocatePoolTypeWithTag(PPCContext* context) {
   uint32_t a2 = static_cast<uint32_t>(context->r[4]);
   uint32_t a3 = static_cast<uint32_t>(context->r[5]);
   context->r[3] = static_cast<uint64_t>(
-      xboxkrnl::xeAllocatePoolTypeWithTag(context, a1, a2, a3));
-}
+      xboxkrnl::xeAllocatePoolTypeWithTag(context, a1, a2, a3));}
 void SimpleForwardFreePool(PPCContext* context) {
   xboxkrnl::xeFreePool(context, static_cast<uint32_t>(context->r[3]));
 }
 
 void DeleteMutant(PPCContext* context) {
-  // todo: this should call kereleasemutant with some specific args
-
-  xe::FatalError("DeleteMutant - need KeReleaseMutant(mutant, 1, 1, 0) ");
+  xboxkrnl::xeKeReleaseMutant(
+      context, context->TranslateVirtualGPR<X_KMUTANT*>(context->r[3]), 1, 1,
+      0);
 }
 void DeleteTimer(PPCContext* context) {
-  // todo: this should call KeCancelTimer
-  xe::FatalError("DeleteTimer - need KeCancelTimer(mutant, 1, 1, 0) ");
+  xboxkrnl::xeKeCancelTimer(
+      context, context->TranslateVirtualGPR<X_KTIMER*>(context->r[3]));
 }
 
 void DeleteIoCompletion(PPCContext* context) {}

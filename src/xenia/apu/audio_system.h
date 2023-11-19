@@ -101,7 +101,7 @@ class AudioSystem {
   bool paused_ = false;
   threading::Fence pause_fence_;
   std::unique_ptr<threading::Event> resume_event_;
-
+  std::unique_ptr<threading::Event> signal_event_;
   uint32_t client_callback_in_;
   uint32_t client_callback_arg_in_;
 

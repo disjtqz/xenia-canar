@@ -1040,6 +1040,12 @@ void KernelState::SystemClockInterrupt() {
 
   auto cpu_num = GetPCRCpuNum(kpcr);
 
+  auto ic = context->kernel_state->InterruptControllerFromPCR(context, kpcr);
+
+  uint32_t old_irql = kpcr->current_irql;
+  kpcr->current_irql = 0x74;
+  ic->WriteRegisterOffset(0x8, 0x74);
+
   // only cpu 0 updates timestamp bundle + timers
   if (cpu_num == 0) {
     X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
@@ -1109,16 +1115,19 @@ void KernelState::SystemClockInterrupt() {
       kpcr->generic_software_interrupt = 2;
     }
   }
+ 
+  ic->WriteRegisterOffset(0x8, old_irql);
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
-  GenericExternalInterruptEpilog(context);
+  GenericExternalInterruptEpilog(context, old_irql);
 }
 void KernelState::GenericExternalInterruptEpilog(
-    cpu::ppc::PPCContext* context) {
+    cpu::ppc::PPCContext* context, uint32_t r3) {
   auto kpcr = GetKPCR(context);
-  uint32_t r3 = kpcr->current_irql;
   uint32_t r4 = kpcr->software_interrupt_state;
   if (r3 < r4) {
     xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
+  } else {
+    kpcr->current_irql = r3;
   }
 }
 
@@ -1321,14 +1330,20 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
 void KernelState::CPInterruptIPI(void* ud) {
   auto current_ts = cpu::ThreadState::Get();
   auto current_context = current_ts->context();
+  auto pcr =
+      current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
+  auto ic = current_context->kernel_state->InterruptControllerFromPCR(current_context, pcr);
   // 88 is level for vsync interrupt, 84 is level for cp interrupt
-  auto old_irql = xboxkrnl::xeKfRaiseIrql(current_context, 88);
   IPIParams* params = reinterpret_cast<IPIParams*>(ud);
+
+  uint32_t old_irql = pcr->current_irql;
+  pcr->current_irql = params->interrupt_callback_data_ == 0 ? 88 : 84;
+  ic->WriteRegisterOffset(8, pcr->current_irql);
+
 
   auto kernel_state = current_context->kernel_state;
 
-  auto pcr =
-      current_context->TranslateVirtualGPR<X_KPCR*>(current_context->r[13]);
+
   auto kthread =
       current_context->TranslateVirtual(pcr->prcb_data.current_thread);
 
@@ -1348,10 +1363,11 @@ void KernelState::CPInterruptIPI(void* ud) {
                                current_context);
 
   delete params;
-
+  
+  ic->WriteRegisterOffset(8, old_irql);
   KernelState::HWThreadFor(current_context)->interrupt_controller()->SetEOI(1);
-  xboxkrnl::xeKfLowerIrql(current_context, old_irql);
-  //  GenericExternalInterruptEpilog(current_context);
+  
+  GenericExternalInterruptEpilog(current_context, old_irql);
 }
 
 void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
@@ -1381,7 +1397,10 @@ void KernelState::EmulateCPInterruptDPC(uint32_t interrupt_callback,
   auto hwthread = processor_->GetCPUThread(cpu);
   // while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
   // }
-  hwthread->TrySendInterruptFromHost(CPInterruptIPI, params, source!=0);//do not block if we're the vsync interrupt and on cpu 2! we will freeze
+  hwthread->TrySendInterruptFromHost(
+      CPInterruptIPI, params,
+      source != 0);  // do not block if we're the vsync interrupt and on cpu 2!
+                     // we will freeze
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {
@@ -1602,11 +1621,11 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       cpu::HWThread::ThreadDelay();
       ++spin_count;
       // todo: check whether a timed interrupt would be missed due to wait
-      if (!(spin_count & (0xFF))) {
-        auto cpu_thread = context->processor->GetCPUThread(
-            context->kernel_state->GetPCRCpuNum(kpcr));
-        cpu_thread->IdleSleep(1000 * 200);  // 200 microseconds
-      }
+      // if (!(spin_count & (0xF))) {
+      auto cpu_thread = context->processor->GetCPUThread(
+          context->kernel_state->GetPCRCpuNum(kpcr));
+      cpu_thread->IdleSleep(1000 * 20);  // 20 microseconds
+                                         //  }
 
       _mm_pause();
     }

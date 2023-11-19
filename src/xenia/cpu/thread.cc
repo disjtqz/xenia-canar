@@ -12,6 +12,7 @@
 #include "xenia/cpu/processor.h"
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/kernel_guest_structures.h"
+#include "xenia/kernel/kernel_state.h"
 DEFINE_bool(emulate_guest_interrupts_in_software, true,
             "If true, emulate guest interrupts by repeatedly checking a "
             "location on the PCR. Otherwise uses host ipis.",
@@ -73,7 +74,7 @@ HWThread::HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state)
   threading::Thread::CreationParameters params;
   params.create_suspended = true;
   params.initial_priority = threading::ThreadPriority::kBelowNormal;
-  params.stack_size = 1 * 1024 * 1024;
+  params.stack_size = 16 * 1024 * 1024;
 
   os_thread_ =
       threading::Thread::Create(params, std::bind(&HWThread::ThreadFunc, this));
@@ -130,19 +131,33 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
 
   auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
+  bool cr2 = kpcr->use_alternative_stack == 0;
   auto old_irql = kpcr->current_irql;
-
+  bool cr3;
+  context->DisableEI();
+  if (cr2) {
+    cr3 = old_irql > 1;
+    if (!cr3) {
+      kpcr->current_irql = 2;
+    }
+    kpcr->use_alternative_stack = kpcr->alt_stack_base_ptr;
+  }
   this_hw_thread->interrupt_controller()->SetEOI(0);
 
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
   this_hw_thread->interrupt_controller()->SetEOI(1);
-  //xenia_assert(interrupt_wrapper->thiz->interrupt_controller()->GetEOI());
+  // xenia_assert(interrupt_wrapper->thiz->interrupt_controller()->GetEOI());
   kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
-  auto new_irql = kpcr->current_irql;
-  xenia_assert(old_irql == new_irql);
-
   context->RestoreGPRSnapshot(&snap);
+
+  if (cr2) {
+    kpcr->use_alternative_stack = 0;
+    if (!cr3) {
+      context->kernel_state->GenericExternalInterruptEpilog(context, old_irql);
+    }
+  }
+
   return 2;
 }
 #define NO_RESULT_MAGIC 0x69420777777ULL

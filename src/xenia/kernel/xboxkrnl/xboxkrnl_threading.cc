@@ -1114,8 +1114,8 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
       ctx, 0, static_cast<uint32_t>(ctx->r[13]),
       ctx->HostToGuestVirtual(&lock->pcr_of_owner.value))) {
     // bad hack. always check once reworked interrupt controller
-      ctx->CheckInterrupt();
-    }
+    ctx->CheckInterrupt();
+  }
 
   return old_irql;
 }
@@ -1438,7 +1438,9 @@ void xeExecuteDPCList2(
     PPCContext* context, uint32_t timer_unk,
     util::X_TYPED_LIST<XDPC, offsetof(XDPC, list_entry)>& dpc_list,
     uint32_t zero_register) {
-  xenia_assert(GetKPCR(context)->current_irql == IRQL_DISPATCH);
+  auto irql = GetKPCR(context)->current_irql;
+
+  xenia_assert(irql == IRQL_DISPATCH);
 
   do {
     // they only check if this value is nonzero. they probably
@@ -1878,9 +1880,7 @@ static void SendRunKernelApcIPI(void* ud) {
   }
   kpcr->apc_software_interrupt_state = 1;
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
-  context->CheckInterrupt();
-  KernelState::GenericExternalInterruptEpilog(context);
-  }
+}
 
 void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
                               int priority_increment) {
@@ -1995,18 +1995,12 @@ DECLARE_XBOXKRNL_EXPORT2(KeInitializeDpc, kThreading, kImplemented, kSketchy);
 
 static void DPCIPIFunction(void* ud) {
   // maybe xeHandleDPCsAndThreadSwapping instead?
-  // KernelState::GenericExternalInterruptEpilog(cpu::ThreadState::GetContext());
   auto context = cpu::ThreadState::GetContext();
 
   auto kpcr = GetKPCR(context);
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
-  if (kpcr->prcb_data.running_idle_thread) {
-    GetKPCR(context)->generic_software_interrupt = 2;
-    return;
-  } else {
-    GetKPCR(context)->generic_software_interrupt = 2;
-    KernelState::GenericExternalInterruptEpilog(cpu::ThreadState::GetContext());
-  }
+
+  GetKPCR(context)->generic_software_interrupt = 2;
 }
 uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
                             PPCContext* ctx) {

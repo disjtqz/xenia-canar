@@ -339,7 +339,7 @@ class KernelState {
       cpu::ppc::PPCContext* context, X_KPCR* pcr);
   void SetCurrentInterruptPriority(cpu::ppc::PPCContext* context, X_KPCR* pcr,
                                    uint32_t priority);
-  static void GenericExternalInterruptEpilog(cpu::ppc::PPCContext* context);
+  static void GenericExternalInterruptEpilog(cpu::ppc::PPCContext* context, uint32_t r3);
 
   static void GraphicsInterruptDPC(cpu::ppc::PPCContext* context);
   static void CPInterruptIPI(void* ud);
