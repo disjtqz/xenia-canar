@@ -90,6 +90,7 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
 
   // As we run audio callbacks the debugger must be able to suspend us.
   worker_thread_->set_name("Audio Worker");
+  worker_thread_->set_affinity_mask(0b11000000);
 
   return X_STATUS_SUCCESS;
 }

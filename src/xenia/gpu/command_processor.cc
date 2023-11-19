@@ -108,7 +108,7 @@ bool CommandProcessor::Initialize() {
       crparams, std::bind(&CommandProcessor::WorkerThreadMain, this));
 
   worker_thread_->set_name("GPU Commands");
-
+  worker_thread_->set_affinity_mask(0b11000000);
   return true;
 }
 

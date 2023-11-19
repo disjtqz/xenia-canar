@@ -145,6 +145,7 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
   crparams.stack_size = 16 * 1024 * 1024;
   worker_thread_ = threading::Thread::Create(crparams, std::bind(&XmaDecoder::WorkerThreadMain, this));//this one doesnt need any process actually. never calls any guest code
   worker_thread_->set_name("XMA Decoder");
+  worker_thread_->set_affinity_mask(0b11000000);
 
   return X_STATUS_SUCCESS;
 }
