@@ -102,5 +102,74 @@ std::vector<uint8_t> StringBuffer::to_bytes() const {
   std::memcpy(bytes.data(), buffer_, buffer_offset_);
   return bytes;
 }
+#if XE_ARCH_AMD64 == 1
+static __m128i ToHexUpper(__m128i value) {
+  __m128i w = _mm_cvtepu8_epi16(value);
 
+  __m128i msk =
+      _mm_and_si128(_mm_or_si128(_mm_srli_epi16(w, 4), _mm_bslli_si128(w, 1)),
+                    _mm_set1_epi16(0x0F0F));
+
+  __m128i conv =
+      _mm_shuffle_epi8(_mm_setr_epi8('0', '1', '2', '3', '4', '5', '6', '7',
+                                     '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'),
+                       msk);
+  return conv;
+}
+#endif
+
+void StringBuffer::AppendHexUInt64(uint64_t value) {
+#if XE_ARCH_AMD64 == 1
+  __m128i conv = ToHexUpper(_mm_cvtsi64_si128(static_cast<long long>(value)));
+
+  AppendBytes(reinterpret_cast<const uint8_t*>(&conv), 16);
+#else
+  AppendFormat("{:016X}", value);
+#endif
+}
+
+void StringBuffer::AppendHexUInt32(uint32_t value) {
+#if XE_ARCH_AMD64 == 1
+  __m128i conv = ToHexUpper(_mm_cvtsi32_si128(static_cast<int>(value)));
+
+  uint64_t low = _mm_cvtsi128_si64(conv);
+
+  AppendBytes(reinterpret_cast<const uint8_t*>(&low), 8);
+#else
+  AppendFormat("{:08X}", value);
+#endif
+}
+
+void StringBuffer::AppendParenthesizedHexUInt32(uint32_t value) {
+#if XE_ARCH_AMD64 == 1
+  Grow(10);
+
+  buffer_[buffer_offset_] = '(';
+  *reinterpret_cast<long long*>(&buffer_[buffer_offset_ + 1]) =
+      _mm_cvtsi128_si64(ToHexUpper(_mm_cvtsi32_si128(value)));
+  buffer_[buffer_offset_ + 9] = ')';
+  buffer_offset_ += 10;
+  buffer_[buffer_offset_] = 0;
+#else
+  AppendFormat("({:08X})", value);
+#endif
+}
+
+
+void StringBuffer::AppendParenthesizedHexUInt64(uint64_t value) {
+#if XE_ARCH_AMD64 == 1
+  Grow(18);
+
+  buffer_[buffer_offset_] = '(';
+  __m128i conv = ToHexUpper(_mm_cvtsi64_si128(static_cast<long long>(value)));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(&buffer_[buffer_offset_ + 1]),
+                   conv);
+
+  buffer_[buffer_offset_ + 17] = ')';
+  buffer_offset_ += 18;
+  buffer_[buffer_offset_] = 0;
+#else
+  AppendFormat("({:016X})", value);
+#endif
+}
 }  // namespace xe

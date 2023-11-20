@@ -413,10 +413,10 @@ inline void AppendParam(StringBuffer* string_buffer, word_t param) {
   string_buffer->AppendFormat("{:04X}", uint16_t(param));
 }
 inline void AppendParam(StringBuffer* string_buffer, dword_t param) {
-  string_buffer->AppendFormat("{:08X}", uint32_t(param));
+  string_buffer->AppendHexUInt32(uint32_t(param));
 }
 inline void AppendParam(StringBuffer* string_buffer, qword_t param) {
-  string_buffer->AppendFormat("{:016X}", uint64_t(param));
+  string_buffer->AppendHexUInt64(uint64_t(param));
 }
 inline void AppendParam(StringBuffer* string_buffer, float_t param) {
   string_buffer->AppendFormat("{:G}", static_cast<float>(param));
@@ -425,28 +425,28 @@ inline void AppendParam(StringBuffer* string_buffer, double_t param) {
   string_buffer->AppendFormat("{:G}", static_cast<double>(param));
 }
 inline void AppendParam(StringBuffer* string_buffer, lpvoid_t param) {
-  string_buffer->AppendFormat("{:08X}", uint32_t(param));
+  string_buffer->AppendHexUInt32(uint32_t(param));
 }
 inline void AppendParam(StringBuffer* string_buffer, lpdword_t param) {
-  string_buffer->AppendFormat("{:08X}", param.guest_address());
+  string_buffer->AppendHexUInt32(param.guest_address());
   if (param) {
-    string_buffer->AppendFormat("({:08X})", param.value());
+    string_buffer->AppendParenthesizedHexUInt32(param.value());
   }
 }
 inline void AppendParam(StringBuffer* string_buffer, lpqword_t param) {
-  string_buffer->AppendFormat("{:08X}", param.guest_address());
+  string_buffer->AppendHexUInt32(param.guest_address());
   if (param) {
-    string_buffer->AppendFormat("({:016X})", param.value());
+    string_buffer->AppendParenthesizedHexUInt64(param.value());
   }
 }
 inline void AppendParam(StringBuffer* string_buffer, lpfloat_t param) {
-  string_buffer->AppendFormat("{:08X}", param.guest_address());
+  string_buffer->AppendHexUInt32(param.guest_address());
   if (param) {
     string_buffer->AppendFormat("({:G})", param.value());
   }
 }
 inline void AppendParam(StringBuffer* string_buffer, lpdouble_t param) {
-  string_buffer->AppendFormat("{:08X}", param.guest_address());
+  string_buffer->AppendHexUInt32(param.guest_address());
   if (param) {
     string_buffer->AppendFormat("({:G})", param.value());
   }
@@ -455,20 +455,20 @@ inline void AppendParam(StringBuffer* string_buffer, ppc_context_t param) {
   string_buffer->Append("ContextArg");
 }
 inline void AppendParam(StringBuffer* string_buffer, lpstring_t param) {
-  string_buffer->AppendFormat("{:08X}", param.guest_address());
+  string_buffer->AppendHexUInt32(param.guest_address());
   if (param) {
     string_buffer->AppendFormat("({})", param.value());
   }
 }
 inline void AppendParam(StringBuffer* string_buffer, lpu16string_t param) {
-  string_buffer->AppendFormat("{:08X}", param.guest_address());
+  string_buffer->AppendHexUInt32(param.guest_address());
   if (param) {
     string_buffer->AppendFormat("({})", xe::to_utf8(param.value()));
   }
 }
 inline void AppendParam(StringBuffer* string_buffer,
                         pointer_t<X_OBJECT_ATTRIBUTES> record) {
-  string_buffer->AppendFormat("{:08X}", record.guest_address());
+  string_buffer->AppendHexUInt32(record.guest_address());
   if (record) {
     auto name_string =
         kernel_memory()->TranslateVirtual<X_ANSI_STRING*>(record->name_ptr);
@@ -494,7 +494,7 @@ inline void AppendParam(StringBuffer* string_buffer,
 }
 template <typename T>
 void AppendParam(StringBuffer* string_buffer, pointer_t<T> param) {
-  string_buffer->AppendFormat("{:08X}", param.guest_address());
+  string_buffer->AppendHexUInt32(param.guest_address());
 }
 
 enum class KernelModuleId {

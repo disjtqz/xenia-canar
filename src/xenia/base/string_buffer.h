@@ -36,9 +36,12 @@ class StringBuffer {
   template <typename... Args>
   void AppendFormat(const char* format, const Args&... args) {
     auto s = fmt::format(format, args...);
-    Append(s.c_str());
+    Append(s);
   }
-
+  void AppendHexUInt64(uint64_t value);
+  void AppendHexUInt32(uint32_t value);
+  void AppendParenthesizedHexUInt32(uint32_t value);
+  void AppendParenthesizedHexUInt64(uint64_t value);
   void AppendVarargs(const char* format, va_list args);
   void AppendBytes(const uint8_t* buffer, size_t length);
 
