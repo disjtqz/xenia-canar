@@ -51,6 +51,12 @@ struct EZPointer : public TypedGuestPointer<T> {
   }
 
 };
+
+#if XE_COMPARISON_BUILD
+#define     XE_COMPARISON_NOINLINE      XE_NOINLINE
+#else
+#define     XE_COMPARISON_NOINLINE
+#endif
 #pragma pack(push, 4)
 
 typedef uint32_t X_HANDLE;

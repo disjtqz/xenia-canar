@@ -256,9 +256,10 @@ void HWThread::IdleSleep(int64_t nanoseconds) {
 
 uint64_t HWThread::mftb() const {
   // need to rescale to TIMEBASE_FREQUENCY
-  long long freq = _Query_perf_frequency();
+  
+  long long freq = Clock::host_tick_frequency_platform();
 
-  long long counter = _Query_perf_counter();
+  long long counter = Clock::host_tick_count_platform();
   unsigned long long rem = 0;
 
   unsigned long long ratio = (49875000ULL << 32) / static_cast<uint64_t>(freq);

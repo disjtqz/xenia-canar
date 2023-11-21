@@ -52,7 +52,7 @@ static void SCHEDLOG(PPCContext* context, const char (&fmt)[fmt_len],
 
 static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk);
 static void insert_8009D048(PPCContext* context, X_KTHREAD* thread);
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority);
 static void xeProcessQueuedThreads(PPCContext* context,
@@ -262,7 +262,7 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
     performs bitscanning on the bitmask of available thread priorities to
     select the first runnable one that is greater than or equal to the prio arg
 */
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
                                        int priority) {
   SCHEDLOG(context, "xeScanForReadyThread - prcb = {}, priority = {}",
@@ -276,8 +276,8 @@ static X_KTHREAD* xeScanForReadyThread(PPCContext* context, X_KPRCB* prcb,
 
   auto result = prcb->ready_threads_by_priority[31 - v4].HeadObject(context);
 
-  auto v7 = result->ready_prcb_entry.flink_ptr;
-  auto v8 = result->ready_prcb_entry.blink_ptr;
+  uint32_t v7 = result->ready_prcb_entry.flink_ptr;
+  uint32_t v8 = result->ready_prcb_entry.blink_ptr;
   context->TranslateVirtual<X_LIST_ENTRY*>(v8)->flink_ptr = v7;
   context->TranslateVirtual<X_LIST_ENTRY*>(v7)->blink_ptr = v8;
   if (v8 == v7) {
@@ -814,11 +814,12 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   auto v2 = &kpcr->prcb_data;
   xboxkrnl::xeKeKfAcquireSpinLock(context, &v2->enqueued_processor_threads_lock,
                                   false);
-
-  if (!v2->next_thread) {
-    v2->next_thread = xeScanForReadyThread(context, v2, 1);
+  X_KTHREAD* next_thread = context->TranslateVirtual(v2->next_thread);
+  if (!next_thread) {
+    next_thread = xeScanForReadyThread(context, v2, 1);
+    v2->next_thread = context->HostToGuestVirtual(next_thread);
   }
-  if (v2->next_thread) {
+  if (next_thread) {
     v1->unk_B4 = v1->process->unk_0C;
     int v4 = v1->priority;
     if ((unsigned int)v4 < 0x12) {
@@ -841,7 +842,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   }
   return result;
 }
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
   SCHEDLOG(context, "scheduler_80097F90 - thread {}", (void*)thread);
   auto pcrb = &GetKPCR(context)->prcb_data;
@@ -878,7 +879,7 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
   xeDispatcherSpinlockUnlock(context, &pcrb->enqueued_processor_threads_lock,
                              thread->unk_A4);
 }
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
   SCHEDLOG(context, "xeSchedulerSwitchThread");
   auto pcr = GetKPCR(context);
@@ -948,7 +949,7 @@ X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
    asm
 
 */
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 X_STATUS xeSchedulerSwitchThread2(PPCContext* context) {
   SCHEDLOG(context, "xeSchedulerSwitchThread2");
 reenter:

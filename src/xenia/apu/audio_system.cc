@@ -41,6 +41,7 @@ DEFINE_uint32(apu_max_queued_frames, 64,
               "delay. Minimum is 16.",
               "APU");
 
+#define AUDIOSYSTEM_NOWAIT_FOR_CALLBACK 1
 namespace xe {
 namespace apu {
 struct GuestMessage {
@@ -107,7 +108,7 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
             while (true) {
               context->CheckInterrupt();
               auto callbacks = guest_worker_messages_.Flush();
-              
+
               if (!callbacks) {
                 auto status = kernel::xboxkrnl::xeNtYieldExecution(
                     cpu::ThreadState::GetContext());
@@ -134,17 +135,20 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
                                            countof(args));
                 delete order;
                 context->CheckInterrupt();
+#if AUDIOSYSTEM_NOWAIT_FOR_CALLBACK == 0
                 signal_event_->Set();
+#endif
               }
               messages_rev.clear();
             }
             return true;
-          }, kernel->GetSystemProcess()));
+          },
+          kernel->GetSystemProcess()));
   guest_thread_->Create();
   kernel::xboxkrnl::xeKeSetPriorityThread(
       context, guest_thread_->guest_object<kernel::X_KTHREAD>(), 25);
-  kernel::xboxkrnl::xeKeResumeThread(context,
-                                     guest_thread_->guest_object<kernel::X_KTHREAD>());
+  kernel::xboxkrnl::xeKeResumeThread(
+      context, guest_thread_->guest_object<kernel::X_KTHREAD>());
 }
 void AudioSystem::WorkerThreadMain() {
   // Initialize driver and ringbuffer.
@@ -188,7 +192,9 @@ void AudioSystem::WorkerThreadMain() {
       msg->client_callback_ = client_callback_in_;
       msg->client_callback_arg_ = client_callback_arg_in_;
       guest_worker_messages_.Push(&msg->list_entry);
+#if AUDIOSYSTEM_NOWAIT_FOR_CALLBACK == 0
       threading::Wait(signal_event_.get(), false);
+#endif
       pumped = true;
     }
 

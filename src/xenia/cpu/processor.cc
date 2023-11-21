@@ -48,6 +48,7 @@ DEFINE_path(trace_function_data_path, "", "File to write trace data to.",
             "CPU");
 DEFINE_bool(break_on_start, false, "Break into the debugger on startup.",
             "CPU");
+#define XE_DISABLE_RESERVE_IN_HOST_CODE 1
 
 DEFINE_bool(use_reserve_in_host_code, false,
             "If true try to emulate RESERVE behavior in kernel code, and try "
@@ -1299,13 +1300,16 @@ uint32_t Processor::CalculateNextGuestInstruction(ThreadDebugInfo* thread_info,
 }
 uint32_t Processor::GuestAtomicIncrement32(ppc::PPCContext* context,
                                            uint32_t guest_address) {
+#if !XE_DISABLE_RESERVE_IN_HOST_CODE
   if (cvars::use_reserve_in_host_code) {
     uint32_t result;
     do {
       result = backend()->ReservedLoad32(context, guest_address);
     } while (!backend()->ReservedStore32(context, guest_address, result + 1));
     return result;
-  } else {
+  } else
+#endif
+  {
     uint32_t* host_address =
         context->TranslateVirtual<uint32_t*>(guest_address);
 
@@ -1324,13 +1328,16 @@ uint32_t Processor::GuestAtomicIncrement32(ppc::PPCContext* context,
 }
 uint32_t Processor::GuestAtomicDecrement32(ppc::PPCContext* context,
                                            uint32_t guest_address) {
+#if !XE_DISABLE_RESERVE_IN_HOST_CODE
   if (cvars::use_reserve_in_host_code) {
     uint32_t result;
     do {
       result = backend()->ReservedLoad32(context, guest_address);
     } while (!backend()->ReservedStore32(context, guest_address, result - 1));
     return result;
-  } else {
+  } else
+#endif
+  {
     uint32_t* host_address =
         context->TranslateVirtual<uint32_t*>(guest_address);
 
@@ -1350,6 +1357,7 @@ uint32_t Processor::GuestAtomicDecrement32(ppc::PPCContext* context,
 
 uint32_t Processor::GuestAtomicOr32(ppc::PPCContext* context,
                                     uint32_t guest_address, uint32_t mask) {
+#if !XE_DISABLE_RESERVE_IN_HOST_CODE
   if (cvars::use_reserve_in_host_code) {
     uint32_t result;
     do {
@@ -1357,7 +1365,9 @@ uint32_t Processor::GuestAtomicOr32(ppc::PPCContext* context,
     } while (
         !backend()->ReservedStore32(context, guest_address, result | mask));
     return result;
-  } else {
+  } else
+#endif
+  {
     return xe::byte_swap(xe::atomic_or(
         context->TranslateVirtual<volatile int32_t*>(guest_address),
         xe::byte_swap(mask)));
@@ -1365,6 +1375,7 @@ uint32_t Processor::GuestAtomicOr32(ppc::PPCContext* context,
 }
 uint32_t Processor::GuestAtomicXor32(ppc::PPCContext* context,
                                      uint32_t guest_address, uint32_t mask) {
+#if !XE_DISABLE_RESERVE_IN_HOST_CODE
   if (cvars::use_reserve_in_host_code) {
     uint32_t result;
     do {
@@ -1372,7 +1383,9 @@ uint32_t Processor::GuestAtomicXor32(ppc::PPCContext* context,
     } while (
         !backend()->ReservedStore32(context, guest_address, result ^ mask));
     return result;
-  } else {
+  } else
+#endif
+  {
     return xe::byte_swap(xe::atomic_xor(
         context->TranslateVirtual<volatile int32_t*>(guest_address),
         xe::byte_swap(mask)));
@@ -1380,6 +1393,7 @@ uint32_t Processor::GuestAtomicXor32(ppc::PPCContext* context,
 }
 uint32_t Processor::GuestAtomicAnd32(ppc::PPCContext* context,
                                      uint32_t guest_address, uint32_t mask) {
+#if !XE_DISABLE_RESERVE_IN_HOST_CODE
   if (cvars::use_reserve_in_host_code) {
     uint32_t result;
     do {
@@ -1387,7 +1401,9 @@ uint32_t Processor::GuestAtomicAnd32(ppc::PPCContext* context,
     } while (
         !backend()->ReservedStore32(context, guest_address, result & mask));
     return result;
-  } else {
+  } else
+#endif
+  {
     return xe::byte_swap(xe::atomic_and(
         context->TranslateVirtual<volatile int32_t*>(guest_address),
         xe::byte_swap(mask)));
@@ -1396,6 +1412,7 @@ uint32_t Processor::GuestAtomicAnd32(ppc::PPCContext* context,
 
 bool Processor::GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
                                  uint32_t new_value, uint32_t guest_address) {
+#if !XE_DISABLE_RESERVE_IN_HOST_CODE
   if (cvars::use_reserve_in_host_code) {
     uint32_t result;
     do {
@@ -1408,7 +1425,9 @@ bool Processor::GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
       }
     } while (!backend()->ReservedStore32(context, guest_address, new_value));
     return true;
-  } else {
+  } else
+#endif
+  {
     return xe::atomic_cas(xe::byte_swap(old_value), xe::byte_swap(new_value),
                           context->TranslateVirtual<uint32_t*>(guest_address));
   }
@@ -1417,6 +1436,7 @@ bool Processor::GuestAtomicCAS32(ppc::PPCContext* context, uint32_t old_value,
 uint32_t Processor::GuestAtomicExchange32(ppc::PPCContext* context,
                                           void* guest_address,
                                           uint32_t new_value) {
+#if !XE_DISABLE_RESERVE_IN_HOST_CODE
   if (cvars::use_reserve_in_host_code) {
     uint32_t result;
     uint32_t gaddr = context->HostToGuestVirtual(guest_address);
@@ -1424,7 +1444,9 @@ uint32_t Processor::GuestAtomicExchange32(ppc::PPCContext* context,
       result = backend()->ReservedLoad32(context, gaddr);
     } while (!backend()->ReservedStore32(context, gaddr, new_value));
     return result;
-  } else {
+  } else
+#endif
+  {
     return xe::byte_swap(xe::atomic_exchange(xe::byte_swap(new_value),
                                              (uint32_t*)guest_address));
   }

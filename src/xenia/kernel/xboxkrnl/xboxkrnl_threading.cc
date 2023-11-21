@@ -1090,7 +1090,7 @@ DECLARE_XBOXKRNL_EXPORT3(NtSignalAndWaitForSingleObjectEx, kThreading,
                          kImplemented, kBlocking, kHighFrequency);
 
 static void PrefetchForCAS(const void* value) { swcache::PrefetchW(value); }
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                                bool change_irql) {
   PrefetchForCAS(lock);
@@ -1126,7 +1126,7 @@ dword_result_t KfAcquireSpinLock_entry(pointer_t<X_KSPINLOCK> lock_ptr,
 }
 DECLARE_XBOXKRNL_EXPORT3(KfAcquireSpinLock, kThreading, kImplemented, kBlocking,
                          kHighFrequency);
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
                            uint32_t old_irql, bool change_irql) {
   assert_true(lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13]));
@@ -1138,7 +1138,8 @@ void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
 
   // this is just to cancel adjacent reserves
 
-  ctx->processor->GuestAtomicExchange32(ctx, &lock->pcr_of_owner, 0);
+  // ctx->processor->GuestAtomicExchange32(ctx, &lock->pcr_of_owner, 0);
+  lock->pcr_of_owner = 0U;
   //_mm_mfence();
   // ctx->processor->CancelReservationOnAddress(ctx, &lock->pcr_of_owner);
 
@@ -1246,7 +1247,7 @@ dword_result_t KeRaiseIrqlToDpcLevel_entry(const ppc_context_t& ctx) {
 }
 DECLARE_XBOXKRNL_EXPORT2(KeRaiseIrqlToDpcLevel, kThreading, kImplemented,
                          kHighFrequency);
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql) {
   X_KPCR* kpcr = GetKPCR(ctx);
 
@@ -1272,7 +1273,7 @@ void KfLowerIrql_entry(dword_t new_irql, const ppc_context_t& ctx) {
   xeKfLowerIrql(ctx, static_cast<unsigned char>(new_irql));
 }
 DECLARE_XBOXKRNL_EXPORT2(KfLowerIrql, kThreading, kImplemented, kHighFrequency);
-XE_NOINLINE
+XE_COMPARISON_NOINLINE
 unsigned char xeKfRaiseIrql(PPCContext* ctx, unsigned char new_irql) {
   X_KPCR* v1 = ctx->TranslateVirtualGPR<X_KPCR*>(ctx->r[13]);
 
