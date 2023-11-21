@@ -128,8 +128,8 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
 
     uint32_t create_result = xboxkrnl::ExCreateThread(
         &kthreaad_u, 65536, nullptr, 0, callback, message,
-        XE_FLAG_THREAD_INITIALLY_SUSPENDED | XE_FLAG_RETURN_KTHREAD_PTR /*|
-            XE_FLAG_SYSTEM_THREAD*/);
+        XE_FLAG_THREAD_INITIALLY_SUSPENDED | XE_FLAG_RETURN_KTHREAD_PTR |
+            XE_FLAG_SYSTEM_THREAD);
 
     auto resulting_kthread = ctx->TranslateVirtual<X_KTHREAD*>(kthreaad_u);
 
