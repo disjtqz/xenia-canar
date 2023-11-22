@@ -23,6 +23,7 @@
 #include "xenia/gpu/texture_info.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/user_module.h"
+#include "xenia/emulator.h"
 #if !defined(NDEBUG)
 
 #define XE_ENABLE_GPU_REG_WRITE_LOGGING 1
@@ -106,7 +107,7 @@ bool CommandProcessor::Initialize() {
 
   worker_thread_ = threading::Thread::Create(
       crparams, std::bind(&CommandProcessor::WorkerThreadMain, this));
-
+  Emulator::Get()->RegisterGuestHardwareBlockThread(worker_thread_.get());
   worker_thread_->set_name("GPU Commands");
   worker_thread_->set_affinity_mask(0b11000000);
   return true;
@@ -119,6 +120,7 @@ void CommandProcessor::Shutdown() {
   write_ptr_index_event_->Set();
 
   threading::Wait(worker_thread_.get(), false);
+  Emulator::Get()->UnregisterGuestHardwareBlockThread(worker_thread_.get());
   worker_thread_.reset();
 }
 

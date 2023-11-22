@@ -177,6 +177,9 @@ class HWThread {
 
   void IdleSleep(int64_t nanoseconds);
 
+  void Suspend();
+  void Resume();
+
   uint64_t mftb() const;
   // SendGuestIPI is designed to run on a guest thread
   // it ought to be nonblocking, unlike TrySendHostIPI

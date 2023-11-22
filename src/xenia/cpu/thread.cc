@@ -272,5 +272,8 @@ uint64_t HWThread::mftb() const {
   return result;
 }
 
+void HWThread::Suspend() { os_thread_->Suspend(); }
+void HWThread::Resume() { os_thread_->Resume(); }
+
 }  // namespace cpu
 }  // namespace xe

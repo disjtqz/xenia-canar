@@ -53,8 +53,8 @@
 #include "xenia/vfs/devices/disc_zarchive_device.h"
 #include "xenia/vfs/devices/host_path_device.h"
 #include "xenia/vfs/devices/null_device.h"
-#include "xenia/vfs/virtual_file_system.h"
 #include "xenia/vfs/devices/xcontent_container_device.h"
+#include "xenia/vfs/virtual_file_system.h"
 
 #if XE_ARCH_AMD64
 #include "xenia/cpu/backend/x64/x64_backend.h"
@@ -83,7 +83,7 @@ DECLARE_bool(allow_plugins);
 
 namespace xe {
 using namespace xe::literals;
-
+static Emulator* g_current_emulator = nullptr;
 Emulator::GameConfigLoadCallback::GameConfigLoadCallback(Emulator& emulator)
     : emulator_(emulator) {
   emulator_.AddGameConfigLoadCallback(this);
@@ -92,6 +92,8 @@ Emulator::GameConfigLoadCallback::GameConfigLoadCallback(Emulator& emulator)
 Emulator::GameConfigLoadCallback::~GameConfigLoadCallback() {
   emulator_.RemoveGameConfigLoadCallback(this);
 }
+
+Emulator* Emulator::Get() { return g_current_emulator; }
 
 Emulator::Emulator(const std::filesystem::path& command_line,
                    const std::filesystem::path& storage_root,
@@ -119,6 +121,7 @@ Emulator::Emulator(const std::filesystem::path& command_line,
       paused_(false),
       restoring_(false),
       restore_fence_() {
+  g_current_emulator = this;
 #if XE_PLATFORM_WIN32 == 1
   // Show a disclaimer that links to the quickstart
   // guide the first time they ever open the emulator
@@ -166,6 +169,7 @@ Emulator::~Emulator() {
   export_resolver_.reset();
 
   ExceptionHandler::Uninstall(Emulator::ExceptionCallbackThunk, this);
+  g_current_emulator = nullptr;
 }
 
 X_STATUS Emulator::Setup(
@@ -266,7 +270,7 @@ X_STATUS Emulator::Setup(
 
   patcher_ = std::make_unique<xe::patcher::Patcher>(storage_root_);
 
-    // Setup the core components.
+  // Setup the core components.
   result = graphics_system_->Setup(
       processor_.get(), nullptr,
       display_window_ ? &display_window_->app_context() : nullptr,
@@ -283,7 +287,6 @@ X_STATUS Emulator::Setup(
   plugin_loader_ = std::make_unique<xe::patcher::PluginLoader>(
       kernel_state_.get(), storage_root() / "plugins");
 
-
   if (result) {
     return result;
   }
@@ -294,7 +297,6 @@ X_STATUS Emulator::Setup(
       return result;
     }
   }
-
 
   // Initialize emulator fallback exception handling last.
   ExceptionHandler::Install(Emulator::ExceptionCallbackThunk, this);
@@ -334,7 +336,8 @@ const std::unique_ptr<vfs::Device> Emulator::CreateVfsDeviceBasedOnPath(
              extension == ".tar" || extension == ".gz") {
     xe::ShowSimpleMessageBox(
         xe::SimpleMessageBoxType::Error,
-        fmt::format("Unsupported format!"
+        fmt::format(
+            "Unsupported format!"
             "Xenia does not support running software in an archived format."));
   }
   return std::make_unique<vfs::DiscImageDevice>(mount_path, path);
@@ -513,6 +516,40 @@ X_STATUS Emulator::InstallContentPackage(const std::filesystem::path& path) {
 
   return vfs::VirtualFileSystem::ExtractContentFiles(device.get(),
                                                      installation_path);
+}
+
+void Emulator::RegisterGuestHardwareBlockThread(xe::threading::Thread* thread) {
+  auto lock = global_critical_region::Acquire();
+  hw_block_threads_.insert(thread);
+}
+void Emulator::UnregisterGuestHardwareBlockThread(
+    xe::threading::Thread* thread) {
+  auto lock = global_critical_region::Acquire();
+  auto iter = hw_block_threads_.find(thread);
+  xenia_assert(iter != hw_block_threads_.end());
+  if (iter != hw_block_threads_.end()) {
+    hw_block_threads_.erase(iter);
+  }
+}
+
+void Emulator::Suspend360() {
+  auto lock = global_critical_region::Acquire();
+
+  // hardware should be suspended first, so that while the guest threads are
+  // suspended interrupts don't queue up
+  for (auto&& hw_block_thread : hw_block_threads_) {
+    hw_block_thread->Suspend();
+  }
+  processor()->Suspend();
+}
+void Emulator::Resume360() {
+  auto lock = global_critical_region::Acquire();
+
+  processor()->Resume();
+
+  for (auto&& hw_block_thread : hw_block_threads_) {
+    hw_block_thread->Resume();
+  }
 }
 
 void Emulator::Pause() {
@@ -753,9 +790,12 @@ bool Emulator::ExceptionCallback(Exception* ex) {
   std::string crash_msg;
   crash_msg.append("==== CRASH DUMP ====\n");
   crash_msg.append(fmt::format("Thread ID (Host: 0x{:08X} / Guest: 0x{:08X})\n",
-         current_thread->thread()->system_id(), current_thread->thread_id()));
-  crash_msg.append(fmt::format("Thread Handle: 0x{:08X}\n", current_thread->handle()));
-  crash_msg.append(fmt::format("PC: 0x{:08X}\n",
+                               current_thread->thread()->system_id(),
+                               current_thread->thread_id()));
+  crash_msg.append(
+      fmt::format("Thread Handle: 0x{:08X}\n", current_thread->handle()));
+  crash_msg.append(
+      fmt::format("PC: 0x{:08X}\n",
                   guest_function->MapMachineCodeToGuestAddress(ex->pc())));
   crash_msg.append("Registers:\n");
   for (int i = 0; i < 32; i++) {
@@ -975,7 +1015,7 @@ X_STATUS Emulator::CompleteLaunch(const std::filesystem::path& path,
       title_version_ = format_version(title_version);
     }
   }
- 
+
   // Try and load the resource database (xex only).
   if (module->title_id()) {
     auto title_id = fmt::format("{:08X}", module->title_id());

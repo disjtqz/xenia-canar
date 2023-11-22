@@ -20,6 +20,7 @@
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/xthread.h"
 #include "xenia/kernel/kernel_state.h"
+#include "xenia/emulator.h"
 extern "C" {
 #include "third_party/FFmpeg/libavutil/log.h"
 }  // extern "C"
@@ -143,7 +144,8 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
   assert_not_null(work_event_);
   threading::Thread::CreationParameters crparams{};
   crparams.stack_size = 16 * 1024 * 1024;
-  worker_thread_ = threading::Thread::Create(crparams, std::bind(&XmaDecoder::WorkerThreadMain, this));//this one doesnt need any process actually. never calls any guest code
+  worker_thread_ = threading::Thread::Create(crparams, std::bind(&XmaDecoder::WorkerThreadMain, this));
+  Emulator::Get()->RegisterGuestHardwareBlockThread(worker_thread_.get());
   worker_thread_->set_name("XMA Decoder");
   worker_thread_->set_affinity_mask(0b11000000);
 
@@ -193,6 +195,7 @@ void XmaDecoder::Shutdown() {
   if (worker_thread_) {
     // Wait for work thread.
     xe::threading::Wait(worker_thread_.get(), false);
+    Emulator::Get()->UnregisterGuestHardwareBlockThread(worker_thread_.get());
     worker_thread_.reset();
   }
 

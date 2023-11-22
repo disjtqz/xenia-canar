@@ -239,6 +239,10 @@ class Processor {
   void NotifyHWThreadBooted(uint32_t i);
   bool AllHWThreadsBooted();
 
+  //suspends all hw threads
+  void Suspend();
+  //resumes all hw threads
+  void Resume();
  private:
   // Synchronously demands a debug listener.
   void DemandDebugListener();

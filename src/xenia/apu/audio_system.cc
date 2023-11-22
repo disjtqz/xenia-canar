@@ -23,7 +23,7 @@
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
-
+#include "xenia/emulator.h"
 // As with normal Microsoft, there are like twelve different ways to access
 // the audio APIs. Early games use XMA*() methods almost exclusively to touch
 // decoders. Later games use XAudio*() and direct memory writes to the XMA
@@ -88,11 +88,12 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
   threading::Thread::CreationParameters crparams{};
   worker_thread_ = threading::Thread::Create(
       crparams, std::bind(&AudioSystem::WorkerThreadMain, this));
-
+  Emulator::Get()->RegisterGuestHardwareBlockThread(worker_thread_.get());
   // As we run audio callbacks the debugger must be able to suspend us.
   worker_thread_->set_name("Audio Worker");
   worker_thread_->set_affinity_mask(0b11000000);
 
+  
   return X_STATUS_SUCCESS;
 }
 void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
@@ -110,17 +111,17 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
               auto callbacks = guest_worker_messages_.Flush();
 
               if (!callbacks) {
-                auto status = kernel::xboxkrnl::xeNtYieldExecution(
-                    cpu::ThreadState::GetContext());
+               //auto status = kernel::xboxkrnl::xeNtYieldExecution(
+               //     context);
                 context->CheckInterrupt();
-                /* if (status == X_STATUS_NO_YIELD_PERFORMED) {
-                  int64_t wait_time = -20000 * 1; //1 ms
+                //if (status == X_STATUS_NO_YIELD_PERFORMED) {
+                  int64_t wait_time = -10000 * 1; //1 ms
                   kernel::xboxkrnl::xeKeDelayExecutionThread(context, 1, true,
                                                              &wait_time);
-                }*/
+               // }
                 continue;
               }
-
+              kernel::xboxkrnl::xeKeEnterCriticalRegion(context);
               while (callbacks) {
                 messages_rev.push_back((GuestMessage*)callbacks);
                 callbacks = callbacks->next_;
@@ -130,7 +131,13 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
 
               for (auto&& order : messages_rev) {
                 uint64_t args[] = {order->client_callback_arg_};
-                this->processor()->Execute(cpu::ThreadState::Get(),
+                auto kpcr = kernel::GetKPCR(context);
+
+                auto current_irql = kpcr->current_irql;
+                
+                
+                xenia_assert(current_irql == kernel::IRQL_PASSIVE);
+                this->processor()->Execute(context->thread_state(),
                                            order->client_callback_, args,
                                            countof(args));
                 delete order;
@@ -140,6 +147,8 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
 #endif
               }
               messages_rev.clear();
+              kernel::xboxkrnl::xeKeLeaveCriticalRegion(context);
+
             }
             return true;
           },
@@ -229,8 +238,8 @@ void AudioSystem::Shutdown() {
   worker_running_ = false;
   shutdown_event_->Set();
   if (worker_thread_) {
-    // worker_thread_->Wait(0, 0, 0, nullptr);
     threading::Wait(worker_thread_.get(), false);
+    Emulator::Get()->UnregisterGuestHardwareBlockThread(worker_thread_.get());
     worker_thread_.reset();
   }
 }

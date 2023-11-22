@@ -1455,5 +1455,18 @@ void Processor::NotifyHWThreadBooted(uint32_t i) {
   xe::atomic_inc(&num_booted_hwthreads_);
 }
 bool Processor::AllHWThreadsBooted() { return num_booted_hwthreads_ == 6; }
+
+void Processor::Suspend() {
+  xenia_assert(AllHWThreadsBooted());
+  for (auto&& thread : hw_threads_) {
+    thread->Suspend();
+  }
+}
+// resumes all hw threads
+void Processor::Resume() {
+  for (auto&& thread : hw_threads_) {
+    thread->Resume();
+  }
+}
 }  // namespace cpu
 }  // namespace xe

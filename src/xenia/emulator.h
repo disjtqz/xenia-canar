@@ -16,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <set>
 
 #include "xenia/base/delegate.h"
 #include "xenia/base/exception_handler.h"
@@ -87,7 +88,7 @@ class Emulator {
    private:
     Emulator& emulator_;
   };
-
+  static Emulator* Get();
   explicit Emulator(const std::filesystem::path& command_line,
                     const std::filesystem::path& storage_root,
                     const std::filesystem::path& content_root,
@@ -205,6 +206,15 @@ class Emulator {
   // Extract content of package to content specific directory.
   X_STATUS InstallContentPackage(const std::filesystem::path& path);
 
+  //if a thread is created to emulate some hardware on the 360 it must be registered here so that the system can be fully suspended for debugging
+  //purposes. can't have hardware writing to memory while we're inspecting it!
+  void RegisterGuestHardwareBlockThread(xe::threading::Thread* thread);
+  void UnregisterGuestHardwareBlockThread(xe::threading::Thread* thread);
+
+  void Suspend360();
+  void Resume360();
+
+  //these are different from Suspend360/Resume360, which are intended for debugging
   void Pause();
   void Resume();
   bool is_paused() const { return paused_; }
@@ -285,6 +295,8 @@ class Emulator {
   bool paused_;
   bool restoring_;
   threading::Fence restore_fence_;  // Fired on restore finish.
+
+  std::set<xe::threading::Thread*> hw_block_threads_;
 };
 
 }  // namespace xe

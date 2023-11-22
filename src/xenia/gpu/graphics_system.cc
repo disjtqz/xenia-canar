@@ -29,6 +29,7 @@
 #include "xenia/ui/graphics_provider.h"
 #include "xenia/ui/window.h"
 #include "xenia/ui/windowed_app_context.h"
+#include "xenia/emulator.h"
 DEFINE_bool(
     store_shaders, true,
     "Store shaders persistently and load them when loading games to avoid "
@@ -168,6 +169,7 @@ void GraphicsSystem::SetupVsync() {
     }
     return 0;
   });
+  Emulator::Get()->RegisterGuestHardwareBlockThread(vsync_worker_thread_.get());
   // As we run vblank interrupts the debugger must be able to suspend us.
   vsync_worker_thread_->set_name("GPU VSync");
 #endif
@@ -198,6 +200,7 @@ void GraphicsSystem::Shutdown() {
   if (vsync_worker_thread_) {
     vsync_worker_running_ = false;
     threading::Wait(vsync_worker_thread_.get(), false);
+    Emulator::Get()->UnregisterGuestHardwareBlockThread(vsync_worker_thread_.get());
     vsync_worker_thread_.reset();
   }
 
