@@ -37,18 +37,25 @@ void StringBuffer::Reset() {
   buffer_[0] = 0;
 }
 
-void StringBuffer::Grow(size_t additional_length) {
-  if (buffer_offset_ + additional_length <= buffer_capacity_) {
+void StringBuffer::Reserve(size_t reservation_size) {
+  if (buffer_capacity_ >= reservation_size) {
     return;
   }
-  size_t old_capacity = buffer_capacity_;
-  size_t new_capacity =
-      std::max(xe::round_up(buffer_offset_ + additional_length, 16_KiB),
-               old_capacity * 2);
+  size_t new_capacity = reservation_size;
   auto new_buffer = std::realloc(buffer_, new_capacity);
   assert_not_null(new_buffer);
   buffer_ = reinterpret_cast<char*>(new_buffer);
   buffer_capacity_ = new_capacity;
+}
+
+void StringBuffer::Grow(size_t additional_length) {
+  if (buffer_offset_ + additional_length <= buffer_capacity_) {
+    return;
+  }
+  size_t new_capacity =
+      std::max(xe::round_up(buffer_offset_ + additional_length, 16_KiB),
+               buffer_capacity_ * 2);
+  Reserve(new_capacity);
 }
 
 void StringBuffer::Append(char c) {

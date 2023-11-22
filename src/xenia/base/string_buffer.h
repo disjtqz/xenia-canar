@@ -48,7 +48,7 @@ class StringBuffer {
   std::string to_string();
   std::string_view to_string_view() const;
   std::vector<uint8_t> to_bytes() const;
-
+  void Reserve(size_t reservation_size);
  private:
   void Grow(size_t additional_length);
 
