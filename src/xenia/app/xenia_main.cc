@@ -65,7 +65,7 @@
 DEFINE_string(apu, "any", "Audio system. Use: [any, nop, sdl, xaudio2]", "APU");
 DEFINE_string(gpu, "any", "Graphics system. Use: [any, d3d12, vulkan, null]",
               "GPU");
-DEFINE_string(hid, "any", "Input system. Use: [any, nop, sdl, winkey, xinput]",
+DEFINE_string(hid, "xinput", "Input system. Use: [any, nop, sdl, winkey, xinput]",
               "HID");
 
 DEFINE_path(
