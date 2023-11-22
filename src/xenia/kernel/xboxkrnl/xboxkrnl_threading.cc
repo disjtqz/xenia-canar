@@ -1722,7 +1722,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
                               kernel_args, xe::countof(kernel_args));
       xeKeKfAcquireSpinLock(ctx, &kthread->apc_lock);
     } else {
-      if (kthread->unk_88 || kthread->apc_disable_count) {
+      if (kthread->executing_kernel_apc || kthread->apc_disable_count) {
         break;
       }
       auto v10 = v3->flink_ptr;
@@ -1743,7 +1743,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
       uint32_t arg1 = xe::load_and_swap<uint32_t>(scratch_ptr + 8);
       uint32_t arg2 = xe::load_and_swap<uint32_t>(scratch_ptr + 12);
       if (normal_routine) {
-        kthread->unk_88 = 1;
+        kthread->executing_kernel_apc = 1;
         xeKfLowerIrql(ctx, 0);
         uint64_t normal_args[] = {normal_context, arg1, arg2};
         ctx->processor->Execute(ctx->thread_state(), normal_routine,
@@ -1751,7 +1751,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
         xeKfRaiseIrql(ctx, 1);
       }
       xeKeKfAcquireSpinLock(ctx, &kthread->apc_lock);
-      kthread->unk_88 = 0;
+      kthread->executing_kernel_apc = 0;
     }
   }
   ctx->r[1] = old_stack_pointer;
@@ -1762,7 +1762,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
 }
 
 X_STATUS xeProcessUserApcs(PPCContext* ctx) {
-  GetKThread(ctx)->unk_8A = 0;
+  GetKThread(ctx)->user_apc_pending = 0;
   return xeProcessApcQueue<X_STATUS_USER_APC, 1>(ctx);
 }
 
@@ -1922,7 +1922,7 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
       if (target_thread_state == 5 && apc_thread->processor_mode == 1 &&
           apc_thread->alertable) {
         wait_status = X_STATUS_USER_APC;
-        apc_thread->unk_8A = 1;
+        apc_thread->user_apc_pending = 1;
         goto LABEL_25;
       }
     } else {
@@ -1938,9 +1938,9 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
         }
         goto LABEL_26;
       }
-      if (target_thread_state == 5 && !apc_thread->unk_A4 &&
+      if (target_thread_state == 5 && !apc_thread->wait_irql &&
           (!apc->normal_routine ||
-           !apc_thread->apc_disable_count && !apc_thread->unk_88)) {
+           !apc_thread->apc_disable_count && !apc_thread->executing_kernel_apc)) {
         wait_status = X_STATUS_KERNEL_APC;
       LABEL_25:
         xeEnqueueThreadPostWait(context, apc_thread, wait_status,

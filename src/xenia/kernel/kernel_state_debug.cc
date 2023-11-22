@@ -34,35 +34,45 @@
 namespace xe {
 namespace kernel {
 
-static void DumpSpinlock(KernelState* ks, X_KSPINLOCK* lock, StringBuffer* sbuffer) {
+struct KernelDebugStringBuffer : public StringBuffer {
+  KernelState* const kernel_state_;
+  static const char* ProcessTypeToString(uint8_t proctype);
+  KernelDebugStringBuffer(KernelState* kernel_state)
+      : kernel_state_(kernel_state) {
+    this->Reserve(65536);
+  }
+};
+
+static void DumpSpinlock(KernelState* ks, X_KSPINLOCK* lock,
+                         KernelDebugStringBuffer* sbuffer) {
   uint32_t held_by_pcr = lock->pcr_of_owner;
 
   sbuffer->AppendFormat("(Owner = CPU {})", (held_by_pcr >> 12) & 0xF);
 }
 
-
-static const char* ProcessTypeToString(uint8_t proctype) {
-    switch (proctype) { case X_PROCTYPE_IDLE:
-        return "idle";
-      case X_PROCTYPE_SYSTEM:
-        return "system";
-      case X_PROCTYPE_TITLE:
-        return "title";
-      default:
-        xenia_assert(false);
-        return "unknown";
+const char* KernelDebugStringBuffer::ProcessTypeToString(uint8_t proctype) {
+  switch (proctype) {
+    case X_PROCTYPE_IDLE:
+      return "idle";
+    case X_PROCTYPE_SYSTEM:
+      return "system";
+    case X_PROCTYPE_TITLE:
+      return "title";
+    default:
+      xenia_assert(false);
+      return "unknown";
   }
 }
 
 static void DumpProcess(KernelState* ks, X_KPROCESS* process,
-                               StringBuffer* sbuffer) {
-
+                        KernelDebugStringBuffer* sbuffer) {
   sbuffer->Append("thread_list_spinlock = ");
   DumpSpinlock(ks, &process->thread_list_spinlock, sbuffer);
-#define SIMPF(field_name) \
-  sbuffer->AppendFormat("\n" #field_name " = {:X}", static_cast<uint32_t>(process->field_name))
+#define SIMPF(field_name)                           \
+  sbuffer->AppendFormat("\n" #field_name " = {:X}", \
+                        static_cast<uint32_t>(process->field_name))
 
-  SIMPF(unk_0C);
+  SIMPF(quantum);
   SIMPF(clrdataa_masked_ptr);
   SIMPF(thread_count);
   SIMPF(unk_18);
@@ -79,10 +89,11 @@ static void DumpProcess(KernelState* ks, X_KPROCESS* process,
   SIMPF(is_terminating);
   SIMPF(process_type);
   sbuffer->AppendFormat("\nprocess_type = {}",
-                        ProcessTypeToString(process->process_type));
-
-
+      KernelDebugStringBuffer::ProcessTypeToString(process->process_type));
 }
+
+static void DumpThread(KernelState* ks, X_KTHREAD* kthread,
+                       KernelDebugStringBuffer* sbuffer) {}
 
 }  // namespace kernel
 }  // namespace xe

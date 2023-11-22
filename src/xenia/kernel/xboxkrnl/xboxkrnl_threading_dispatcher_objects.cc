@@ -53,8 +53,8 @@ int32_t xeKeSetEvent(PPCContext* context, X_KEVENT* event, int increment,
   if (wait) {
     auto current_thread =
         context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
-    current_thread->unk_A6 = wait;
-    current_thread->unk_A4 = old_irql;
+    current_thread->wait_next = wait;
+    current_thread->wait_irql = old_irql;
   } else {
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context), old_irql);
@@ -80,8 +80,8 @@ int32_t xeKePulseEvent(PPCContext* context, X_KEVENT* event, int increment,
   if (wait) {
     auto current_thread =
         context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
-    current_thread->unk_A6 = wait;
-    current_thread->unk_A4 = old_irql;
+    current_thread->wait_next = wait;
+    current_thread->wait_irql = old_irql;
   } else {
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context), old_irql);
@@ -144,8 +144,8 @@ int32_t xeKeReleaseMutant(PPCContext* context, X_KMUTANT* mutant, int increment,
   }
 
   if (wait) {
-    current_thread->unk_A6 = wait;
-    current_thread->unk_A4 = old_irql;
+    current_thread->wait_next = wait;
+    current_thread->wait_irql = old_irql;
 
   } else {
     xeDispatcherSpinlockUnlock(
@@ -180,8 +180,8 @@ int32_t xeKeReleaseSemaphore(PPCContext* context, X_KSEMAPHORE* semaphore,
   }
 
   if (wait) {
-    GetKThread(context)->unk_A6 = wait;
-    GetKThread(context)->unk_A4 = old_irql;
+    GetKThread(context)->wait_next = wait;
+    GetKThread(context)->wait_irql = old_irql;
 
   } else {
     xeDispatcherSpinlockUnlock(
@@ -489,10 +489,10 @@ X_LIST_ENTRY* xeKeRundownQueue(PPCContext* context, X_KQUEUE* queue) {
 uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
                          unsigned char wait_mode, int64_t* timeout) {
   auto this_thread = GetKThread(context);
-  if (this_thread->unk_A6)
-    this_thread->unk_A6 = 0;
+  if (this_thread->wait_next)
+    this_thread->wait_next = 0;
   else
-    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    this_thread->wait_irql = context->kernel_state->LockDispatcher(context);
 
   auto v8 = context->TranslateVirtual(this_thread->queue);
   this_thread->queue = context->HostToGuestVirtual(queue);
@@ -532,14 +532,14 @@ uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
       goto LABEL_36;
     }
     if (this_thread->deferred_apc_software_interrupt_state &&
-        !this_thread->unk_A4) {
+        !this_thread->wait_irql) {
       ++queue->current_count;
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context),
-          this_thread->unk_A4);
+          this_thread->wait_irql);
       goto LABEL_31;
     }
-    if (wait_mode && this_thread->unk_8A) {
+    if (wait_mode && this_thread->user_apc_pending) {
       v15 = X_STATUS_USER_APC;
       goto LABEL_35;
     }
@@ -595,7 +595,7 @@ uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
     }
 
   LABEL_31:
-    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    this_thread->wait_irql = context->kernel_state->LockDispatcher(context);
     --queue->current_count;
   }
   v15 = X_STATUS_TIMEOUT;
@@ -604,7 +604,7 @@ LABEL_35:
 LABEL_36:
   xeDispatcherSpinlockUnlock(context,
                              context->kernel_state->GetDispatcherLock(context),
-                             this_thread->unk_A4);
+                             this_thread->wait_irql);
   context->stack_free(orig_stack);
   return v15;
 }

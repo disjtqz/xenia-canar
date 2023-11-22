@@ -416,31 +416,31 @@ struct X_KTHREAD {
   // apc_mode determines which list an apc goes into
   util::X_TYPED_LIST<XAPC, offsetof(XAPC, list_entry)> apc_lists[2];
   EZPointer<X_KPROCESS> process;  // 0x84
-  uint8_t unk_88;                 // 0x88
+  uint8_t executing_kernel_apc;   // 0x88
   // when context switch happens, this is copied into
   // apc_software_interrupt_state for kpcr
   uint8_t deferred_apc_software_interrupt_state;  // 0x89
-  uint8_t unk_8A;                                 // 0x8A
+  uint8_t user_apc_pending;                       // 0x8A
   uint8_t may_queue_apcs;                         // 0x8B
   X_KSPINLOCK apc_lock;                           // 0x8C
-  xe::be<uint32_t> unk_90;                        // 0x90
+  xe::be<uint32_t> num_context_switches_to;       // 0x90
   X_LIST_ENTRY ready_prcb_entry;                  // 0x94
   xe::be<uint32_t> msr_mask;                      // 0x9C
   xe::be<X_STATUS> wait_result;                   // 0xA0
-  uint8_t unk_A4;                                 // 0xA4
+  uint8_t wait_irql;                              // 0xA4
   uint8_t processor_mode;                         // 0xA5
-  uint8_t unk_A6;                                 // 0xA6
+  uint8_t wait_next;                              // 0xA6
   uint8_t wait_reason;                            // 0xA7
   EZPointer<X_KWAIT_BLOCK> wait_blocks;           // 0xA8
   uint8_t unk_AC[4];                              // 0xAC
   xe::be<int32_t> apc_disable_count;              // 0xB0
-  xe::be<int32_t> unk_B4;                         // 0xB4
+  xe::be<int32_t> quantum;                        // 0xB4
   uint8_t unk_B8;                                 // 0xB8
   uint8_t unk_B9;                                 // 0xB9
   uint8_t unk_BA;                                 // 0xBA
   uint8_t boost_disabled;                         // 0xBB
   uint8_t suspend_count;                          // 0xBC
-  uint8_t unk_BD;                                 // 0xBD
+  uint8_t was_preempted;                          // 0xBD
   uint8_t terminated;                             // 0xBE
   uint8_t current_cpu;                            // 0xBF
   EZPointer<X_KPRCB> a_prcb_ptr;                  // 0xC0
@@ -510,8 +510,8 @@ struct X_KPROCESS {
   // list of threads in this process, guarded by the spinlock above
   util::X_TYPED_LIST<X_KTHREAD, offsetof(X_KTHREAD, process_threads)>
       thread_list;
-
-  xe::be<int32_t> unk_0C;
+  //quantum value assigned to each thread of the process
+  xe::be<int32_t> quantum;
   // kernel sets this to point to a section of size 0x2F700 called CLRDATAA,
   // except it clears bit 31 of the pointer. in 17559 the address is 0x801C0000,
   // so it sets this ptr to 0x1C0000

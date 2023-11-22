@@ -99,7 +99,7 @@ reenter:
           context, &kpcr->prcb_data.enqueued_processor_threads_lock, false);
       auto next_thread = kpcr->prcb_data.next_thread;
       auto v3 = kpcr->prcb_data.current_thread.xlat();
-      v3->unk_A4 = irql;
+      v3->wait_irql = irql;
       kpcr->prcb_data.next_thread = 0U;
       kpcr->prcb_data.current_thread = next_thread;
       insert_8009D048(context, v3);
@@ -212,16 +212,16 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
       context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
   xeReallyQueueThread(context, kthread);
 }
-
-static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int unk) {
+//if was_preempted, insert to front of ready list
+static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int was_preempted) {
   SCHEDLOG(context, "insert_8009D048 - thread = {}, unk = {}", (void*)thread,
-           unk);
+           was_preempted);
   auto priority = thread->priority;
   auto thread_prcb = context->TranslateVirtual(thread->a_prcb_ptr);
   auto thread_ready_list_entry = &thread->ready_prcb_entry;
   thread->thread_state = 1;
   auto& list_for_priority = thread_prcb->ready_threads_by_priority[priority];
-  if (unk) {
+  if (was_preempted) {
     auto v6 = list_for_priority.flink_ptr;
     thread->ready_prcb_entry.blink_ptr = &list_for_priority;
     thread_ready_list_entry->flink_ptr = v6;
@@ -243,8 +243,8 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
   SCHEDLOG(context, "insert_8009D048 - thread = {}", (void*)thread);
   if (context->TranslateVirtual(thread->another_prcb_ptr) ==
       &GetKPCR(context)->prcb_data) {
-    unsigned char unk = thread->unk_BD;
-    thread->unk_BD = 0;
+    unsigned char unk = thread->was_preempted;
+    thread->was_preempted = 0;
     insert_8009CFE0(context, thread, unk);
   } else {
     thread->thread_state = 6;
@@ -305,10 +305,10 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
       context, &prcb_for_thread->enqueued_processor_threads_lock, false);
 
   auto thread_priority = kthread->priority;
-  auto unk_BD = kthread->unk_BD;
-  kthread->unk_BD = 0;
+  auto was_preempted = kthread->was_preempted;
+  kthread->was_preempted = 0;
   if ((prcb_for_thread->unk_mask_64 & (1 << thread_priority)) == 0) {
-    insert_8009CFE0(context, kthread, unk_BD);
+    insert_8009CFE0(context, kthread, was_preempted);
     xboxkrnl::xeKeKfReleaseSpinLock(
         context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
     return;
@@ -344,10 +344,10 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   if (!prcb_for_thread->next_thread) {
     if (thread_priority >
         context->TranslateVirtual(prcb_for_thread->current_thread)->priority) {
-      context->TranslateVirtual(prcb_for_thread->current_thread)->unk_BD = 1;
+      context->TranslateVirtual(prcb_for_thread->current_thread)->was_preempted = 1;
       goto label_6;
     }
-    insert_8009CFE0(context, kthread, unk_BD);
+    insert_8009CFE0(context, kthread, was_preempted);
     xboxkrnl::xeKeKfReleaseSpinLock(
         context, &prcb_for_thread->enqueued_processor_threads_lock, 0, false);
     return;
@@ -419,13 +419,13 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
 
   auto current_thread = context->TranslateVirtual(prcb->current_thread);
 
-  if (current_thread->unk_B4 <= 0) {
+  if (current_thread->quantum <= 0) {
     auto current_process = current_thread->process;
     if (current_process->unk_1B && current_thread->priority >= 0x12u) {
-      current_thread->unk_B4 = 0x7FFFFFFF;
+      current_thread->quantum = 0x7FFFFFFF;
     } else {
       auto current_prio = current_thread->priority;
-      current_thread->unk_B4 = current_process->unk_0C;
+      current_thread->quantum = current_process->quantum;
       if ((unsigned int)current_prio < 0x12) {
         current_prio = current_prio - current_thread->unk_BA - 1;
         if (current_prio < current_thread->unk_B9) {
@@ -435,7 +435,7 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
       }
       current_thread->priority = current_prio;
       if (prcb->next_thread) {
-        current_thread->unk_BD = 0;
+        current_thread->was_preempted = 0;
       } else {
         auto v7 = xeScanForReadyThread(context, prcb, current_prio);
         if (v7) {
@@ -658,7 +658,7 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
   auto thread_priority = thread->priority;
   auto thread_process = thread->process;
   if (thread_priority >= 0x12) {
-    thread->unk_B4 = thread_process->unk_0C;
+    thread->quantum = thread_process->quantum;
 
   } else {
     auto v15 = thread->unk_BA;
@@ -673,13 +673,13 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
     }
     auto v17 = thread->unk_B9;
     if (v17 >= (unsigned int)thread->unk_CA) {
-      thread->unk_B4 = thread_process->unk_0C;
+      thread->quantum = thread_process->quantum;
     } else {
-      auto v18 = thread->unk_B4 - 10;
-      thread->unk_B4 = v18;
+      auto v18 = thread->quantum - 10;
+      thread->quantum = v18;
       if (v18 <= 0) {
         auto v19 = (unsigned char)(thread->priority - v15 - 1);
-        thread->unk_B4 = thread_process->unk_0C;
+        thread->quantum = thread_process->quantum;
 
         thread->priority = v19;
         if (v19 < v17) {
@@ -810,7 +810,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   auto old_irql = kpcr->current_irql;
   kpcr->current_irql = IRQL_DISPATCH;
 
-  v1->unk_A4 = old_irql;
+  v1->wait_irql = old_irql;
   auto v2 = &kpcr->prcb_data;
   xboxkrnl::xeKeKfAcquireSpinLock(context, &v2->enqueued_processor_threads_lock,
                                   false);
@@ -820,7 +820,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
     v2->next_thread = context->HostToGuestVirtual(next_thread);
   }
   if (next_thread) {
-    v1->unk_B4 = v1->process->unk_0C;
+    v1->quantum = v1->process->quantum;
     int v4 = v1->priority;
     if ((unsigned int)v4 < 0x12) {
       v4 = v4 - v1->unk_BA - 1;
@@ -837,7 +837,7 @@ X_STATUS xeNtYieldExecution(PPCContext* context) {
   } else {
     xboxkrnl::xeKeKfReleaseSpinLock(
         context, &v2->enqueued_processor_threads_lock, 0, false);
-    xboxkrnl::xeKfLowerIrql(context, v1->unk_A4);
+    xboxkrnl::xeKfLowerIrql(context, v1->wait_irql);
     result = X_STATUS_NO_YIELD_PERFORMED;
   }
   return result;
@@ -854,10 +854,10 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
   if (priority < 0x12) {
     unsigned int v6 = thread->unk_B9;
     if (v6 < thread->unk_CA) {
-      int v7 = thread->unk_B4 - 10;
-      thread->unk_B4 = v7;
+      int v7 = thread->quantum - 10;
+      thread->quantum = v7;
       if (v7 <= 0) {
-        thread->unk_B4 = thread->process->unk_0C;
+        thread->quantum = thread->process->quantum;
         int v8 = priority - thread->unk_BA - 1;
         if (v8 < (int)v6) {
           v8 = v6;
@@ -865,7 +865,7 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
         thread->priority = v8;
         thread->unk_BA = 0;
         if (pcrb->next_thread) {
-          thread->unk_BD = 0;
+          thread->was_preempted = 0;
         } else {
           X_KTHREAD* v9 = xeScanForReadyThread(context, pcrb, v8);
           if (v9) {
@@ -877,7 +877,7 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
     }
   }
   xeDispatcherSpinlockUnlock(context, &pcrb->enqueued_processor_threads_lock,
-                             thread->unk_A4);
+                             thread->wait_irql);
 }
 XE_COMPARISON_NOINLINE
 X_STATUS xeSchedulerSwitchThread(PPCContext* context) {
@@ -1056,10 +1056,10 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
   X_KWAIT_BLOCK* stash = context->TranslateVirtual<X_KWAIT_BLOCK*>(guest_stash);
 
   auto reason2 = reason;
-  if (this_thread->unk_A6)
-    this_thread->unk_A6 = 0;
+  if (this_thread->wait_next)
+    this_thread->wait_next = 0;
   else {
-    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    this_thread->wait_irql = context->kernel_state->LockDispatcher(context);
   }
 
   X_STATUS v14;
@@ -1067,7 +1067,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
   auto v12 = timeout;
   while (1) {
     if (this_thread->deferred_apc_software_interrupt_state &&
-        !this_thread->unk_A4) {
+        !this_thread->wait_irql) {
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), 0);
       goto LABEL_41;
@@ -1100,7 +1100,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
         }
         xeDispatcherSpinlockUnlock(
             context, context->kernel_state->GetDispatcherLock(context),
-            this_thread->unk_A4);
+            this_thread->wait_irql);
 
         // X_STATUS_MUTANT_LIMIT_EXCEEDED
         // should raise status
@@ -1126,13 +1126,13 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       }
       if (processor_mode &&
           !util::XeIsListEmpty(&this_thread->apc_lists[1], context)) {
-        this_thread->unk_8A = 1;
+        this_thread->user_apc_pending = 1;
       LABEL_54:
         v14 = X_STATUS_USER_APC;
       LABEL_55:
         xeDispatcherSpinlockUnlock(
             context, context->kernel_state->GetDispatcherLock(context),
-            this_thread->unk_A4);
+            this_thread->wait_irql);
         goto LABEL_58;
       }
       if (this_thread->alerted[0]) {
@@ -1140,7 +1140,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
         this_thread->alerted[0] = 0;
         goto LABEL_55;
       }
-    } else if (processor_mode && this_thread->unk_8A) {
+    } else if (processor_mode && this_thread->user_apc_pending) {
       goto LABEL_54;
     }
     if (timeout) {
@@ -1171,7 +1171,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       xeKeSignalQueue(context, context->TranslateVirtual<X_KQUEUE*>(v16));
     }
 
-    auto v17 = (unsigned __int8)this_thread->unk_A4;
+    auto v17 = (unsigned __int8)this_thread->wait_irql;
     this_thread->alertable = alertable;
     this_thread->processor_mode = processor_mode;
     this_thread->wait_reason = reason2;
@@ -1195,7 +1195,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       }
     }
   LABEL_41:
-    this_thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    this_thread->wait_irql = context->kernel_state->LockDispatcher(context);
   }
   auto obj_type = object->type;
   if ((obj_type & 7) == 1) {
@@ -1264,7 +1264,7 @@ void xeKeSetPriorityClassThread(PPCContext* context, X_KTHREAD* thread,
     if (v12 < 0x12) {
       auto v16 = thread->process;
       thread->unk_BA = 0;
-      thread->unk_B4 = v16->unk_0C;
+      thread->quantum = v16->quantum;
       xeKeChangeThreadPriority(context, thread, v14);
     }
   }
@@ -1380,14 +1380,14 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
   auto thread = GetKThread(context);
 
   int64_t v6 = *interval;
-  if (thread->unk_A6)
-    thread->unk_A6 = 0;
+  if (thread->wait_next)
+    thread->wait_next = 0;
   else
-    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    thread->wait_irql = context->kernel_state->LockDispatcher(context);
   auto v7 = v6;
   X_STATUS result;
   while (1) {
-    if (thread->deferred_apc_software_interrupt_state && !thread->unk_A4) {
+    if (thread->deferred_apc_software_interrupt_state && !thread->wait_irql) {
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), 0);
       goto LABEL_28;
@@ -1399,13 +1399,13 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
         goto LABEL_32;
       }
       if (mode && !thread->apc_lists[1].empty(context)) {
-        thread->unk_8A = 1;
+        thread->user_apc_pending = 1;
       LABEL_31:
         result = X_STATUS_USER_APC;
       LABEL_32:
         xeDispatcherSpinlockUnlock(
             context, context->kernel_state->GetDispatcherLock(context),
-            thread->unk_A4);
+            thread->wait_irql);
         if (result == X_STATUS_USER_APC) {
           xboxkrnl::xeProcessUserApcs(context);
         }
@@ -1416,7 +1416,7 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
         thread->alerted[0] = 0;
         goto LABEL_32;
       }
-    } else if (mode && thread->unk_8A) {
+    } else if (mode && thread->user_apc_pending) {
       goto LABEL_31;
     }
     thread->wait_result = 0;
@@ -1463,7 +1463,7 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
     }
 
   LABEL_28:
-    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    thread->wait_irql = context->kernel_state->LockDispatcher(context);
   }
   if (v6) {
     context->kernel_state->UnlockDispatcherAtIrql(context);
@@ -1472,7 +1472,7 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
   } else {
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context),
-        thread->unk_A4);
+        thread->wait_irql);
     result = xeNtYieldExecution(context);
   }
   return result;
@@ -1523,7 +1523,7 @@ int32_t xeKeSetBasePriorityThread(PPCContext* context, X_KTHREAD* thread,
   thread->unk_B9 = v13;
   thread->unk_BA = 0;
   if (v14 != v15) {
-    thread->unk_B4 = thread->process->unk_0C;
+    thread->quantum = thread->process->quantum;
     xeKeChangeThreadPriority(context, thread, v14);
   }
 
@@ -1596,10 +1596,10 @@ X_STATUS xeKeWaitForMultipleObjects(
     int64_t* timeout, X_KWAIT_BLOCK* wait_blocks) {
   X_STATUS result;
   auto thread = GetKThread(context);
-  if (thread->unk_A6)
-    thread->unk_A6 = 0;
+  if (thread->wait_next)
+    thread->wait_next = 0;
   else {
-    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    thread->wait_irql = context->kernel_state->LockDispatcher(context);
   }
   unsigned int v21;
   int64_t v43 = 0;
@@ -1614,7 +1614,7 @@ X_STATUS xeKeWaitForMultipleObjects(
   while (true) {
     auto v19 = thread->deferred_apc_software_interrupt_state;
     thread->wait_blocks = wait_blocks;
-    if (v19 && !thread->unk_A4) {
+    if (v19 && !thread->wait_irql) {
       xeDispatcherSpinlockUnlock(
           context, context->kernel_state->GetDispatcherLock(context), 0);
       goto LABEL_60;
@@ -1639,13 +1639,13 @@ X_STATUS xeKeWaitForMultipleObjects(
         goto LABEL_73;
       }
       if (mode && !util::XeIsListEmpty(&thread->apc_lists[1], context)) {
-        thread->unk_8A = 1;
+        thread->user_apc_pending = 1;
       LABEL_72:
         result = X_STATUS_USER_APC;
       LABEL_73:
         xeDispatcherSpinlockUnlock(
             context, context->kernel_state->GetDispatcherLock(context),
-            thread->unk_A4);
+            thread->wait_irql);
         goto deliver_apc_and_return;
       }
       if (thread->alerted[0]) {
@@ -1653,7 +1653,7 @@ X_STATUS xeKeWaitForMultipleObjects(
         thread->alerted[0] = 0;
         goto LABEL_73;
       }
-    } else if (mode && thread->unk_8A) {
+    } else if (mode && thread->user_apc_pending) {
       goto LABEL_72;
     }
     if (timeout) {
@@ -1690,7 +1690,7 @@ X_STATUS xeKeWaitForMultipleObjects(
     thread->alertable = alertable;
     thread->processor_mode = mode;
     thread->wait_reason = reason;
-    auto v35 = (unsigned char)thread->unk_A4;
+    auto v35 = (unsigned char)thread->wait_irql;
     thread->thread_state = 5;
     result = xeSchedulerSwitchThread2(context);
     if (result == X_STATUS_USER_APC) {
@@ -1710,7 +1710,7 @@ X_STATUS xeKeWaitForMultipleObjects(
       }
     }
   LABEL_60:
-    thread->unk_A4 = context->kernel_state->LockDispatcher(context);
+    thread->wait_irql = context->kernel_state->LockDispatcher(context);
   }
   auto v22 = objects;
   wait_blocks_shifted = &wait_blocks->wait_result_xstatus;
@@ -1785,7 +1785,7 @@ X_STATUS xeKeWaitForMultipleObjects(
   LABEL_19:
     xeDispatcherSpinlockUnlock(
         context, context->kernel_state->GetDispatcherLock(context),
-        thread->unk_A4);
+        thread->wait_irql);
     // RtlRaiseStatus(X_STATUS_MUTANT_LIMIT_EXCEEDED);
     xenia_assert(false);
     goto LABEL_31;
@@ -1836,9 +1836,9 @@ int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
       context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, false);
 
   auto old_priority = thread->priority;
-  auto v8 = thread->process->unk_0C;
+  auto v8 = thread->process->quantum;
   thread->unk_BA = 0;
-  thread->unk_B4 = v8;
+  thread->quantum = v8;
   xeKeChangeThreadPriority(context, thread, priority);
   xboxkrnl::xeKeKfReleaseSpinLock(
       context, &thread->a_prcb_ptr->enqueued_processor_threads_lock, 0, false);

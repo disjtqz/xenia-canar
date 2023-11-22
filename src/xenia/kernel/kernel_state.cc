@@ -1057,8 +1057,8 @@ void KernelState::SystemClockInterrupt() {
   auto current_thread = kpcr->prcb_data.current_thread.xlat();
   auto idle_thread = kpcr->prcb_data.idle_thread.xlat();
   if (idle_thread != current_thread) {
-    auto v16 = current_thread->unk_B4 - 3;
-    current_thread->unk_B4 = v16;
+    auto v16 = current_thread->quantum - 3;
+    current_thread->quantum = v16;
     if (v16 <= 0) {
       kpcr->timeslice_ended = 2;
       kpcr->generic_software_interrupt = 2;
@@ -1067,8 +1067,7 @@ void KernelState::SystemClockInterrupt() {
 
   ic->WriteRegisterOffset(0x8, old_irql);
   kpcr->current_irql = old_irql;
-  // KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
-  // GenericExternalInterruptEpilog(context, old_irql);
+
 }
 void KernelState::GenericExternalInterruptEpilog(cpu::ppc::PPCContext* context,
                                                  uint32_t r3) {
@@ -1458,7 +1457,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
     kpcr->stack_end_ptr = stklim;
     kpcr->tls_ptr = thrd_tls;
 
-    guest->unk_90 += 1;
+    guest->num_context_switches_to += 1;
     xenia_assert(kpcr->prcb_data.enqueued_processor_threads_lock.pcr_of_owner ==
                  context->HostToGuestVirtual(kpcr));
     context->msr = old_msr;
@@ -1509,7 +1508,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
   if (!from_idle_loop) {
     X_KTHREAD* thread_to_load_from = GetKThread(context);
     xenia_assert(thread_to_load_from != guest);
-    uint32_t r3 = thread_to_load_from->unk_A4;
+    uint32_t r3 = thread_to_load_from->wait_irql;
     auto wait_result = thread_to_load_from->wait_result;
     GetKPCR(context)->current_irql = r3;
     uint32_t intstate = GetKPCR(context)->software_interrupt_state;
@@ -1566,6 +1565,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
       #if 0
+
       cpu::HWThread::ThreadDelay();
       ++spin_count;
       // todo: check whether a timed interrupt would be missed due to wait

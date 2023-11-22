@@ -317,7 +317,7 @@ void XThread::InitializeGuestObject() {
   guest_thread->priority = v19;
   guest_thread->unk_CA = v20;
   // timeslice related
-  guest_thread->unk_B4 = process->unk_0C;
+  guest_thread->quantum = process->quantum;
 
   guest_thread->tls_address = tls_static_address_;
 
