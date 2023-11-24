@@ -512,7 +512,7 @@ dword_result_t NtCreateEvent_entry(
   }
 
   auto ev = object_ref<XEvent>(new XEvent(kernel_state()));
-  ev->Initialize(!event_type, !!initial_state);
+  ev->Initialize(event_type == 0, !!initial_state);
 
   // obj_attributes may have a name inside of it, if != NULL.
   if (obj_attributes_ptr) {

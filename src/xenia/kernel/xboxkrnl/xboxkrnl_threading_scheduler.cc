@@ -1755,7 +1755,7 @@ X_STATUS xeKeWaitForMultipleObjects(
       goto LABEL_32;
     }
   }
-  bool is_mutant = obj_type == 2;
+  bool is_mutant = obj_type == DISPATCHER_MUTANT;
   int saved_signalstate = v24->header.signal_state;
   if (is_mutant) {
     if (saved_signalstate <= 0 && thread != v24->owner.xlat()) {

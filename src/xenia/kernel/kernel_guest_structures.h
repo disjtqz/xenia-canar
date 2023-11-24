@@ -20,8 +20,19 @@ enum Irql : uint8_t {
   IRQL_APC = 1,
   IRQL_DISPATCH = 2,
   IRQL_DPC = 3,
+  IRQL_AUDIO = 68, //used a few times in the audio driver
 };
 
+enum { 
+    DISPATCHER_MANUAL_RESET_EVENT = 0,
+    DISPATCHER_AUTO_RESET_EVENT = 1,
+    DISPATCHER_MUTANT = 2,
+    DISPATCHER_QUEUE = 4,
+    DISPATCHER_SEMAPHORE = 5,
+    DISPATCHER_THREAD = 6,
+    DISPATCHER_MANUAL_RESET_TIMER = 8,
+    DISPATCHER_AUTO_RESET_TIMER = 9,
+};
 static constexpr uint32_t XE_FLAG_THREAD_INITIALLY_SUSPENDED = 1,
                           XE_FLAG_SYSTEM_THREAD = 2,
                           XE_FLAG_PRIORITY_CLASS1 = 0x20,

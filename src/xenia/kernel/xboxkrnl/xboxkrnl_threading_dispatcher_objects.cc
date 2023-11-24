@@ -389,7 +389,7 @@ X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object) {
 
 void xeKeInitializeQueue(X_KQUEUE* queue, uint32_t count, PPCContext* context) {
   queue->header.signal_state = 0;
-  queue->header.type = 4;
+  queue->header.type = DISPATCHER_QUEUE;
   util::XeInitializeListHead(&queue->header.wait_list, context);
   util::XeInitializeListHead(&queue->entry_list_head, context);
   util::XeInitializeListHead(&queue->thread_list_head, context);
