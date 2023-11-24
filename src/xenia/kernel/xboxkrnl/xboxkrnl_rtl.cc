@@ -512,6 +512,15 @@ pointer_result_t RtlImageXexHeaderField_entry(pointer_t<xex2_header> xex_header,
 }
 DECLARE_XBOXKRNL_EXPORT1(RtlImageXexHeaderField, kNone, kImplemented);
 
+static void AssertValidCriticalSection(X_RTL_CRITICAL_SECTION* cs) {
+  // must be 4-byte aligned
+  xenia_assert(!(reinterpret_cast<uintptr_t>(cs) & 3));
+  xenia_assert(cs->header.type == 1);
+  xenia_assert(cs->header.wait_list.blink_ptr != 0 &&
+               cs->header.wait_list.flink_ptr != 0);
+  xenia_assert(cs->recursion_count >= 0);
+}
+
 void xeRtlInitializeCriticalSection(X_RTL_CRITICAL_SECTION* cs,
                                     uint32_t cs_ptr) {
   cs->header.type = 1;      // EventSynchronizationObject (auto reset)
@@ -573,6 +582,7 @@ void xeRtlEnterCriticalSection(PPCContext* context,
     XELOGE("Null critical section in RtlEnterCriticalSection!");
     return;
   }
+  AssertValidCriticalSection(cs);
   CriticalSectionPrefetchW(&cs->lock_count);
   uint32_t cur_thread = GetKPCR(context)->prcb_data.current_thread;
   uint32_t spin_count = cs->header.absolute * 256;
@@ -618,13 +628,13 @@ void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs,
 DECLARE_XBOXKRNL_EXPORT2(RtlEnterCriticalSection, kNone, kImplemented,
                          kHighFrequency);
 
-uint32_t xeRtlTryEnterCriticalSection(
-    PPCContext* context,
-    X_RTL_CRITICAL_SECTION* cs) {
+uint32_t xeRtlTryEnterCriticalSection(PPCContext* context,
+                                      X_RTL_CRITICAL_SECTION* cs) {
   if (!cs) {
     XELOGE("Null critical section in RtlTryEnterCriticalSection!");
     return 1;  // pretend we got the critical section.
   }
+  AssertValidCriticalSection(cs);
   CriticalSectionPrefetchW(&cs->lock_count);
   uint32_t thread = GetKPCR(context)->prcb_data.current_thread;
 
@@ -652,11 +662,13 @@ dword_result_t RtlTryEnterCriticalSection_entry(
 DECLARE_XBOXKRNL_EXPORT2(RtlTryEnterCriticalSection, kNone, kImplemented,
                          kHighFrequency);
 
-void xeRtlLeaveCriticalSection(PPCContext* context, X_RTL_CRITICAL_SECTION* cs) {
+void xeRtlLeaveCriticalSection(PPCContext* context,
+                               X_RTL_CRITICAL_SECTION* cs) {
   if (!cs) {
     XELOGE("Null critical section in RtlLeaveCriticalSection!");
     return;
   }
+  AssertValidCriticalSection(cs);
   assert_true(cs->owning_thread == GetKPCR(context)->prcb_data.current_thread);
 
   // Drop recursion count - if it isn't zero we still have the lock.
