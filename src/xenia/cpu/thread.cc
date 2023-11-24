@@ -50,6 +50,7 @@ void HWThread::RunIdleProcess() {
 thread_local HWThread* this_hw_thread = nullptr;
 void HWThread::ThreadFunc() {
   this_hw_thread = this;
+  threading::set_current_thread_id(this->cpu_number_);
   interrupt_controller()->Initialize();
   idle_process_fiber_ = threading::Fiber::CreateFromThread();
   cpu::ThreadState::Bind(idle_process_threadstate_);
