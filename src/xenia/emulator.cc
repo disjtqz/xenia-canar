@@ -775,6 +775,7 @@ bool Emulator::ExceptionCallback(Exception* ex) {
     return false;
   }
 
+  xe::FatalError("Exception!");
   // Within range. Pause the emulator and eat the exception.
   Pause();
 

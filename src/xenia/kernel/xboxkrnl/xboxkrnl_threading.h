@@ -29,9 +29,6 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
                                       uint32_t alertable, uint64_t* timeout_ptr,
                                       cpu::ppc::PPCContext* context);
 
-uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
-                                 uint32_t processor_mode, uint32_t alertable,
-                                 uint64_t* timeout_ptr);
 
 uint32_t xeKeWaitForSingleObjectEx(
     PPCContext* context,

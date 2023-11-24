@@ -529,12 +529,20 @@ void KernelState::BootInitializeStatics() {
   block->VdGlobalDevice = 0;
   block->VdGlobalXamDevice = 0;
   block->VdGpuClockInMHz = 500;
-  block->VdHSIOCalibrationLock.header.type = 1;
+  block->VdHSIOCalibrationLock.header.type = DISPATCHER_AUTO_RESET_EVENT;
   block->VdHSIOCalibrationLock.header.absolute = 4;
   util::XeInitializeListHead(&block->VdHSIOCalibrationLock.header.wait_list,
                              memory_);
 
   block->VdHSIOCalibrationLock.lock_count = ~0u;
+
+  block->audio_interrupt_dpc_.Initialize(
+      kernel_trampoline_group_.NewLongtermTrampoline(
+          &KernelState::AudioInterruptDPC),
+      0U);
+  block->audio_interrupt_dpc_event_.header.type = DISPATCHER_AUTO_RESET_EVENT;
+  util::XeInitializeListHead(
+      &block->audio_interrupt_dpc_event_.header.wait_list, memory_);
 
 }
 static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,

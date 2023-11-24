@@ -432,7 +432,6 @@ void KernelState::CreateDispatchThread() {
         new XHostThread(this, 128 * 1024, XE_FLAG_AFFINITY_CPU2, [this]() {
           auto context = cpu::ThreadState::GetContext();
           while (dispatch_thread_running_) {
-            
             context->CheckInterrupt();
             xboxkrnl::xeKeWaitForSingleObject(
                 context,
@@ -1625,6 +1624,34 @@ KernelGuestGlobals* KernelState::GetKernelGuestGlobals(
     cpu::ppc::PPCContext* context) {
   return context->TranslateVirtual<KernelGuestGlobals*>(
       GetKernelGuestGlobals());
+}
+
+void KernelState::AudioInterruptDPC(cpu::ppc::PPCContext* context) {
+  xboxkrnl::xeKeSetEvent(context,
+                         &context->kernel_state->GetKernelGuestGlobals(context)
+                              ->audio_interrupt_dpc_event_,
+                         1, 0);
+}
+//this executes at IRQL_AUDIO
+void KernelState::AudioInterrupt(void* v) {
+   
+  auto context = cpu::ThreadState::GetContext();
+  auto kpcr = GetKPCR(context);
+  auto ic = context->kernel_state->InterruptControllerFromPCR(context, kpcr);
+  auto old_irql = kpcr->current_irql;
+  kpcr->current_irql = IRQL_AUDIO;
+  ic->WriteRegisterOffset(8, IRQL_AUDIO);
+
+
+
+  xboxkrnl::xeKeInsertQueueDpc(
+      &context->kernel_state->GetKernelGuestGlobals(context)
+           ->audio_interrupt_dpc_,
+      0, 0, context);
+
+  kpcr->current_irql = old_irql;
+  ic->WriteRegisterOffset(8, old_irql);
+  ic->SetEOI(old_irql);
 }
 }  // namespace kernel
 }  // namespace xe

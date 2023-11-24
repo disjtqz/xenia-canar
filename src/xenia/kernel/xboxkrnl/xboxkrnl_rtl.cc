@@ -612,8 +612,7 @@ void xeRtlEnterCriticalSection(PPCContext* context,
           1 !=
       0) {
     // Create a full waiter.
-    uint32_t v =
-        xeKeWaitForSingleObject(reinterpret_cast<void*>(cs), 8, 0, 0, nullptr);
+    xeKeWaitForSingleObject(context, &cs->header, 8, 0, 0, nullptr);
   }
 
   assert_true(cs->owning_thread == 0);

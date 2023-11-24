@@ -142,6 +142,9 @@ struct KernelGuestGlobals {
 
   X_KEVENT dispatch_queue_event_;
 
+  X_KEVENT audio_interrupt_dpc_event_;
+  XDPC audio_interrupt_dpc_;
+
 };
 
 struct X_KPCR_PAGE;
@@ -358,6 +361,9 @@ class KernelState {
   static cpu::HWThread* HWThreadFor(cpu::ppc::PPCContext* context);
 
   static void TriggerTrueExternalInterrupt(cpu::ppc::PPCContext* context);
+
+  static void AudioInterruptDPC(cpu::ppc::PPCContext* context);
+  static void AudioInterrupt(void* v);
 
  private:
   static void LaunchModuleInterrupt(void* ud);

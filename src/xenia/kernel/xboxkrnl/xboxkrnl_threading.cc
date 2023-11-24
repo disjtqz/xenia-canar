@@ -942,22 +942,16 @@ dword_result_t NtCancelTimer_entry(dword_t timer_handle,
 }
 DECLARE_XBOXKRNL_EXPORT1(NtCancelTimer, kThreading, kImplemented);
 
-uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason,
-                                 uint32_t processor_mode, uint32_t alertable,
-                                 uint64_t* timeout_ptr) {
-  return xeKeWaitForSingleObject(
-      cpu::ThreadState::GetContext(), (X_DISPATCH_HEADER*)object_ptr,
-      wait_reason, processor_mode, alertable, (int64_t*)timeout_ptr);
-}
-
 dword_result_t KeWaitForSingleObject_entry(lpvoid_t object_ptr,
                                            dword_t wait_reason,
                                            dword_t processor_mode,
                                            dword_t alertable,
                                            lpqword_t timeout_ptr) {
-  uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-  return xeKeWaitForSingleObject(object_ptr, wait_reason, processor_mode,
-                                 alertable, timeout_ptr ? &timeout : nullptr);
+  int64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+  return xeKeWaitForSingleObject(cpu::ThreadState::GetContext(),
+                                 (X_DISPATCH_HEADER*)object_ptr.host_address(),
+                                 wait_reason, processor_mode, alertable,
+                                 timeout_ptr ? &timeout : nullptr);
 }
 DECLARE_XBOXKRNL_EXPORT3(KeWaitForSingleObject, kThreading, kImplemented,
                          kBlocking, kHighFrequency);
@@ -1939,8 +1933,8 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
         goto LABEL_26;
       }
       if (target_thread_state == 5 && !apc_thread->wait_irql &&
-          (!apc->normal_routine ||
-           !apc_thread->apc_disable_count && !apc_thread->executing_kernel_apc)) {
+          (!apc->normal_routine || !apc_thread->apc_disable_count &&
+                                       !apc_thread->executing_kernel_apc)) {
         wait_status = X_STATUS_KERNEL_APC;
       LABEL_25:
         xeEnqueueThreadPostWait(context, apc_thread, wait_status,
@@ -2136,7 +2130,9 @@ void ExAcquireReadWriteLockExclusive_entry(pointer_t<X_ERWLOCK> lock_ptr,
   lock_ptr->writers_waiting_count++;
 
   xeKeKfReleaseSpinLock(ppc_context, &lock_ptr->spin_lock, old_irql);
-  xeKeWaitForSingleObject(&lock_ptr->writer_event, 7, 0, 0, nullptr);
+
+  xeKeWaitForSingleObject(ppc_context, &lock_ptr->writer_event.header, 7, 0, 0,
+                          nullptr);
 }
 DECLARE_XBOXKRNL_EXPORT2(ExAcquireReadWriteLockExclusive, kThreading,
                          kImplemented, kBlocking);
@@ -2174,7 +2170,9 @@ void ExAcquireReadWriteLockShared_entry(pointer_t<X_ERWLOCK> lock_ptr,
   lock_ptr->readers_waiting_count++;
 
   xeKeKfReleaseSpinLock(ppc_context, &lock_ptr->spin_lock, old_irql);
-  xeKeWaitForSingleObject(&lock_ptr->reader_semaphore, 7, 0, 0, nullptr);
+  xeKeWaitForSingleObject(
+      ppc_context, &lock_ptr->reader_semaphore.header,
+      7, 0, 0, nullptr);
 }
 DECLARE_XBOXKRNL_EXPORT2(ExAcquireReadWriteLockShared, kThreading, kImplemented,
                          kBlocking);
