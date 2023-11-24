@@ -102,6 +102,8 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
       kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
           kernel, 65536U, 0x10000083u,
           [this]() {
+            std::vector<GuestMessage*> messages_rev{};
+            messages_rev.reserve(128);
             auto context = cpu::ThreadState::GetContext();
             while (true) {
               kernel::xboxkrnl::xeKeWaitForSingleObject(
@@ -110,27 +112,37 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
                        ->audio_interrupt_dpc_event_.header,
                   0, 0, 0, nullptr);
 
-              auto callback =
-                  reinterpret_cast<GuestMessage*>(guest_worker_messages_.Pop());
+              auto callbacks = guest_worker_messages_.Flush();
 
-              if (!callback) {
+              if (!callbacks) {
                 xenia_assert(false);
                 continue;
               }
               kernel::xboxkrnl::xeKeEnterCriticalRegion(context);
+              while (callbacks) {
+                messages_rev.push_back((GuestMessage*)callbacks);
+                callbacks = callbacks->next_;
+                context->CheckInterrupt();
+              }
+              std::reverse(messages_rev.begin(), messages_rev.end());
 
-              uint64_t args[] = {callback->client_callback_arg_};
-              auto kpcr = kernel::GetKPCR(context);
+              for (auto&& order : messages_rev) {
+                uint64_t args[] = {order->client_callback_arg_};
+                auto kpcr = kernel::GetKPCR(context);
 
-              auto current_irql = kpcr->current_irql;
+                auto current_irql = kpcr->current_irql;
 
-              xenia_assert(current_irql == kernel::IRQL_PASSIVE);
-              this->processor()->Execute(context->thread_state(),
-                                         callback->client_callback_, args,
-                                         countof(args));
-              delete callback;
-              context->CheckInterrupt();
-
+                xenia_assert(current_irql == kernel::IRQL_PASSIVE);
+                this->processor()->Execute(context->thread_state(),
+                                           order->client_callback_, args,
+                                           countof(args));
+                delete order;
+                context->CheckInterrupt();
+#if AUDIOSYSTEM_NOWAIT_FOR_CALLBACK == 0
+                signal_event_->Set();
+#endif
+              }
+              messages_rev.clear();
               kernel::xboxkrnl::xeKeLeaveCriticalRegion(context);
             }
             return true;
