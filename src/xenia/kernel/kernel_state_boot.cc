@@ -526,6 +526,16 @@ void KernelState::BootInitializeStatics() {
                                                           0);
     block->command_processor_interrupt_dpcs[i].desired_cpu_number = i + 1;
   }
+  block->VdGlobalDevice = 0;
+  block->VdGlobalXamDevice = 0;
+  block->VdGpuClockInMHz = 500;
+  block->VdHSIOCalibrationLock.header.type = 1;
+  block->VdHSIOCalibrationLock.header.absolute = 4;
+  util::XeInitializeListHead(&block->VdHSIOCalibrationLock.header.wait_list,
+                             memory_);
+
+  block->VdHSIOCalibrationLock.lock_count = ~0u;
+
 }
 static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,
                                     X_KPCR* kpcr) {
@@ -605,6 +615,10 @@ void KernelState::BootInitializeXam(cpu::ppc::PPCContext* context) {
   globals->XamEnumeratorObjectType.free_proc = trampoline_freepool;
   globals->XamEnumeratorObjectType.unknown_size_or_object_ =
       context->HostToGuestVirtual(&globals->XamDefaultObject);
+  globals->dispatch_queue_event_.header.type = 1;
+  util::XeInitializeListHead(&globals->dispatch_queue_event_.header.wait_list,
+                             context);
+
   // todo: Enumerator!
 }
 
@@ -740,6 +754,12 @@ void KernelState::BootInitializeCPU0InSystemThread(
   }
   emulator()->audio_system()->StartGuestWorkerThread(this);
   BootInitializeXam(context);
+  uint32_t prev_affinity;
+  xboxkrnl::xeKeSetAffinityThread(context, GetKThread(context), 4, &prev_affinity);
+  xenia_assert(prev_affinity == 1);
+  xenia_assert(context->kernel_state->GetPCRCpuNum(GetKPCR(context)) == 2);
+
+  xboxkrnl::xeKeSetPriorityThread(context, GetKThread(context), 20);
   CPU0WaitForLaunch(context);
 }
 

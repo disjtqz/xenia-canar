@@ -430,16 +430,20 @@ void KernelState::CreateDispatchThread() {
     dispatch_thread_running_ = true;
     dispatch_thread_ = object_ref<XHostThread>(
         new XHostThread(this, 128 * 1024, XE_FLAG_AFFINITY_CPU2, [this]() {
-          // As we run guest callbacks the debugger must be able to suspend us.
           auto context = cpu::ThreadState::GetContext();
           while (dispatch_thread_running_) {
+            
             context->CheckInterrupt();
+            xboxkrnl::xeKeWaitForSingleObject(
+                context,
+                &context->kernel_state->GetKernelGuestGlobals(context)
+                     ->dispatch_queue_event_.header,
+                3, 0, false, nullptr);
             DispatchQueueEntry* entry =
                 reinterpret_cast<DispatchQueueEntry*>(dispatch_queue_.Pop());
 
             if (!entry) {
-              int64_t interval = -20000;  // 2 ms
-              xboxkrnl::xeKeDelayExecutionThread(context, 0, false, &interval);
+              xenia_assert(false);
               continue;
             } else {
               entry->function();
@@ -909,7 +913,10 @@ void KernelState::CompleteOverlappedDeferredEx(
           post_callback();
         }
       });
+  auto context = cpu::ThreadState::GetContext();
   dispatch_queue_.Push(new_entry);
+  xboxkrnl::xeKeSetEvent(
+      context, &GetKernelGuestGlobals(context)->dispatch_queue_event_, 1, 0);
 }
 
 bool KernelState::Save(ByteStream* stream) {
@@ -1042,10 +1049,12 @@ void KernelState::SystemClockInterrupt() {
     }
 
     for (auto& timer : globals->running_timers.IterateForward(context)) {
-      if (timer.due_time <= time_imprecise) {
-        kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
-        kpcr->generic_software_interrupt = 2;
-        break;
+      if (&timer != nullptr) {
+        if (timer.due_time <= time_imprecise) {
+          kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
+          kpcr->generic_software_interrupt = 2;
+          break;
+        }
       }
     }
     if (!dispatcher_held) {
@@ -1067,7 +1076,6 @@ void KernelState::SystemClockInterrupt() {
 
   ic->WriteRegisterOffset(0x8, old_irql);
   kpcr->current_irql = old_irql;
-
 }
 void KernelState::GenericExternalInterruptEpilog(cpu::ppc::PPCContext* context,
                                                  uint32_t r3) {
@@ -1266,7 +1274,7 @@ void KernelState::GraphicsInterruptDPC(PPCContext* context) {
   if (callback) {
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_TITLE, context);
     context->processor->Execute(context->thread_state(), callback,
-                                callback_data, countof(callback_data));
+                                callback_data, countof(callback_data), true);
     // xenia_assert(GetKPCR(context)->prcb_data.dpc_active != 0);
     xboxkrnl::xeKeSetCurrentProcessType(X_PROCTYPE_IDLE, context);
   }
@@ -1564,7 +1572,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       xenia_assert(GetKThread(context) == kthread);
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
-      #if 0
+#if 0
 
       cpu::HWThread::ThreadDelay();
       ++spin_count;
@@ -1576,7 +1584,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
                                          //  }
 
       _mm_pause();
-      #endif
+#endif
     }
 
     /*

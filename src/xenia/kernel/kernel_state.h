@@ -134,6 +134,14 @@ struct KernelGuestGlobals {
   XDPC command_processor_interrupt_dpcs[6]; //one per hw thread
 
   X_KEVENT title_terminated_event;
+  xe::be<uint32_t> VdGlobalDevice;
+  xe::be<uint32_t> VdGlobalXamDevice;
+  xe::be<uint32_t> VdGpuClockInMHz;
+
+  X_RTL_CRITICAL_SECTION VdHSIOCalibrationLock;
+
+  X_KEVENT dispatch_queue_event_;
+
 };
 
 struct X_KPCR_PAGE;

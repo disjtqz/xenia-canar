@@ -234,6 +234,10 @@ XboxkrnlModule::XboxkrnlModule(Emulator* emulator, KernelState* kernel_state)
   EXPORT_KVAR(ObDirectoryObjectType);
   EXPORT_KVAR(ObSymbolicLinkObjectType);
   EXPORT_KVAR(UsbdBootEnumerationDoneEvent);
+  EXPORT_KVAR(VdGlobalDevice);
+  EXPORT_KVAR(VdGlobalXamDevice);
+  EXPORT_KVAR(VdGpuClockInMHz);
+  EXPORT_KVAR(VdHSIOCalibrationLock);
 #undef EXPORT_KVAR
 }
 
