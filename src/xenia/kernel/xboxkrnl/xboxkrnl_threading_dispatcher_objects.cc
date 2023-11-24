@@ -363,6 +363,16 @@ X_DISPATCH_HEADER* xeObGetWaitableObject(PPCContext* context, void* object) {
   // either encodes an offset from the object base to the object to wait on,
   // or a default object to wait on?
   uint32_t unk = wait_object_type->unknown_size_or_object_;
+  auto kernel_guest_globals =
+      context->kernel_state->GetKernelGuestGlobals(context);
+  if (wait_object_type == &kernel_guest_globals
+                               ->IoFileObjectType) {
+    xenia_assert(false);
+  }
+
+  if (wait_object_type == &kernel_guest_globals->IoCompletionObjectType) {
+    xenia_assert(false);
+  }
   X_DISPATCH_HEADER* waiter =
       context->TranslateVirtual<X_DISPATCH_HEADER*>(unk);
   // if (unk) {
