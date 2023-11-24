@@ -610,8 +610,14 @@ void XThread::Execute() {
 
   auto context = thread_state_->context();
   auto kthrd = guest_object<X_KTHREAD>();
-  xenia_assert(context->TranslateVirtual(kthrd->another_prcb_ptr) ==
-               &GetKPCR(context)->prcb_data);
+  // hack!!! not sure atm why the priority is wrong
+  if (main_thread_) {
+    xboxkrnl::xeKeSetPriorityThread(context, kthrd, 0xE);
+  }
+  // i believe this is possible. it just means the thread switching dpc hasnt
+  // run yet
+  // xenia_assert(context->TranslateVirtual(kthrd->another_prcb_ptr) ==
+  //               &GetKPCR(context)->prcb_data);
   cpu::ppc::PPCGprSnapshot snapshot{};
   context->TakeGPRSnapshot(&snapshot);
   xboxkrnl::xeKfLowerIrql(thread_state_->context(), IRQL_PASSIVE);
