@@ -51,6 +51,7 @@ void XEvent::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
 }
 
 int32_t XEvent::Set(uint32_t priority_increment, bool wait) {
+  xenia_assert(!wait);
   xboxkrnl::xeKeSetEvent(cpu::ThreadState::GetContext(),
                          guest_object<X_KEVENT>(), 0, wait);
   return 1;
