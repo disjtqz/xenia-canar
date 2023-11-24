@@ -248,6 +248,11 @@ dword_result_t NtSetInformationFile_entry(
       }
       break;
     }
+    case XFileBasicInformation: {
+      XELOGE("SetInformationFile called with basic information; ignoring");
+      out_length = 0;
+      break;
+    }
     default:
       // Unsupported, for now.
       assert_always();
