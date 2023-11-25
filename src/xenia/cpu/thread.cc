@@ -47,9 +47,12 @@ void HWThread::RunIdleProcess() {
   }
 }
 
-thread_local HWThread* this_hw_thread = nullptr;
+// thread_local HWThread* this_hw_thread = nullptr;
+
+HWThread* this_hw_thread(ppc::PPCContext* context) {
+  return context->processor->GetCPUThread((context->r[13] >> 12) & 0x7);
+}
 void HWThread::ThreadFunc() {
-  this_hw_thread = this;
   threading::set_current_thread_id(this->cpu_number_);
   interrupt_controller()->Initialize();
   idle_process_fiber_ = threading::Fiber::CreateFromThread();
@@ -119,7 +122,7 @@ struct GuestInterruptWrapper {
 // theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
 static bool may_run_interrupt_proc(ppc::PPCContext_s* context) {
   return context->ExternalInterruptsEnabled() &&
-         this_hw_thread->interrupt_controller()->GetEOI() != 0;
+         this_hw_thread(context)->interrupt_controller()->GetEOI() != 0;
 }
 
 uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
@@ -143,10 +146,10 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
     }
     kpcr->use_alternative_stack = kpcr->alt_stack_base_ptr;
   }
-  this_hw_thread->interrupt_controller()->SetEOI(0);
+  this_hw_thread(context)->interrupt_controller()->SetEOI(0);
 
   interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
-  this_hw_thread->interrupt_controller()->SetEOI(1);
+  this_hw_thread(context)->interrupt_controller()->SetEOI(1);
   // xenia_assert(interrupt_wrapper->thiz->interrupt_controller()->GetEOI());
   kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
@@ -190,10 +193,12 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   request->wait = wait_done;
 
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
+  auto context = cpu::ThreadState::GetContext();
 
-  if (this_hw_thread != this) {
+  if (!context || this_hw_thread(context) != this) {
     wake_idle_event_->Set();
   }
+
   if (!wait_done) {
     return true;
   } else {
@@ -257,7 +262,7 @@ void HWThread::IdleSleep(int64_t nanoseconds) {
 
 uint64_t HWThread::mftb() const {
   // need to rescale to TIMEBASE_FREQUENCY
-  
+
   long long freq = Clock::host_tick_frequency_platform();
 
   long long counter = Clock::host_tick_count_platform();

@@ -32,7 +32,9 @@
 
 namespace xe {
 namespace threading {
-
+// msvc's debugger cannot show the stacks of fibers that are no longer running,
+// but it can show thread stacks
+#define XE_USE_FAKEFIBERS 0
 using namespace xe::literals;
 
 #if XE_PLATFORM_ANDROID
@@ -515,9 +517,11 @@ class Fiber : public WaitHandle {
 
   static std::unique_ptr<Fiber> CreateFromThread();
   // use this to signal explicitly that the fiber is done
-  //otherwise you can deadlock in the destructor if your fiber has finished, but will never actually return
+  // otherwise you can deadlock in the destructor if your fiber has finished,
+  // but will never actually return
   virtual void SetTerminated() = 0;
   virtual void SwitchTo() = 0;
+  virtual void set_name(std::string name) = 0;
   virtual ~Fiber() {}
 };
 

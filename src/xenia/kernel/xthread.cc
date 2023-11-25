@@ -228,7 +228,9 @@ void XThread::set_last_error(uint32_t error_code) {
   guest_object<X_KTHREAD>()->last_error = error_code;
 }
 
-void XThread::set_name(const std::string_view name) {}
+void XThread::set_name(const std::string_view name) {
+  fiber()->set_name(std::string{name});
+}
 
 void XThread::InitializeGuestObject() {
   /*

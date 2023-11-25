@@ -322,9 +322,8 @@ void KernelState::LaunchModuleInterrupt(void* ud) {
       new XThread(kernel_state(), (*launch->module)->stack_size(), 0,
                   (*launch->module)->entry_point(), 0, 0x1000100, true, true);
 
-  launch->thread->set_name("Main XThread");
-
   X_STATUS result = launch->thread->Create();
+  //launch->thread->set_name("Main XThread");
   if (XFAILED(result)) {
     XELOGE("Could not create launch thread: {:08X}", result);
 
@@ -451,8 +450,8 @@ void KernelState::CreateDispatchThread() {
           }
           return 0;
         }));  // don't think an equivalent exists on real hw
-    dispatch_thread_->set_name("Kernel Dispatch");
     dispatch_thread_->Create();
+    dispatch_thread_->set_name("Kernel Dispatch");
   }
 }
 

@@ -203,7 +203,18 @@ uintptr_t GetTlsValue(TlsHandle handle) {
 bool SetTlsValue(TlsHandle handle, uintptr_t value) {
   return TlsSetValue(handle, reinterpret_cast<void*>(value)) ? true : false;
 }
+#if XE_USE_FAKEFIBERS == 1
+TlsHandle AllocateFlsHandle() { return TlsAlloc(); }
+bool FreeFlsHandle(TlsHandle handle) { return TlsFree(handle) ? true : false; }
 
+uintptr_t GetFlsValue(TlsHandle handle) {
+  return reinterpret_cast<uintptr_t>(TlsGetValue(handle));
+}
+
+bool SetFlsValue(TlsHandle handle, uintptr_t value) {
+  return TlsSetValue(handle, reinterpret_cast<void*>(value)) ? true : false;
+}
+#else
 TlsHandle AllocateFlsHandle() { return FlsAlloc(nullptr); }
 bool FreeFlsHandle(TlsHandle handle) { return FlsFree(handle) ? true : false; }
 
@@ -215,6 +226,7 @@ bool SetFlsValue(TlsHandle handle, uintptr_t value) {
   return FlsSetValue(handle, reinterpret_cast<void*>(value)) ? true : false;
 }
 
+#endif
 template <typename T>
 class Win32Handle : public T {
  public:
@@ -879,8 +891,94 @@ class Win32Fiber : public Fiber {
   }
 
   virtual void SwitchTo() override { SwitchToFiber(this_fiber_); }
+  virtual void set_name(std::string name) {}
 };
+class FakeWin32Fiber;
+thread_local FakeWin32Fiber* g_current_fake_win32_fiber = nullptr;
+class FakeWin32Fiber : public Fiber {
+ public:
+  std::function<void()> callback;
 
+  HANDLE execute_signal_;
+  // HANDLE this_handle_;
+  std::unique_ptr<threading::Thread> this_thrd_;
+  HANDLE done_signal_;
+  DWORD thread_id_;
+  uint64_t fiber_affinity_;
+  static DWORD FiberFunc(LPVOID param) {
+    FakeWin32Fiber* thiz = reinterpret_cast<FakeWin32Fiber*>(param);
+    g_current_fake_win32_fiber = thiz;
+    WaitForSingleObject(thiz->execute_signal_, INFINITE);
+
+    thiz->callback();
+    SetEvent(thiz->done_signal_);
+    return 0;
+  }
+
+  FakeWin32Fiber(size_t stack_size, std::function<void()> callback_)
+      : callback(std::move(callback_)) {
+    fiber_affinity_ = 0ULL;
+    done_signal_ = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
+    execute_signal_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    threading::Thread::CreationParameters crparams{};
+    crparams.stack_size = stack_size;
+
+    this_thrd_ =
+        Thread::Create(crparams, std::bind(&FakeWin32Fiber::FiberFunc, this));
+    // this_handle_ =
+    //    CreateThread(nullptr, stack_size, FiberFunc, this, 0, &thread_id_);
+  }
+
+  FakeWin32Fiber() : callback({}) {
+    g_current_fake_win32_fiber = this;
+    fiber_affinity_ = threading::Thread::GetCurrentThread()->affinity_mask();
+
+    done_signal_ = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
+    execute_signal_ = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    thread_id_ = GetCurrentThreadId();
+  }
+  virtual void* native_handle() const override { return (void*)done_signal_; }
+  virtual void SetTerminated() override { SetEvent(this->done_signal_); }
+  virtual ~FakeWin32Fiber() {
+    WaitForSingleObject(done_signal_, INFINITE);
+    CloseHandle(done_signal_);
+    CloseHandle(execute_signal_);
+  }
+
+  virtual void SwitchTo() override {
+    if (this->this_thrd_) {
+      auto this_aff = g_current_fake_win32_fiber->fiber_affinity_;
+      if (this->fiber_affinity_ != this_aff) {
+        this->fiber_affinity_ = this_aff;
+        this->this_thrd_->set_affinity_mask(this_aff);
+      }
+    }
+    SignalObjectAndWait(this->execute_signal_,
+                        g_current_fake_win32_fiber->execute_signal_, INFINITE,
+                        false);
+  }
+  virtual void set_name(std::string name) {
+    if (this_thrd_) {
+      this_thrd_->set_name(name);
+    }
+  }
+};
+#if XE_USE_FAKEFIBERS == 1
+std::unique_ptr<Fiber> Fiber::Create(CreationParameters params,
+                                     std::function<void()> start_routine) {
+  return std::make_unique<FakeWin32Fiber>(params.stack_size, start_routine);
+}
+
+std::unique_ptr<Fiber> Fiber::CreateFromThread() {
+  return std::make_unique<FakeWin32Fiber>();
+}
+
+Fiber* Fiber::GetCurrentFiber() {
+  return reinterpret_cast<Fiber*>(g_current_fake_win32_fiber);
+}
+#else
 std::unique_ptr<Fiber> Fiber::Create(CreationParameters params,
                                      std::function<void()> start_routine) {
   return std::make_unique<Win32Fiber>(params.stack_size, start_routine);
@@ -893,6 +991,8 @@ std::unique_ptr<Fiber> Fiber::CreateFromThread() {
 Fiber* Fiber::GetCurrentFiber() {
   return reinterpret_cast<Fiber*>(GetFiberData());
 }
+
+#endif
 
 AtomicListHeader::AtomicListHeader() {
   InitializeSListHead(reinterpret_cast<PSLIST_HEADER>(this));

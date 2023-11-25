@@ -115,7 +115,7 @@ void AudioSystem::StartGuestWorkerThread(kernel::KernelState* kernel) {
               auto callbacks = guest_worker_messages_.Flush();
 
               if (!callbacks) {
-                xenia_assert(false);
+                //xenia_assert(false);
                 continue;
               }
               kernel::xboxkrnl::xeKeEnterCriticalRegion(context);
