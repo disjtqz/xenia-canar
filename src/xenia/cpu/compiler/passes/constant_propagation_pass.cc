@@ -266,10 +266,17 @@ bool ConstantPropagationPass::Run(HIRBuilder* builder, bool& result) {
             auto mmio_range =
                 processor_->memory()->LookupVirtualMappedRange(address);
             if (cvars::inline_mmio_access && mmio_range) {
-              i->Replace(&OPCODE_LOAD_MMIO_info, 0);
-              i->src1.offset = reinterpret_cast<uint64_t>(mmio_range);
-              i->src2.offset = address;
-              result = true;
+              auto constant_entry = mmio_range->constant_addresses.find(address);
+              if (constant_entry == mmio_range->constant_addresses.end()) {
+                i->Replace(&OPCODE_LOAD_MMIO_info, 0);
+                i->src1.offset = reinterpret_cast<uint64_t>(mmio_range);
+                i->src2.offset = address;
+                result = true;
+              } else {
+                v->set_constant(xe::byte_swap(constant_entry->second));
+                i->UnlinkAndNOP();
+                result = true;
+              }
             } else {
               auto heap = memory->LookupHeap(address);
               uint32_t protect;

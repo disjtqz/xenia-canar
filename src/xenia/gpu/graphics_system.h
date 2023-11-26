@@ -90,9 +90,10 @@ class GraphicsSystem {
   void SetupVsync();
   void SetKernelState(xe::kernel::KernelState* ks);
 
+  
  protected:
   GraphicsSystem();
-
+  void AddConstantRegisterValue(uint32_t register_, uint32_t value);
   virtual std::unique_ptr<CommandProcessor> CreateCommandProcessor() = 0;
 
   static uint32_t ReadRegisterThunk(void* ppc_context, GraphicsSystem* gs,

@@ -23,13 +23,13 @@
 #include "xenia/base/math.h"
 #include "xenia/base/profiling.h"
 #include "xenia/base/threading.h"
+#include "xenia/emulator.h"
 #include "xenia/gpu/command_processor.h"
 #include "xenia/gpu/gpu_flags.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/ui/graphics_provider.h"
 #include "xenia/ui/window.h"
 #include "xenia/ui/windowed_app_context.h"
-#include "xenia/emulator.h"
 DEFINE_bool(
     store_shaders, true,
     "Store shaders persistently and load them when loading games to avoid "
@@ -101,8 +101,15 @@ X_STATUS GraphicsSystem::Setup(cpu::Processor* processor,
       reinterpret_cast<cpu::MMIOReadCallback>(ReadRegisterThunk),
       reinterpret_cast<cpu::MMIOWriteCallback>(WriteRegisterThunk));
 
-  // vsync_worker_thread_->thread()->set_priority(
-  //    threading::ThreadPriority::kLowest);
+  AddConstantRegisterValue(0x0F00, 0x08100748);  // RB_EDRAM_TIMING
+  AddConstantRegisterValue(0x0F01, 0x0000200E);  // RB_BC_CONTROL
+
+  AddConstantRegisterValue(0x194C, 0x000002D0);  // R500_D1MODE_V_COUNTER
+  AddConstantRegisterValue(0x1951, 1);           // interrupt status, vblank
+  AddConstantRegisterValue(
+      0x1961, 0x050002D0);  // AVIVO_D1MODE_VIEWPORT_SIZE
+                            // Screen res - 1280x720
+                            // maximum [width(0x0FFF), height(0x0FFF)]
   if (cvars::trace_gpu_stream) {
     BeginTracing();
   }
@@ -110,6 +117,12 @@ X_STATUS GraphicsSystem::Setup(cpu::Processor* processor,
   return X_STATUS_SUCCESS;
 }
 
+void GraphicsSystem::AddConstantRegisterValue(uint32_t gpu_register,
+                                              uint32_t value) {
+  auto range = memory_->LookupVirtualMappedRange(0x7FC80000);
+
+  range->constant_addresses[0x7FC80000 + (gpu_register * 4)] = value;
+}
 void GraphicsSystem::SetupVsync() {
 #if XE_USE_TIMED_INTERRUPTS_FOR_VSYNC
   vsync_relative_ts_ = cvars::vsync ? (1000ULL * 1000ULL) / cvars::vsync_fps
@@ -200,7 +213,8 @@ void GraphicsSystem::Shutdown() {
   if (vsync_worker_thread_) {
     vsync_worker_running_ = false;
     threading::Wait(vsync_worker_thread_.get(), false);
-    Emulator::Get()->UnregisterGuestHardwareBlockThread(vsync_worker_thread_.get());
+    Emulator::Get()->UnregisterGuestHardwareBlockThread(
+        vsync_worker_thread_.get());
     vsync_worker_thread_.reset();
   }
 
@@ -247,7 +261,7 @@ void GraphicsSystem::WriteRegisterThunk(void* ppc_context, GraphicsSystem* gs,
 
 uint32_t GraphicsSystem::ReadRegister(uint32_t addr) {
   uint32_t r = (addr & 0xFFFF) / 4;
-
+  // most of these are handled by AddConstantRegisterValue
   switch (r) {
     case 0x0F00:  // RB_EDRAM_TIMING
       return 0x08100748;
@@ -307,7 +321,7 @@ void GraphicsSystem::SetInterruptCallback(uint32_t callback,
 
 void GraphicsSystem::DispatchInterruptCallback(uint32_t source, uint32_t cpu) {
   kernel_state()->EmulateCPInterrupt(interrupt_callback_,
-                                        interrupt_callback_data_, source, cpu);
+                                     interrupt_callback_data_, source, cpu);
 }
 
 void GraphicsSystem::MarkVblank() {

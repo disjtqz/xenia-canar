@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+#include <map>
 
 #include "xenia/base/mutex.h"
 #include "xenia/base/platform.h"
@@ -38,6 +39,7 @@ struct MMIORange {
   void* callback_context;
   MMIOReadCallback read;
   MMIOWriteCallback write;
+  std::map<uint32_t, uint32_t> constant_addresses;
 };
 
 // NOTE: only one can exist at a time!
