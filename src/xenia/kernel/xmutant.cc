@@ -27,9 +27,11 @@ XMutant::XMutant() : XObject(kObjectType) {}
 
 XMutant::~XMutant() {
   // mutant object type delete proc.
-
+  auto context = cpu::ThreadState::GetContext();
   xboxkrnl::xeKeReleaseMutant(cpu::ThreadState::GetContext(),
                               guest_object<X_KMUTANT>(), 1, 1, 0);
+  //discard any status raised
+  context->CatchStatus();
 }
 
 void XMutant::Initialize(bool initial_owner, X_OBJECT_ATTRIBUTES* attributes) {

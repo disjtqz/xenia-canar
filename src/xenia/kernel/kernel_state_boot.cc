@@ -107,7 +107,8 @@ void SimpleForwardAllocatePoolTypeWithTag(PPCContext* context) {
   uint32_t a2 = static_cast<uint32_t>(context->r[4]);
   uint32_t a3 = static_cast<uint32_t>(context->r[5]);
   context->r[3] = static_cast<uint64_t>(
-      xboxkrnl::xeAllocatePoolTypeWithTag(context, a1, a2, a3));}
+      xboxkrnl::xeAllocatePoolTypeWithTag(context, a1, a2, a3));
+}
 void SimpleForwardFreePool(PPCContext* context) {
   xboxkrnl::xeFreePool(context, static_cast<uint32_t>(context->r[3]));
 }
@@ -193,6 +194,11 @@ static void DestroyThreadDpc(PPCContext* context) {
     if (!thrd->unk_CB) {
       xboxkrnl::xeMmDeleteKernelStack(thrd->stack_alloc_base,
                                       thrd->stack_limit);
+      context->kernel_state->memory()->SystemHeapFree(
+          thrd->kernel_aux_stack_base_);
+      thrd->kernel_aux_stack_base_ = 0U;
+    } else {
+      xenia_assert(false);
     }
     // todo: this needs to be kept uncommented for now, until object rework
     //  xboxkrnl::xeObDereferenceObject(context,
@@ -352,6 +358,7 @@ void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
   // timeslice related
   thread->quantum = process->quantum;
   thread->msr_mask = 0xFDFFD7FF;
+  InitKernelAuxstack(thread);
 }
 
 void KernelState::SetupKPCRPageForCPU(uint32_t cpunum) {
@@ -543,7 +550,6 @@ void KernelState::BootInitializeStatics() {
   block->audio_interrupt_dpc_event_.header.type = DISPATCHER_AUTO_RESET_EVENT;
   util::XeInitializeListHead(
       &block->audio_interrupt_dpc_event_.header.wait_list, memory_);
-
 }
 static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,
                                     X_KPCR* kpcr) {
@@ -763,7 +769,8 @@ void KernelState::BootInitializeCPU0InSystemThread(
   emulator()->audio_system()->StartGuestWorkerThread(this);
   BootInitializeXam(context);
   uint32_t prev_affinity;
-  xboxkrnl::xeKeSetAffinityThread(context, GetKThread(context), 4, &prev_affinity);
+  xboxkrnl::xeKeSetAffinityThread(context, GetKThread(context), 4,
+                                  &prev_affinity);
   xenia_assert(prev_affinity == 1);
   xenia_assert(context->kernel_state->GetPCRCpuNum(GetKPCR(context)) == 2);
 

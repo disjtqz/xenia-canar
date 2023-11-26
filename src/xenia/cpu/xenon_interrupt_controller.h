@@ -11,6 +11,7 @@
 #define XENIA_CPU_XENON_INTERRUPT_CONTROLLER_H_
 #include "xenia/base/memory.h"
 #include "xenia/base/threading.h"
+#include "xenia/base/clock.h"
 namespace xe {
 namespace cpu {
 class HWThread;
@@ -90,6 +91,7 @@ class XenonInterruptController {
   static void InterruptFunction(void* ud);
 
  public:
+  Clock::QpcParams last_qpc_params_;
   void Initialize();
   ppc::PPCInterruptRequest* AllocateInterruptRequest();
   void FreeInterruptRequest(ppc::PPCInterruptRequest* request);

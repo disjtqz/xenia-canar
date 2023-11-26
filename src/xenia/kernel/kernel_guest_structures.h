@@ -14,7 +14,7 @@
 #include "xenia/xbox.h"
 namespace xe {
 namespace kernel {
-
+static constexpr uint32_t kKernelAuxstackSize = 65536;
 enum Irql : uint8_t {
   IRQL_PASSIVE = 0,
   IRQL_APC = 1,
@@ -494,7 +494,18 @@ struct X_KTHREAD {
       uintptr_t vscr_remainder;
     };
   };
-  vec128_t vmx_context[128];       // 0x180
+  union {
+      //2048 bytes
+    vec128_t vmx_context[128];  // 0x180
+    struct {
+        //1536 bytes
+      X_KWAIT_BLOCK scratch_waitblock_memory[65];
+      //space for some more data!
+      uint32_t kernel_aux_stack_base_;
+      uint32_t kernel_aux_stack_current_;
+      uint32_t kernel_aux_stack_limit_;
+    };
+  };
   xe::be<double> fpscr;            // 0x980
   xe::be<double> fpu_context[32];  // 0x988
 

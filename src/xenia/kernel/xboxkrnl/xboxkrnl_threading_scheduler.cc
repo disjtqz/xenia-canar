@@ -212,8 +212,9 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
       context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
   xeReallyQueueThread(context, kthread);
 }
-//if was_preempted, insert to front of ready list
-static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread, int was_preempted) {
+// if was_preempted, insert to front of ready list
+static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread,
+                            int was_preempted) {
   SCHEDLOG(context, "insert_8009D048 - thread = {}, unk = {}", (void*)thread,
            was_preempted);
   auto priority = thread->priority;
@@ -344,7 +345,8 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
   if (!prcb_for_thread->next_thread) {
     if (thread_priority >
         context->TranslateVirtual(prcb_for_thread->current_thread)->priority) {
-      context->TranslateVirtual(prcb_for_thread->current_thread)->was_preempted = 1;
+      context->TranslateVirtual(prcb_for_thread->current_thread)
+          ->was_preempted = 1;
       goto label_6;
     }
     insert_8009CFE0(context, kthread, was_preempted);
@@ -1048,12 +1050,11 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
                                  bool alertable, int64_t* timeout) {
   int64_t tmp_timeout;
   auto this_thread = GetKThread(context);
-  auto old_r1 = context->r[1];
 
-  context->r[1] -= sizeof(X_KWAIT_BLOCK) * 4;
   uint32_t guest_stash =
-      static_cast<uint32_t>(old_r1 - sizeof(X_KWAIT_BLOCK) * 4);
-  X_KWAIT_BLOCK* stash = context->TranslateVirtual<X_KWAIT_BLOCK*>(guest_stash);
+      context->HostToGuestVirtual(&this_thread->scratch_waitblock_memory);
+
+  X_KWAIT_BLOCK* stash = &this_thread->scratch_waitblock_memory[0];
 
   auto reason2 = reason;
   if (this_thread->wait_next)
@@ -1182,7 +1183,6 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
       xeProcessUserApcs(context);
     }
     if (v14 != X_STATUS_KERNEL_APC) {
-      context->r[1] = old_r1;
       return v14;
     }
     if (timeout) {
@@ -1211,7 +1211,6 @@ LABEL_58:
   if (v14 == X_STATUS_USER_APC) {
     xeProcessUserApcs(context);
   }
-  context->r[1] = old_r1;
   return v14;
 }
 
@@ -1563,11 +1562,20 @@ X_STATUS xeKeSignalAndWaitForSingleObjectEx(
                  globals + offsetof(KernelGuestGlobals, ExMutantObjectType))) {
     xeKeReleaseMutant(context, reinterpret_cast<X_KMUTANT*>(signal.m_base), 1,
                       0, 1);
+    uint32_t cstatus = context->CatchStatus();
+    if (cstatus) {
+      return cstatus;
+    }
+
   } else if (signal_type_ptr ==
              static_cast<uint32_t>(globals + offsetof(KernelGuestGlobals,
                                                       ExSemaphoreObjectType))) {
     xeKeReleaseSemaphore(
         context, reinterpret_cast<X_KSEMAPHORE*>(signal.m_base), 1, 1, 1);
+    uint32_t cstatus = context->CatchStatus();
+    if (cstatus) {
+      return cstatus;
+    }
   } else {
     result = X_STATUS_OBJECT_TYPE_MISMATCH;
   }

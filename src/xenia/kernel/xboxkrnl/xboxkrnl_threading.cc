@@ -1030,17 +1030,12 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, xe::be<uint32_t>* handles,
 
   // return 0;
   int64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-
-  // hack!!
-  auto tmp = kernel_memory()->SystemHeapAlloc(sizeof(X_KWAIT_BLOCK) * 66);
-
-  // im not sure wait reason is righrt
+  // im not sure wait reason is right
   auto result = xeKeWaitForMultipleObjects(
       context, count, objects_tmp, wait_type, 3, wait_mode, alertable,
       timeout_ptr ? &timeout : nullptr,
-      context->TranslateVirtual<X_KWAIT_BLOCK*>(tmp));
+      &GetKThread(context)->scratch_waitblock_memory[0]);
 
-  kernel_memory()->SystemHeapFree(tmp);
   return result;
 }
 
@@ -1107,7 +1102,6 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
   while (!processor->GuestAtomicCAS32(
       ctx, 0, static_cast<uint32_t>(ctx->r[13]),
       ctx->HostToGuestVirtual(&lock->pcr_of_owner.value))) {
-    // bad hack. always check once reworked interrupt controller
     ctx->CheckInterrupt();
   }
 
@@ -1597,7 +1591,7 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
     ctx = cpu::ThreadState::Get()->context();
   }
   X_STATUS alert_status = X_STATUS_SUCCESS;
-  auto kpcr = ctx->TranslateVirtualGPR<X_KPCR*>(ctx->r[13]);
+  auto kpcr = GetKPCR(ctx);
 
   auto current_thread = ctx->TranslateVirtual(kpcr->prcb_data.current_thread);
 
@@ -1609,10 +1603,13 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
   auto& user_apc_queue = current_thread->apc_lists[which_queue];
 
   // use guest stack for temporaries
-  uint32_t old_stack_pointer = static_cast<uint32_t>(ctx->r[1]);
+  uint32_t old_stack_pointer = current_thread->kernel_aux_stack_current_;
 
-  uint32_t scratch_address = old_stack_pointer - 16;
-  ctx->r[1] = old_stack_pointer - 32;
+  uint32_t scratch_address = old_stack_pointer;
+  current_thread->kernel_aux_stack_current_ += 16;
+
+  //uint32_t scratch_address = old_stack_pointer - 16;
+  //ctx->r[1] = old_stack_pointer - 32;
 
   while (!user_apc_queue.empty(ctx)) {
     uint32_t apc_ptr = user_apc_queue.flink_ptr;
@@ -1663,8 +1660,8 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 
     unlocked_irql = xeKeKfAcquireSpinLock(ctx, &current_thread->apc_lock);
   }
-
-  ctx->r[1] = old_stack_pointer;
+  current_thread->kernel_aux_stack_current_ = old_stack_pointer;
+ // ctx->r[1] = old_stack_pointer;
 
   xeKeKfReleaseSpinLock(ctx, &current_thread->apc_lock, unlocked_irql);
   ctx->RestoreGPRSnapshot(&savegplr);
@@ -1685,10 +1682,10 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
   kthread->deferred_apc_software_interrupt_state = 0;
 
   // use guest stack for temporaries
-  uint32_t old_stack_pointer = static_cast<uint32_t>(ctx->r[1]);
+  uint32_t old_stack_pointer = kthread->kernel_aux_stack_current_;
 
-  uint32_t scratch_address = old_stack_pointer - 32;
-  ctx->r[1] = old_stack_pointer - 64;
+  uint32_t scratch_address = old_stack_pointer;
+  kthread->kernel_aux_stack_current_ += 32;
 
   while (v2->flink_ptr.xlat() != v2) {
     auto v3 = v2->flink_ptr;
@@ -1699,7 +1696,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
     xe::store_and_swap<uint32_t>(scratch_ptr + 4, apc->normal_context);
     xe::store_and_swap<uint32_t>(scratch_ptr + 8, apc->arg1);
     xe::store_and_swap<uint32_t>(scratch_ptr + 12, apc->arg2);
-    xe::store_and_swap<uint32_t>(scratch_ptr + 12, apc->kernel_routine);
+    xe::store_and_swap<uint32_t>(scratch_ptr + 16, apc->kernel_routine);
     if (apc->normal_routine == 0) {
       auto v7 = v3->flink_ptr;
       auto v8 = v3->blink_ptr;
@@ -1712,7 +1709,9 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
           scratch_address + 4,          scratch_address + 8,
           scratch_address + 12,
       };
-      ctx->processor->Execute(ctx->thread_state(), apc->kernel_routine,
+      
+      ctx->processor->Execute(ctx->thread_state(),
+                              xe::load_and_swap<uint32_t>(scratch_ptr + 16),
                               kernel_args, xe::countof(kernel_args));
       xeKeKfAcquireSpinLock(ctx, &kthread->apc_lock);
     } else {
@@ -1730,7 +1729,8 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
           scratch_address + 4,          scratch_address + 8,
           scratch_address + 12,
       };
-      ctx->processor->Execute(ctx->thread_state(), apc->kernel_routine,
+      ctx->processor->Execute(ctx->thread_state(),
+                              xe::load_and_swap<uint32_t>(scratch_ptr + 16),
                               kernel_args, xe::countof(kernel_args));
       uint32_t normal_routine = xe::load_and_swap<uint32_t>(scratch_ptr + 0);
       uint32_t normal_context = xe::load_and_swap<uint32_t>(scratch_ptr + 4);
@@ -1748,7 +1748,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
       kthread->executing_kernel_apc = 0;
     }
   }
-  ctx->r[1] = old_stack_pointer;
+  kthread->kernel_aux_stack_current_ = old_stack_pointer;
 
   xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, 1);
   ctx->RestoreGPRSnapshot(&savegplr);
@@ -2215,7 +2215,7 @@ void ExReleaseReadWriteLock_entry(pointer_t<X_ERWLOCK> lock_ptr,
       lock_ptr->readers_waiting_count = 0;
       lock_ptr->readers_entry_count = readers_waiting_count;
       xeKeKfReleaseSpinLock(ppc_context, &lock_ptr->spin_lock, old_irql);
-      xeKeReleaseSemaphore(&lock_ptr->reader_semaphore, 1,
+      xeKeReleaseSemaphore(ppc_context, &lock_ptr->reader_semaphore, 1,
                            readers_waiting_count, 0);
       return;
     }

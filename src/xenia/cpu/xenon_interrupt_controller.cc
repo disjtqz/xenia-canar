@@ -129,6 +129,7 @@ void XenonInterruptController::SetTimedInterruptArgs(uint32_t slot,
 }
 
 void XenonInterruptController::RecomputeNextEventCycles() {
+  last_qpc_params_ = Clock::GetQpcParams();
   uint64_t lowest_cycles = ~0ull;
   for (uint32_t i = 0; i < MAX_CPU_TIMED_INTERRUPTS; ++i) {
     if (!(timed_event_slots_bitmap_ & (1U << i))) {

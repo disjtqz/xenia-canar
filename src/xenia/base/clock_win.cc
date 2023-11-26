@@ -28,15 +28,8 @@ uint64_t Clock::QueryHostSystemTime() {
 }
 
 #else
-struct QpcParams {
-  uint64_t performance_frequency;
-  uint64_t shared_user_va_bias;
-  uint64_t shared_user_va_multiplier;
-  uint64_t qpc_bias;
-  char qpc_shift;
-};
 
-static QpcParams GetQpcParams() {
+Clock::QpcParams Clock::GetQpcParams() {
   QpcParams result;
   result.performance_frequency = *reinterpret_cast<uint64_t*>(0x7FFE0300LL);
   result.shared_user_va_bias = *(uint64_t*)(RtlpHypervisorSharedUserVa + 16);

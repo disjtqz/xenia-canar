@@ -323,7 +323,7 @@ void KernelState::LaunchModuleInterrupt(void* ud) {
                   (*launch->module)->entry_point(), 0, 0x1000100, true, true);
 
   X_STATUS result = launch->thread->Create();
-  //launch->thread->set_name("Main XThread");
+  // launch->thread->set_name("Main XThread");
   if (XFAILED(result)) {
     XELOGE("Could not create launch thread: {:08X}", result);
 
@@ -1351,7 +1351,7 @@ void KernelState::EmulateCPInterrupt(uint32_t interrupt_callback,
   hwthread->TrySendInterruptFromHost(
       CPInterruptIPI, params,
       source != 0);  // do not block if we're the vsync interrupt and on cpu 2!
-                     // we will freeze
+               // we will freeze
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {
@@ -1557,10 +1557,17 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
   context->kernel_state = kernel_state();
   auto kpcr = GetKPCR(context);
   auto kthread = GetKThread(context);
+  auto cpu_thread = context->processor->GetCPUThread(
+      context->kernel_state->GetPCRCpuNum(kpcr));
+  auto interrupt_controller = cpu_thread->interrupt_controller();
   while (true) {
     kpcr->prcb_data.running_idle_thread = kpcr->prcb_data.idle_thread;
     uint32_t spin_count = 0;
     while (!kpcr->generic_software_interrupt) {
+      Clock::QpcParams current_qpc_params = Clock::GetQpcParams();
+      auto current_quick_timestamp = Clock::QueryQuickCounter();
+      xenia_assert(current_qpc_params ==
+                   interrupt_controller->last_qpc_params_);
       xenia_assert(context->ExternalInterruptsEnabled());
 
       xenia_assert(context->processor
@@ -1631,17 +1638,14 @@ void KernelState::AudioInterruptDPC(cpu::ppc::PPCContext* context) {
                               ->audio_interrupt_dpc_event_,
                          1, 0);
 }
-//this executes at IRQL_AUDIO
+// this executes at IRQL_AUDIO
 void KernelState::AudioInterrupt(void* v) {
-   
   auto context = cpu::ThreadState::GetContext();
   auto kpcr = GetKPCR(context);
   auto ic = context->kernel_state->InterruptControllerFromPCR(context, kpcr);
   auto old_irql = kpcr->current_irql;
   kpcr->current_irql = IRQL_AUDIO;
   ic->WriteRegisterOffset(8, IRQL_AUDIO);
-
-
 
   xboxkrnl::xeKeInsertQueueDpc(
       &context->kernel_state->GetKernelGuestGlobals(context)
@@ -1651,6 +1655,14 @@ void KernelState::AudioInterrupt(void* v) {
   kpcr->current_irql = old_irql;
   ic->WriteRegisterOffset(8, old_irql);
   ic->SetEOI(old_irql);
+}
+
+void KernelState::InitKernelAuxstack(X_KTHREAD* thread) {
+  thread->kernel_aux_stack_base_ =
+      memory()->SystemHeapAlloc(kKernelAuxstackSize);
+  thread->kernel_aux_stack_current_ = thread->kernel_aux_stack_base_;
+  thread->kernel_aux_stack_limit_ =
+      thread->kernel_aux_stack_current_ + kKernelAuxstackSize;
 }
 }  // namespace kernel
 }  // namespace xe

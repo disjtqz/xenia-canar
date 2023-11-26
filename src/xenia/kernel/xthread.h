@@ -34,6 +34,7 @@ X_KPCR* GetKPCR();
 X_KPCR* GetKPCR(cpu::ppc::PPCContext* context);
 X_KTHREAD* GetKThread();
 X_KTHREAD* GetKThread(cpu::ppc::PPCContext* context);
+
 class XThread : public XObject {
  public:
   static const XObject::Type kObjectType = XObject::Type::Thread;
@@ -89,8 +90,6 @@ class XThread : public XObject {
 
   void EnqueueApc(uint32_t normal_routine, uint32_t normal_context,
                   uint32_t arg1, uint32_t arg2);
-
-  int32_t priority() const { return priority_; }
 
   // Xbox thread IDs:
   // 0 - core 0, thread 0 - user
@@ -153,7 +152,6 @@ class XThread : public XObject {
   bool main_thread_ = false;  // Entry-point thread
   bool running_ = false;
   uint32_t thread_id_;
-  int32_t priority_ = 0;
 };
 
 class XHostThread : public XThread {

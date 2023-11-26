@@ -591,17 +591,6 @@ typedef struct alignas(64) PPCContext_s {
   XE_NOINLINE
   void EnqueueTimedInterrupts();
 
-  template <typename T>
-  T* stack_alloc(uint32_t& out_orig_r1, uint32_t N = 1) {
-    uint32_t r1 = static_cast<uint32_t>(r[1]);
-    out_orig_r1 = r1;
-    uint32_t nbytes = static_cast<uint32_t>(sizeof(T)) * N;
-
-    r[1] = r1 - (nbytes + 16);
-    return TranslateVirtual<T*>(r1 - nbytes);
-  }
-
-  void stack_free(uint32_t orig_r1) { r[1] = static_cast<uint64_t>(orig_r1); }
 } PPCContext;
 #pragma pack(pop)
 constexpr size_t ppcctx_size = sizeof(PPCContext);

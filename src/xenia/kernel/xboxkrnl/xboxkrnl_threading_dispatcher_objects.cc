@@ -528,8 +528,7 @@ uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
   int64_t v20;
   int64_t tmp_timeout;
   uint32_t v15;
-  uint32_t orig_stack;
-  auto scratch_waitblock = context->stack_alloc<X_KWAIT_BLOCK>(orig_stack);
+  auto scratch_waitblock = &this_thread->scratch_waitblock_memory[0];
   while (1) {
     v15 = v14->flink_ptr;
     if (v15 != context->HostToGuestVirtual(v14) &&
@@ -591,7 +590,6 @@ uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
     auto result = xeSchedulerSwitchThread2(context);
     this_thread->wait_reason = 0;
     if (result != X_STATUS_KERNEL_APC) {
-      context->stack_free(orig_stack);
       return result;
     }
     if (timeout) {
@@ -615,7 +613,6 @@ LABEL_36:
   xeDispatcherSpinlockUnlock(context,
                              context->kernel_state->GetDispatcherLock(context),
                              this_thread->wait_irql);
-  context->stack_free(orig_stack);
   return v15;
 }
 

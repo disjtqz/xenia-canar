@@ -100,11 +100,28 @@ class Clock {
 #if XE_ARCH_AMD64 == 1
   XE_FORCEINLINE
   static uint64_t QueryQuickCounter() { return __rdtsc(); }
+
+  struct QpcParams {
+    uint64_t performance_frequency;
+    uint64_t shared_user_va_bias;
+    uint64_t shared_user_va_multiplier;
+    uint64_t qpc_bias;
+    char qpc_shift;
+    inline bool operator==(QpcParams other) {
+      return performance_frequency == other.performance_frequency &&
+             shared_user_va_bias == other.shared_user_va_bias &&
+             shared_user_va_multiplier == other.shared_user_va_multiplier &&
+             qpc_bias == other.qpc_bias && qpc_shift == other.qpc_shift;
+    }
+  };
+
+  static QpcParams GetQpcParams();
+
 #else
   static uint64_t QueryQuickCounter();
 #endif
-  //converts a timestamp in host tick frequency format to 
-  //one that is comparable with the quick counter
+  // converts a timestamp in host tick frequency format to
+  // one that is comparable with the quick counter
   static uint64_t HostTickTimestampToQuickTimestamp(uint64_t host_ticks);
 
   static void Initialize();

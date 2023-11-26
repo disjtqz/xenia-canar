@@ -364,7 +364,7 @@ class KernelState {
 
   static void AudioInterruptDPC(cpu::ppc::PPCContext* context);
   static void AudioInterrupt(void* v);
-
+  void InitKernelAuxstack(X_KTHREAD* thread);
  private:
   static void LaunchModuleInterrupt(void* ud);
   void LoadKernelModule(object_ref<KernelModule> kernel_module);
@@ -399,7 +399,7 @@ class KernelState {
   void SetupProcessorPCR(uint32_t which_processor_index);
   void SetupProcessorIdleThread(uint32_t which_processor_index);
   void InitProcessorStack(X_KPCR* pcr);
-
+  
   Emulator* emulator_;
   Memory* memory_;
   cpu::Processor* processor_;

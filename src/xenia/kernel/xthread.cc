@@ -325,7 +325,7 @@ void XThread::InitializeGuestObject() {
 
   guest_thread->stack_base = stack_base_;
   guest_thread->stack_limit = stack_limit_;
-
+  kernel_state()->InitKernelAuxstack(guest_thread);
   auto old_irql = xboxkrnl::xeKeKfAcquireSpinLock(
       context_here, &process->thread_list_spinlock);
   context_here->kernel_state->LockDispatcherAtIrql(context_here);
