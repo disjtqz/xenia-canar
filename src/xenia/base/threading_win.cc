@@ -905,6 +905,7 @@ class FakeWin32Fiber : public Fiber {
   HANDLE done_signal_;
   DWORD thread_id_;
   uint64_t fiber_affinity_;
+  bool terminating_ = false;
   static DWORD FiberFunc(LPVOID param) {
     FakeWin32Fiber* thiz = reinterpret_cast<FakeWin32Fiber*>(param);
     g_current_fake_win32_fiber = thiz;
@@ -926,8 +927,6 @@ class FakeWin32Fiber : public Fiber {
 
     this_thrd_ =
         Thread::Create(crparams, std::bind(&FakeWin32Fiber::FiberFunc, this));
-    // this_handle_ =
-    //    CreateThread(nullptr, stack_size, FiberFunc, this, 0, &thread_id_);
   }
 
   FakeWin32Fiber() : callback({}) {
@@ -940,7 +939,10 @@ class FakeWin32Fiber : public Fiber {
     thread_id_ = GetCurrentThreadId();
   }
   virtual void* native_handle() const override { return (void*)done_signal_; }
-  virtual void SetTerminated() override { SetEvent(this->done_signal_); }
+  virtual void SetTerminated() override {
+    terminating_ = true;
+    SetEvent(this->done_signal_);
+  }
   virtual ~FakeWin32Fiber() {
     WaitForSingleObject(done_signal_, INFINITE);
     CloseHandle(done_signal_);
@@ -955,9 +957,15 @@ class FakeWin32Fiber : public Fiber {
         this->this_thrd_->set_affinity_mask(this_aff);
       }
     }
-    SignalObjectAndWait(this->execute_signal_,
-                        g_current_fake_win32_fiber->execute_signal_, INFINITE,
-                        false);
+    if (!g_current_fake_win32_fiber->terminating_) {
+      SignalObjectAndWait(this->execute_signal_,
+                          g_current_fake_win32_fiber->execute_signal_, INFINITE,
+                          false);
+    } else {
+
+      SetEvent(this->execute_signal_);
+      g_current_fake_win32_fiber->this_thrd_->Terminate(0);
+    }
   }
   virtual void set_name(std::string name) {
     if (this_thrd_) {
