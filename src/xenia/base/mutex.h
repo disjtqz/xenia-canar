@@ -13,6 +13,7 @@
 #include "platform.h"
 #include "memory.h"
 #define XE_ENABLE_FAST_WIN32_MUTEX 1
+#define XE_FAST_MUTEX_FOR_GLOBAL_MUTEX 1
 namespace xe {
 
 #if XE_PLATFORM_WIN32 == 1 && XE_ENABLE_FAST_WIN32_MUTEX == 1
@@ -23,8 +24,19 @@ namespace xe {
 
    this emulates a recursive mutex, except with far less overhead
 */
+class alignas(64) xe_fast_mutex {
+  XE_MAYBE_UNUSED
+  char detail[64];
 
-class alignas(4096) xe_global_mutex {
+ public:
+  xe_fast_mutex();
+  ~xe_fast_mutex();
+
+  void lock();
+  void unlock();
+  bool try_lock();
+};
+class alignas(64) xe_global_mutex {
 	XE_MAYBE_UNUSED
   char detail[64];
 
@@ -36,20 +48,28 @@ class alignas(4096) xe_global_mutex {
   void unlock();
   bool try_lock();
 };
-using global_mutex_type = xe_global_mutex;
 
-class alignas(64) xe_fast_mutex {
-	XE_MAYBE_UNUSED
-  char detail[64];
+class alignas(64) xe_portable_mutex {
+  std::atomic_int lock_count_;
+  uint32_t recursion_count_;
+  void* owning_thread_;
+  uint32_t spin_count_;
+  void* wait_object_;
 
  public:
-  xe_fast_mutex();
-  ~xe_fast_mutex();
+  xe_portable_mutex();
+  ~xe_portable_mutex();
 
   void lock();
   void unlock();
   bool try_lock();
 };
+#if XE_FAST_MUTEX_FOR_GLOBAL_MUTEX==1
+using global_mutex_type = xe_portable_mutex;
+#else
+using global_mutex_type = xe_global_mutex;
+#endif
+
 // a mutex that is extremely unlikely to ever be locked
 // use for race conditions that have extremely remote odds of happening
 class xe_unlikely_mutex {
