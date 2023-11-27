@@ -93,6 +93,7 @@ DECLARE_XAM_EXPORT1(XamInputGetCapabilities, kInput, kSketchy);
 // https://msdn.microsoft.com/en-us/library/windows/desktop/microsoft.directx_sdk.reference.xinputgetstate(v=vs.85).aspx
 dword_result_t XamInputGetState_entry(dword_t user_index, dword_t flags,
                                       pointer_t<X_INPUT_STATE> input_state) {
+  cpu::MFTBFence timing_fence{24};
   if (input_state) {
     memset((void*)input_state.host_address(), 0, sizeof(X_INPUT_STATE));
   }
