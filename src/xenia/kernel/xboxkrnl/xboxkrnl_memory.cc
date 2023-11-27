@@ -625,6 +625,7 @@ DECLARE_XBOXKRNL_EXPORT1(MmQueryStatistics, kMemory, kImplemented);
 
 // https://msdn.microsoft.com/en-us/library/windows/hardware/ff554547(v=vs.85).aspx
 dword_result_t MmGetPhysicalAddress_entry(dword_t base_address) {
+  cpu::MFTBFence timing_fence{16};
   // PHYSICAL_ADDRESS MmGetPhysicalAddress(
   //   _In_  PVOID BaseAddress
   // );
