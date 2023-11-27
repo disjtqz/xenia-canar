@@ -673,7 +673,7 @@ void xeRtlLeaveCriticalSection(PPCContext* context,
   // Drop recursion count - if it isn't zero we still have the lock.
   assert_true(cs->recursion_count > 0);
   if (--cs->recursion_count != 0) {
-    assert_true(cs->recursion_count >= 0);
+    assert_true(cs->recursion_count > 0);
     context->processor->GuestAtomicDecrement32(context, &cs->lock_count);
     return;
   }
