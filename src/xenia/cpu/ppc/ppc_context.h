@@ -32,6 +32,9 @@ class KernelState;
 namespace xe {
 namespace cpu {
 namespace ppc {
+
+    #define        XE_FULL_CONTEXT_SNAPSHOTS    1
+
 struct alignas(64) PPCContext_s;
 
 #if defined(DEBUG) || 1
@@ -272,6 +275,11 @@ struct PPCGprSnapshot {
   uint8_t xer_ca;
   uint8_t xer_ov;
   uint8_t xer_so;
+#if XE_FULL_CONTEXT_SNAPSHOTS == 1
+  uint32_t fpscr;
+  double f[32];
+  vec128_t v[128];//ouch!
+#endif
 };
 
 #pragma pack(push, 8)

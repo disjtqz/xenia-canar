@@ -267,6 +267,16 @@ void PPCContext::TakeGPRSnapshot(PPCGprSnapshot* out) {
   out->xer_ca = xer_ca;
   out->xer_ov = xer_ov;
   out->xer_so = xer_so;
+
+#if XE_FULL_CONTEXT_SNAPSHOTS == 1
+  out->fpscr = this->fpscr.value;
+  for (i = 0; i < 32; ++i) {
+    out->f[i] = this->f[i];
+  }
+  for (i = 0; i < 128; ++i) {
+    out->v[i] = this->v[i];
+  }
+#endif
 }
 void PPCContext::RestoreGPRSnapshot(const PPCGprSnapshot* in) {
   swcache::PrefetchW(&this->r[14]);
@@ -288,10 +298,18 @@ void PPCContext::RestoreGPRSnapshot(const PPCGprSnapshot* in) {
   this->lr = in->lr;
   this->msr = in->msr;
 
-
   xer_ca = in->xer_ca;
   xer_ov = in->xer_ov;
   xer_so = in->xer_so;
+#if XE_FULL_CONTEXT_SNAPSHOTS == 1
+  this->fpscr.value = in->fpscr;
+  for (i = 0; i < 32; ++i) {
+    this->f[i] = in->f[i];
+  }
+  for (i = 0; i < 128; ++i) {
+    this->v[i] = in->v[i];
+  }
+#endif
 }
 
 XenonInterruptController* PPCContext::GetExternalInterruptController() {
