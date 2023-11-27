@@ -281,5 +281,18 @@ uint64_t HWThread::mftb() const {
 void HWThread::Suspend() { os_thread_->Suspend(); }
 void HWThread::Resume() { os_thread_->Resume(); }
 
+MFTBFence::MFTBFence(uint64_t timebase_cycles)
+    : desired_timebase_value_(
+          timebase_cycles + this_hw_thread(ThreadState::GetContext())->mftb()) {
+}
+MFTBFence::~MFTBFence() {
+  auto context = ThreadState::GetContext();
+  auto hwthread = this_hw_thread(context);
+
+  while (hwthread->mftb() < desired_timebase_value_) {
+    context->CheckInterrupt();
+  }
+}
+
 }  // namespace cpu
 }  // namespace xe

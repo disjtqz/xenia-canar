@@ -189,6 +189,12 @@ class HWThread {
   }
 };
 
+struct MFTBFence {
+  const uint64_t desired_timebase_value_;
+  MFTBFence(uint64_t average_timebase_cycles);
+  ~MFTBFence();
+};
+
 }  // namespace cpu
 }  // namespace xe
 
