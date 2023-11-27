@@ -171,6 +171,7 @@ void VdGetCurrentDisplayInformation_entry(
 DECLARE_XBOXKRNL_EXPORT1(VdGetCurrentDisplayInformation, kVideo, kStub);
 
 void VdQueryVideoMode(X_VIDEO_MODE* video_mode) {
+  cpu::MFTBFence timing_fence{172};
   // TODO(benvanik): get info from actual display.
   std::memset(video_mode, 0, sizeof(X_VIDEO_MODE));
 
@@ -236,6 +237,7 @@ DECLARE_XBOXKRNL_EXPORT1(VdSetDisplayModeOverride, kVideo, kStub);
 dword_result_t VdInitializeEngines_entry(unknown_t unk0, function_t callback,
                                          lpvoid_t arg, lpdword_t pfp_ptr,
                                          lpdword_t me_ptr, const ppc_context_t& context) {
+  cpu::MFTBFence timing_fence{4793932};
   xboxkrnl::xeKeEnterCriticalRegion(context);
   xboxkrnl::xeKeLeaveCriticalRegion(context);
   // r3 = 0x4F810000
@@ -269,6 +271,7 @@ DECLARE_XBOXKRNL_EXPORT1(VdEnableDisableClockGating, kVideo, kStub);
 
 void VdSetGraphicsInterruptCallback_entry(function_t callback,
                                           lpvoid_t user_data) {
+  cpu::MFTBFence timing_fence{244};
   // callback takes 2 params
   // r3 = bool 0/1 - 0 is normal interrupt, 1 is some acquire/lock mumble
   // r4 = user_data (r4 of VdSetGraphicsInterruptCallback)
@@ -278,6 +281,7 @@ void VdSetGraphicsInterruptCallback_entry(function_t callback,
 DECLARE_XBOXKRNL_EXPORT1(VdSetGraphicsInterruptCallback, kVideo, kImplemented);
 
 void VdInitializeRingBuffer_entry(lpvoid_t ptr, int_t size_log2, const ppc_context_t& context) {
+  cpu::MFTBFence timing_fence{100086};
   xboxkrnl::xeKeEnterCriticalRegion(context);
   // r3 = result of MmGetPhysicalAddress
   // r4 = log2(size)
@@ -290,6 +294,7 @@ DECLARE_XBOXKRNL_EXPORT1(VdInitializeRingBuffer, kVideo, kImplemented);
 
 void VdEnableRingBufferRPtrWriteBack_entry(lpvoid_t ptr,
                                            int_t block_size_log2) {
+  cpu::MFTBFence timing_fence{37};
   // r4 = log2(block size), 6, usually --- <=19
   auto graphics_system = kernel_state()->emulator()->graphics_system();
   graphics_system->EnableReadPointerWriteBack(ptr, block_size_log2);
@@ -304,6 +309,7 @@ void VdGetSystemCommandBuffer_entry(lpunknown_t p0_ptr, lpunknown_t p1_ptr) {
 DECLARE_XBOXKRNL_EXPORT1(VdGetSystemCommandBuffer, kVideo, kStub);
 
 void VdSetSystemCommandBufferGpuIdentifierAddress_entry(lpunknown_t unk) {
+  cpu::MFTBFence timing_fence{35};
   // r3 = 0x2B10(d3d?) + 8
 }
 DECLARE_XBOXKRNL_EXPORT1(VdSetSystemCommandBufferGpuIdentifierAddress, kVideo,
