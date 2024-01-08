@@ -129,6 +129,10 @@ ThreadState* ThreadState::Create(Processor* processor, uint32_t thread_id,
 
   // Set initial registers.
   context_->r[1] = stack_base;
+
+  //constant register, used by hv only i think
+  context_->r[2] = 0x20000000;
+
   context_->r[13] = pcr_address;
   // fixme: VSCR must be set here!
   context_->msr = 0x9030;  // dumped from a real 360, 0x8000
