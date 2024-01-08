@@ -429,12 +429,12 @@ X_HRESULT XmpApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
       xe::store_and_swap<uint32_t>(memory_->TranslateVirtual(args->locked_ptr),
                                    0);
 
-      /* if (!XThread::GetCurrentThread()->main_thread()) {
+       if (!XThread::GetCurrentThread()->main_thread()) {
         // Atrain spawns a thread 82437FD0 to call this in a tight loop forever.
         int64_t interval = -100000LL;
         xboxkrnl::xeKeDelayExecutionThread(cpu::ThreadState::GetContext(), 0,
                                            false, &interval);
-      }*/
+      }
 
       return X_E_SUCCESS;
     }
