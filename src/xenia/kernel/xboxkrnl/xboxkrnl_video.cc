@@ -17,8 +17,8 @@
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
-#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_rtl.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/xbox.h"
 
 DEFINE_int32(internal_display_resolution, 8,
@@ -145,6 +145,7 @@ static_assert_size(X_DISPLAY_INFO, 0x58);
 
 void VdGetCurrentDisplayInformation_entry(
     pointer_t<X_DISPLAY_INFO> display_info) {
+  cpu::MFTBFence timing_fence{39};
   X_VIDEO_MODE mode;
   VdQueryVideoMode(&mode);
 
@@ -190,11 +191,13 @@ void VdQueryVideoMode(X_VIDEO_MODE* video_mode) {
 }
 
 void VdQueryVideoMode_entry(pointer_t<X_VIDEO_MODE> video_mode) {
+  cpu::MFTBFence timing_fence{481};
   VdQueryVideoMode(video_mode);
 }
 DECLARE_XBOXKRNL_EXPORT1(VdQueryVideoMode, kVideo, kStub);
 
 dword_result_t VdQueryVideoFlags_entry() {
+  cpu::MFTBFence timing_fence{293};
   X_VIDEO_MODE mode;
   VdQueryVideoMode(&mode);
 
@@ -208,6 +211,8 @@ dword_result_t VdQueryVideoFlags_entry() {
 DECLARE_XBOXKRNL_EXPORT1(VdQueryVideoFlags, kVideo, kStub);
 
 dword_result_t VdSetDisplayMode_entry(dword_t flags) {
+  // todo: this may need to make context switches too
+  cpu::MFTBFence timing_fence{1490688};
   // Often 0x40000000.
 
   // 0?ccf000 00000000 00000000 000000r0
@@ -236,7 +241,8 @@ DECLARE_XBOXKRNL_EXPORT1(VdSetDisplayModeOverride, kVideo, kStub);
 
 dword_result_t VdInitializeEngines_entry(unknown_t unk0, function_t callback,
                                          lpvoid_t arg, lpdword_t pfp_ptr,
-                                         lpdword_t me_ptr, const ppc_context_t& context) {
+                                         lpdword_t me_ptr,
+                                         const ppc_context_t& context) {
   cpu::MFTBFence timing_fence{4793932};
   xboxkrnl::xeKeEnterCriticalRegion(context);
   xboxkrnl::xeKeLeaveCriticalRegion(context);
@@ -253,6 +259,7 @@ void VdShutdownEngines_entry() {
   // Ignored for now.
   // Games seem to call an Initialize/Shutdown pair to query info, then
   // re-initialize.
+  return;
 }
 DECLARE_XBOXKRNL_EXPORT1(VdShutdownEngines, kVideo, kStub);
 
@@ -280,7 +287,8 @@ void VdSetGraphicsInterruptCallback_entry(function_t callback,
 }
 DECLARE_XBOXKRNL_EXPORT1(VdSetGraphicsInterruptCallback, kVideo, kImplemented);
 
-void VdInitializeRingBuffer_entry(lpvoid_t ptr, int_t size_log2, const ppc_context_t& context) {
+void VdInitializeRingBuffer_entry(lpvoid_t ptr, int_t size_log2,
+                                  const ppc_context_t& context) {
   cpu::MFTBFence timing_fence{100086};
   xboxkrnl::xeKeEnterCriticalRegion(context);
   // r3 = result of MmGetPhysicalAddress
@@ -302,6 +310,7 @@ void VdEnableRingBufferRPtrWriteBack_entry(lpvoid_t ptr,
 DECLARE_XBOXKRNL_EXPORT1(VdEnableRingBufferRPtrWriteBack, kVideo, kImplemented);
 
 void VdGetSystemCommandBuffer_entry(lpunknown_t p0_ptr, lpunknown_t p1_ptr) {
+  cpu::MFTBFence timing_fence{23};
   p0_ptr.Zero(0x94);
   xe::store_and_swap<uint32_t>(p0_ptr, 0xBEEF0000);
   xe::store_and_swap<uint32_t>(p1_ptr, 0xBEEF0001);
@@ -335,6 +344,7 @@ dword_result_t VdInitializeScalerCommandBuffer_entry(
                         // sources from.
     dword_t dest_count  // Count in words.
 ) {
+  cpu::MFTBFence timing_fence{284};
   // We could fake the commands here, but I'm not sure the game checks for
   // anything but success (non-zero ret).
   // For now, we just fill it with NOPs.
@@ -361,7 +371,8 @@ void AppendParam(StringBuffer* string_buffer, pointer_t<BufferScaling> param) {
 }
 
 dword_result_t VdCallGraphicsNotificationRoutines_entry(
-    unknown_t unk0, pointer_t<BufferScaling> args_ptr, const ppc_context_t& context) {
+    unknown_t unk0, pointer_t<BufferScaling> args_ptr,
+    const ppc_context_t& context) {
   assert_true(unk0 == 1);
   xboxkrnl::xeKeEnterCriticalRegion(context);
   xboxkrnl::xeKeLeaveCriticalRegion(context);
@@ -379,6 +390,7 @@ dword_result_t VdIsHSIOTrainingSucceeded_entry() {
 DECLARE_XBOXKRNL_EXPORT1(VdIsHSIOTrainingSucceeded, kVideo, kStub);
 
 dword_result_t VdPersistDisplay_entry(unknown_t unk0, lpdword_t unk1_ptr) {
+  cpu::MFTBFence timing_fence{810};
   // unk1_ptr needs to be populated with a pointer passed to
   // MmFreePhysicalMemory(1, *unk1_ptr).
   if (unk1_ptr) {
@@ -393,12 +405,16 @@ dword_result_t VdPersistDisplay_entry(unknown_t unk0, lpdword_t unk1_ptr) {
 }
 DECLARE_XBOXKRNL_EXPORT2(VdPersistDisplay, kVideo, kImplemented, kSketchy);
 
-dword_result_t VdRetrainEDRAMWorker_entry(unknown_t unk0) { return 0; }
+dword_result_t VdRetrainEDRAMWorker_entry(unknown_t unk0) {
+  cpu::MFTBFence timing_fence{0x1b};
+  return 0;
+}
 DECLARE_XBOXKRNL_EXPORT1(VdRetrainEDRAMWorker, kVideo, kStub);
 
 dword_result_t VdRetrainEDRAM_entry(unknown_t unk0, unknown_t unk1,
                                     unknown_t unk2, unknown_t unk3,
                                     unknown_t unk4, unknown_t unk5) {
+  cpu::MFTBFence timing_fence{9};
   return 0;
 }
 DECLARE_XBOXKRNL_EXPORT1(VdRetrainEDRAM, kVideo, kStub);
@@ -412,6 +428,7 @@ void VdSwap_entry(
     lpdword_t frontbuffer_ptr,  // ptr to frontbuffer address
     lpdword_t texture_format_ptr, lpdword_t color_space_ptr, lpdword_t width,
     lpdword_t height) {
+  cpu::MFTBFence timing_fence{84};
   // All of these parameters are REQUIRED.
   assert(buffer_ptr);
   assert(fetch_ptr);
@@ -491,8 +508,7 @@ DECLARE_XBOXKRNL_EXPORT3(VdSwap, kVideo, kImplemented, kHighFrequency,
                          kImportant);
 
 void RegisterVideoExports(xe::cpu::ExportResolver* export_resolver,
-                          KernelState* kernel_state) {
-}
+                          KernelState* kernel_state) {}
 
 }  // namespace xboxkrnl
 }  // namespace kernel
