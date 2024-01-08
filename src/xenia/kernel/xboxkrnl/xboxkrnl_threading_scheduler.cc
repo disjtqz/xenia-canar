@@ -1856,37 +1856,28 @@ int32_t xeKeSetPriorityThread(PPCContext* context, X_KTHREAD* thread,
   return old_priority;
 }
 static void BackgroundModeIPI(void* ud) {
-  xe::cpu::ppc::PPCContext_s* context;
-  xe::kernel::X_KPCR* KPCR;  // [rsp+28h] [rbp+8h]
-
-  context = xe::cpu::ThreadState::GetContext();
-  KPCR = xe::kernel::GetKPCR(context);
+  auto context = cpu::ThreadState::GetContext();
+  auto KPCR = GetKPCR(context);
   KPCR->generic_software_interrupt = 2;
   KPCR->unk_1A = 0x20;
   KPCR->timeslice_ended = 0x20;
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
 }
-void xeKeEnterBackgroundMode(xe::cpu::ppc::PPCContext_s* context) {
-  unsigned int BackgroundProcessors;  // [rsp+20h] [rbp+0h]
-  xe::kernel::X_KPCR* KPCR;           // [rsp+28h] [rbp+8h]
-  unsigned int v3;                    // [rsp+30h] [rbp+10h]
-  unsigned int i;                     // [rsp+34h] [rbp+14h]
-  xe::cpu::HWThread* CPUThread;       // [rsp+80h] [rbp+60h]
-
-  BackgroundProcessors =
-      xe::kernel::xboxkrnl::xeKeQueryBackgroundProcessors(context);
-  KPCR = xe::kernel::GetKPCR(context);
-  v3 = KPCR->prcb_data.processor_mask;
-  if ((BackgroundProcessors & v3) != 0) {
-    BackgroundProcessors &= ~v3;
+void xeKeEnterBackgroundMode(PPCContext* context) {
+  uint32_t BackgroundProcessors =
+      xboxkrnl::xeKeQueryBackgroundProcessors(context);
+  auto KPCR = GetKPCR(context);
+  uint32_t processor_mask = KPCR->prcb_data.processor_mask;
+  if ((BackgroundProcessors & processor_mask) != 0) {
+    BackgroundProcessors &= ~processor_mask;
     KPCR->unk_1A = 1;
     KPCR->timeslice_ended = 1;
     KPCR->generic_software_interrupt = 2;
   }
   if (BackgroundProcessors) {
-    for (i = 0; i < 6; ++i) {
+    for (uint32_t i = 0; i < 6; ++i) {
       if (((1 << i) & BackgroundProcessors) != 0) {
-        CPUThread = context->processor->GetCPUThread(i);
+        auto CPUThread = context->processor->GetCPUThread(i);
 
         CPUThread->SendGuestIPI(BackgroundModeIPI, nullptr);
       }
