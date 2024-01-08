@@ -1605,7 +1605,7 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
 void KernelState::KernelDecrementerInterrupt(void* ud) {
   auto context = cpu::ThreadState::GetContext();
   auto kpcr = GetKPCR(context);
-  uint32_t r5 = kpcr->unk_19;
+  uint32_t r5 = kpcr->background_scheduling_active;
   uint32_t r3 = kpcr->current_irql;
   uint32_t r6 = 0x7FFFFFFF;
   uint32_t r7 = 2;
@@ -1618,7 +1618,7 @@ void KernelState::KernelDecrementerInterrupt(void* ud) {
   }
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   kpcr->generic_software_interrupt = r7;
-  kpcr->unk_1B = r7;
+  kpcr->background_scheduling_1B = r7;
   kpcr->timeslice_ended = r7;
   uint32_t r4 = kpcr->software_interrupt_state;
   if (r3 < 2 && r3 < r4) {

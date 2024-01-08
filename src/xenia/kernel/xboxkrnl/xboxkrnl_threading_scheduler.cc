@@ -449,10 +449,10 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
   }
   uint32_t unk_mask;
 
-  if (pcr->unk_1A) {
-    pcr->unk_1A = 0;
-    pcr->unk_1B = 0;
-    pcr->unk_19 = 1;
+  if (pcr->background_scheduling_1A) {
+    pcr->background_scheduling_1A = 0;
+    pcr->background_scheduling_1B = 0;
+    pcr->background_scheduling_active = true;
 
     uint32_t cpunum = context->kernel_state->GetPCRCpuNum(pcr);
     auto hw_thread = context->processor->GetCPUThread(cpunum);
@@ -462,7 +462,7 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
 
     unk_mask = 0xEDB403FF;
   } else {
-    if (!pcr->unk_1B) {
+    if (!pcr->background_scheduling_1B) {
       auto result = prcb->next_thread.xlat();
       if (result) {
         // not releasing the spinlock! this appears to be intentional
@@ -471,8 +471,8 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
       xboxkrnl::xeKeKfReleaseSpinLock(context, list_lock, 0, false);
       return nullptr;
     }
-    pcr->unk_1B = 0;
-    pcr->unk_19 = 0;
+    pcr->background_scheduling_1B = 0;
+    pcr->background_scheduling_active = false;
     unk_mask = 0xF6DBFC03;
   }
   X_KTHREAD* v12;
@@ -1859,7 +1859,7 @@ static void BackgroundModeIPI(void* ud) {
   auto context = cpu::ThreadState::GetContext();
   auto KPCR = GetKPCR(context);
   KPCR->generic_software_interrupt = 2;
-  KPCR->unk_1A = 0x20;
+  KPCR->background_scheduling_1A = 0x20;
   KPCR->timeslice_ended = 0x20;
   KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
 }
@@ -1870,7 +1870,7 @@ void xeKeEnterBackgroundMode(PPCContext* context) {
   uint32_t processor_mask = KPCR->prcb_data.processor_mask;
   if ((BackgroundProcessors & processor_mask) != 0) {
     BackgroundProcessors &= ~processor_mask;
-    KPCR->unk_1A = 1;
+    KPCR->background_scheduling_1A = 1;
     KPCR->timeslice_ended = 1;
     KPCR->generic_software_interrupt = 2;
   }

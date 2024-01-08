@@ -20,18 +20,18 @@ enum Irql : uint8_t {
   IRQL_APC = 1,
   IRQL_DISPATCH = 2,
   IRQL_DPC = 3,
-  IRQL_AUDIO = 68, //used a few times in the audio driver
+  IRQL_AUDIO = 68,  // used a few times in the audio driver
 };
 
-enum { 
-    DISPATCHER_MANUAL_RESET_EVENT = 0,
-    DISPATCHER_AUTO_RESET_EVENT = 1,
-    DISPATCHER_MUTANT = 2,
-    DISPATCHER_QUEUE = 4,
-    DISPATCHER_SEMAPHORE = 5,
-    DISPATCHER_THREAD = 6,
-    DISPATCHER_MANUAL_RESET_TIMER = 8,
-    DISPATCHER_AUTO_RESET_TIMER = 9,
+enum {
+  DISPATCHER_MANUAL_RESET_EVENT = 0,
+  DISPATCHER_AUTO_RESET_EVENT = 1,
+  DISPATCHER_MUTANT = 2,
+  DISPATCHER_QUEUE = 4,
+  DISPATCHER_SEMAPHORE = 5,
+  DISPATCHER_THREAD = 6,
+  DISPATCHER_MANUAL_RESET_TIMER = 8,
+  DISPATCHER_AUTO_RESET_TIMER = 9,
 };
 static constexpr uint32_t XE_FLAG_THREAD_INITIALLY_SUSPENDED = 1,
                           XE_FLAG_SYSTEM_THREAD = 2,
@@ -304,15 +304,15 @@ struct X_KPCR {
   uint8_t timer_pending;             // 0xE
   uint8_t unk_0F;                    // 0xF
   // used in KeSaveFloatingPointState / its vmx counterpart
-  xe::be<uint32_t> thread_fpu_related;  // 0x10
-  xe::be<uint32_t> thread_vmx_related;  // 0x14
-  uint8_t current_irql;                 // 0x18
-  uint8_t unk_19;                       // 0x19
-  uint8_t unk_1A;                       // 0x1A
-  uint8_t unk_1B;                       // 0x1B
-  xe::be<uint32_t> timer_related;       // 0x1C
-  uint8_t unk_20[0x10];                 // 0x20
-  xe::be<uint64_t> pcr_ptr;             // 0x30
+  xe::be<uint32_t> thread_fpu_related;   // 0x10
+  xe::be<uint32_t> thread_vmx_related;   // 0x14
+  uint8_t current_irql;                  // 0x18
+  uint8_t background_scheduling_active;  // 0x19
+  uint8_t background_scheduling_1A;      // 0x1A
+  uint8_t background_scheduling_1B;      // 0x1B
+  xe::be<uint32_t> timer_related;        // 0x1C
+  uint8_t unk_20[0x10];                  // 0x20
+  xe::be<uint64_t> pcr_ptr;              // 0x30
 
   // this seems to be just garbage data? we can stash a pointer to context here
   // as a hack for now
@@ -495,12 +495,12 @@ struct X_KTHREAD {
     };
   };
   union {
-      //2048 bytes
+    // 2048 bytes
     vec128_t vmx_context[128];  // 0x180
     struct {
-        //1536 bytes
+      // 1536 bytes
       X_KWAIT_BLOCK scratch_waitblock_memory[65];
-      //space for some more data!
+      // space for some more data!
       uint32_t kernel_aux_stack_base_;
       uint32_t kernel_aux_stack_current_;
       uint32_t kernel_aux_stack_limit_;
@@ -532,7 +532,7 @@ struct X_KPROCESS {
   // list of threads in this process, guarded by the spinlock above
   util::X_TYPED_LIST<X_KTHREAD, offsetof(X_KTHREAD, process_threads)>
       thread_list;
-  //quantum value assigned to each thread of the process
+  // quantum value assigned to each thread of the process
   xe::be<int32_t> quantum;
   // kernel sets this to point to a section of size 0x2F700 called CLRDATAA,
   // except it clears bit 31 of the pointer. in 17559 the address is 0x801C0000,
