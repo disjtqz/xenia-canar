@@ -53,6 +53,33 @@ HWThread* this_hw_thread(ppc::PPCContext* context) {
   return context->processor->GetCPUThread((context->r[13] >> 12) & 0x7);
 }
 void HWThread::ThreadFunc() {
+
+  if (cpu_number_) {
+    //synchronize to cpu 0 timebase
+
+    uint64_t tbtime = mftb();
+    uint64_t systemtime = Clock::QueryHostSystemTime();
+
+    //estimate from difference in systemtime what cpu0's timestamp counter currently looks like
+    uint64_t systemtime_delta = systemtime - mftb_cycle_sync_systemtime_;
+    constexpr double HUNDREDNANOSECOND_TO_SECOND = 1e-7;
+
+    constexpr double RESCALE_SYSTIME =
+        static_cast<double>(TIMEBASE_FREQUENCY) * HUNDREDNANOSECOND_TO_SECOND;
+
+    uint64_t current_cpu0_timebase =
+        mftb_cycle_sync_ +
+        static_cast<uint64_t>(
+            round(RESCALE_SYSTIME * static_cast<double>(systemtime_delta)));
+
+    if (current_cpu0_timebase > tbtime) {
+      mftb_delta_sign_ = false;
+      mftb_delta_ = current_cpu0_timebase - tbtime;
+    } else {
+      mftb_delta_sign_ = true;
+      mftb_delta_ = tbtime - current_cpu0_timebase;
+    }
+  }
   threading::set_current_thread_id(this->cpu_number_);
   interrupt_controller()->Initialize();
   idle_process_fiber_ = threading::Fiber::CreateFromThread();
@@ -195,9 +222,6 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
   auto context = cpu::ThreadState::GetContext();
 
-  if (!context || this_hw_thread(context) != this) {
-    wake_idle_event_->Set();
-  }
 
   if (!wait_done) {
     return true;
@@ -275,7 +299,11 @@ uint64_t HWThread::mftb() const {
   unsigned long long result_high = __umulh(ratio, counter);
 
   unsigned long long result = result_low | (result_high << 32);
-  return result;
+  if (mftb_delta_sign_) {
+    return result - mftb_delta_;
+  } else {
+    return result + mftb_delta_;
+  }
 }
 
 void HWThread::Suspend() { os_thread_->Suspend(); }

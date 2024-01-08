@@ -764,6 +764,10 @@ void KernelState::BootInitializeCPU0InSystemThread(
   xboxkrnl::xeKfLowerIrql(context, 1);
   for (unsigned i = 1; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
+    uint64_t mftb_time = processor()->GetCPUThread(0)->mftb();
+    uint64_t systemtime = Clock::QueryHostSystemTime();
+    cpu_thread->SetCycleSync(mftb_time, systemtime);
+
     cpu_thread->Boot();
   }
   emulator()->audio_system()->StartGuestWorkerThread(this);

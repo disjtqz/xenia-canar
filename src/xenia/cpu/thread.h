@@ -133,6 +133,12 @@ class HWThread {
       XenonInterruptController* controller, uint32_t slot, void* ud); 
 
   std::unique_ptr<threading::Event> wake_idle_event_;
+  
+  uint64_t mftb_cycle_sync_;
+  uint64_t mftb_cycle_sync_systemtime_;
+  //we do a sort of 65-bit counter here
+  bool mftb_delta_sign_ = 0;
+  uint64_t mftb_delta_ = 0;
  public:
   HWThread(uint32_t cpu_number, cpu::ThreadState* thread_state);
   ~HWThread();
@@ -181,6 +187,11 @@ class HWThread {
   void Resume();
 
   uint64_t mftb() const;
+
+  void SetCycleSync(uint64_t timebase_cpu0, uint64_t systemtime) {
+    mftb_cycle_sync_ = timebase_cpu0;
+    mftb_cycle_sync_systemtime_ = systemtime;
+  }
   // SendGuestIPI is designed to run on a guest thread
   // it ought to be nonblocking, unlike TrySendHostIPI
   bool SendGuestIPI(void (*ipi_func)(void*), void* ud);
