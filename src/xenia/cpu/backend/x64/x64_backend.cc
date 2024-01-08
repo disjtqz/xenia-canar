@@ -81,6 +81,7 @@ class X64HelperEmitter : public X64Emitter {
 
   void* EmitEmulatedInterruptHelper();
   void* EmitTimedInterruptHelper();
+
  private:
   void* EmitCurrentForOffsets(const _code_offsets& offsets,
                               size_t stack_size = 0);
@@ -294,10 +295,9 @@ bool X64Backend::Initialize(Processor* processor) {
       thunk_emitter.EmitVectorVRsqrteHelper(vrsqrtefp_scalar_helper);
   frsqrtefp_helper = thunk_emitter.EmitFrsqrteHelper();
 
-  if (cvars::emulate_guest_interrupts_in_software) {
-    emulated_interrupt_helper_ = thunk_emitter.EmitEmulatedInterruptHelper();
-    enqueue_timed_interrupts_helper_ = thunk_emitter.EmitTimedInterruptHelper();
-  }
+  emulated_interrupt_helper_ = thunk_emitter.EmitEmulatedInterruptHelper();
+  enqueue_timed_interrupts_helper_ = thunk_emitter.EmitTimedInterruptHelper();
+
   // Set the code cache to use the ResolveFunction thunk for default
   // indirections.
   assert_zero(uint64_t(resolve_function_thunk_) & 0xFFFFFFFF00000000ull);

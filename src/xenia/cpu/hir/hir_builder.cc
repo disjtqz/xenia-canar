@@ -1238,9 +1238,7 @@ void HIRBuilder::ContextBarrier() {
 }
 
 void HIRBuilder::CheckInterrupt() {
-  if (cvars::emulate_guest_interrupts_in_software) {
-    AppendInstr(OPCODE_CHECK_INTERRUPT_info, 0);
-  }
+  AppendInstr(OPCODE_CHECK_INTERRUPT_info, 0);
 }
 
 Value* HIRBuilder::LoadMmio(cpu::MMIORange* mmio_range, uint32_t address,

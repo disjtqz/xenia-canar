@@ -1844,9 +1844,6 @@ void X64Emitter::EnsureSynchronizedGuestAndHostStack() {
   L(return_from_sync);
 }
 void X64Emitter::EmitEmulatedInterruptCheck() {
-  if (!cvars::emulate_guest_interrupts_in_software) {
-    return;
-  }
   Xbyak::Label& after_interrupt_check = NewCachedLabel();
   auto interval_ptr = GetBackendCtxPtr(offsetof(X64BackendContext, flags) + 3);
   interval_ptr.setBit(8);

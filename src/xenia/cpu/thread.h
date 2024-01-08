@@ -15,7 +15,6 @@
 #include <cstdint>
 #include "xenia/cpu/ppc/ppc_context.h"
 #include "xenia/cpu/xenon_interrupt_controller.h"
-DECLARE_bool(emulate_guest_interrupts_in_software);
 DECLARE_bool(threads_aint_cheap);
 namespace xe {
 namespace cpu {

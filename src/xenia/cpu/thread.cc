@@ -13,13 +13,14 @@
 #include "xenia/cpu/thread_state.h"
 #include "xenia/kernel/kernel_guest_structures.h"
 #include "xenia/kernel/kernel_state.h"
-DEFINE_bool(emulate_guest_interrupts_in_software, true,
-            "If true, emulate guest interrupts by repeatedly checking a "
-            "location on the PCR. Otherwise uses host ipis.",
-            "CPU");
+
 DEFINE_bool(threads_aint_cheap, false, "For people with < 8 hardware threads",
             "CPU");
-#define XE_NO_IPI_WORKERS 1
+
+DEFINE_bool(enable_cpu_timing_fences, false,
+            "If true, introduce artificial delays to try to better match "
+            "original cpu/kernel timing",
+            "CPU");
 namespace xe {
 namespace cpu {
 
@@ -53,14 +54,14 @@ HWThread* this_hw_thread(ppc::PPCContext* context) {
   return context->processor->GetCPUThread((context->r[13] >> 12) & 0x7);
 }
 void HWThread::ThreadFunc() {
-
   if (cpu_number_) {
-    //synchronize to cpu 0 timebase
+    // synchronize to cpu 0 timebase
 
     uint64_t tbtime = mftb();
     uint64_t systemtime = Clock::QueryHostSystemTime();
 
-    //estimate from difference in systemtime what cpu0's timestamp counter currently looks like
+    // estimate from difference in systemtime what cpu0's timestamp counter
+    // currently looks like
     uint64_t systemtime_delta = systemtime - mftb_cycle_sync_systemtime_;
     constexpr double HUNDREDNANOSECOND_TO_SECOND = 1e-7;
 
@@ -191,7 +192,6 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
 
   return 2;
 }
-#define NO_RESULT_MAGIC 0x69420777777ULL
 
 void HWThread::ThreadDelay() {
   if (cvars::threads_aint_cheap) {
@@ -221,7 +221,6 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
 
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
   auto context = cpu::ThreadState::GetContext();
-
 
   if (!wait_done) {
     return true;
@@ -316,9 +315,10 @@ MFTBFence::MFTBFence(uint64_t timebase_cycles)
 MFTBFence::~MFTBFence() {
   auto context = ThreadState::GetContext();
   auto hwthread = this_hw_thread(context);
-
-  while (hwthread->mftb() < desired_timebase_value_) {
-    context->CheckInterrupt();
+  if (cvars::enable_cpu_timing_fences) {
+    while (hwthread->mftb() < desired_timebase_value_) {
+      context->CheckInterrupt();
+    }
   }
 }
 
