@@ -300,10 +300,9 @@ void XThread::InitializeGuestObject() {
 
   guest_thread->thread_id = thread_id_;
   guest_thread->start_address = this->creation_params_.start_address;
-  guest_thread->unk_154 = thread_guest_ptr + 340;
+  util::XeInitializeListHead(&guest_thread->unk_154, context_here);
   uint32_t v9 = thread_guest_ptr;
   guest_thread->last_error = 0;
-  guest_thread->unk_158 = v9 + 340;
   guest_thread->creation_flags = this->creation_params_.creation_flags;
 
   guest_thread->host_xthread_stash = reinterpret_cast<void*>(this);

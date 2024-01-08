@@ -477,8 +477,7 @@ struct X_KTHREAD {
   X_LIST_ENTRY timer_list;          // 0x144
   xe::be<uint32_t> thread_id;       // 0x14C
   xe::be<uint32_t> start_address;   // 0x150
-  xe::be<uint32_t> unk_154;         // 0x154
-  xe::be<uint32_t> unk_158;         // 0x158
+  X_LIST_ENTRY unk_154;             // 0x154
   uint8_t unk_15C[0x4];             // 0x15C
   xe::be<uint32_t> last_error;      // 0x160
   xe::be<uint32_t> fiber_ptr;       // 0x164
