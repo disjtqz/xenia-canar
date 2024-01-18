@@ -170,7 +170,7 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
   if (cr2) {
     cr3 = 1 < old_irql;
     if (!cr3) {
-      kpcr->current_irql = 2;
+      kpcr->current_irql = kernel::IRQL_DISPATCH;
     }
     kpcr->use_alternative_stack = kpcr->alt_stack_base_ptr;
   }
@@ -182,7 +182,7 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
   kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
   context->RestoreGPRSnapshot(&snap);
-
+  
   if (cr2) {
     kpcr->use_alternative_stack = 0;
     if (!cr3) {

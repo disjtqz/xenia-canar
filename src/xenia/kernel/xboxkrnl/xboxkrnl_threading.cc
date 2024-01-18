@@ -240,7 +240,7 @@ dword_result_t NtSuspendThread_entry(dword_t handle,
   auto thread = kernel_state()->object_table()->LookupObject<XThread>(handle);
   if (thread) {
     if (thread->type() == XObject::Type::Thread) {
-      auto current_pcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
+      auto current_pcr = GetKPCR(context);
 
       if (current_pcr->prcb_data.current_thread == thread->guest_object() ||
           !thread->guest_object<X_KTHREAD>()->terminated) {
@@ -277,7 +277,7 @@ void KeSetCurrentStackPointers_entry(lpvoid_t stack_ptr,
                                      const ppc_context_t& context) {
   auto current_thread = XThread::GetCurrentThread();
 
-  auto pcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
+  auto pcr = GetKPCR(context);
   // also supposed to load msr mask, and the current msr with that, and store
   thread->stack_alloc_base = stack_alloc_base.value();
   thread->stack_base = stack_base.value();
@@ -344,15 +344,14 @@ dword_result_t KeSetPriorityThread_entry(pointer_t<X_KTHREAD> thread_ptr,
 DECLARE_XBOXKRNL_EXPORT1(KeSetPriorityThread, kThreading, kImplemented);
 
 uint32_t xeKeGetCurrentProcessType(cpu::ppc::PPCContext* context) {
-  auto pcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
-
+  auto pcr = GetKPCR(context);
+  
   if (!pcr->prcb_data.dpc_active)
-    return context->TranslateVirtual(pcr->prcb_data.current_thread)
-        ->process_type;
+    return GetKThread(context, pcr)->process_type;
   return pcr->processtype_value_in_dpc;
 }
 void xeKeSetCurrentProcessType(uint32_t type, cpu::ppc::PPCContext* context) {
-  auto pcr = context->TranslateVirtualGPR<X_KPCR*>(context->r[13]);
+  auto pcr = GetKPCR(context);
   if (pcr->prcb_data.dpc_active) {
     pcr->processtype_value_in_dpc = type;
   }
@@ -406,7 +405,7 @@ DECLARE_XBOXKRNL_EXPORT1(KeQuerySystemTime, kThreading, kImplemented);
 
 static void do_tls_asserts(PPCContext* context) {
   auto kpcr = GetKPCR(context);
-  auto kthread = context->TranslateVirtual(kpcr->prcb_data.current_thread);
+  auto kthread = GetKThread(context, kpcr);
 
   xenia_assert(kpcr->tls_ptr == kthread->tls_address);
   xenia_assert(kpcr->tls_ptr != 0);
@@ -788,9 +787,9 @@ void xeKeInitializeMutant(X_KMUTANT* mutant, bool initially_owned,
   mutant->header.type = 2;
 
   if (initially_owned) {
-    auto v4 = context->TranslateVirtual(
-        context->TranslateVirtualGPR<X_KPCR*>(context->r[13])
-            ->prcb_data.current_thread);
+    auto kpcr = GetKPCR(context);
+
+    auto v4 = GetKThread(context, kpcr);
     mutant->header.signal_state = 0;
     mutant->owner = context->HostToGuestVirtual(v4);
     auto old_irql = kernel_state()->LockDispatcher(context);
@@ -1088,8 +1087,8 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
   if (change_irql) {
     auto kpcr = GetKPCR(ctx);
     old_irql = kpcr->current_irql;
-    kpcr->current_irql = 2;
-    xenia_assert(old_irql <= 2);
+    kpcr->current_irql = IRQL_DISPATCH;
+    xenia_assert(old_irql <= IRQL_DISPATCH);
   }
   if (lock->pcr_of_owner == static_cast<uint32_t>(ctx->r[13])) {
     // lock is already held!
@@ -1133,7 +1132,7 @@ void xeKeKfReleaseSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
 
   if (change_irql) {
     // Unlock.
-    if (old_irql >= 2) {
+    if (old_irql >= IRQL_DISPATCH) {
       return;
     }
 
@@ -1224,12 +1223,12 @@ dword_result_t KeRaiseIrqlToDpcLevel_entry(const ppc_context_t& ctx) {
   auto pcr = ctx.GetPCR();
   uint32_t old_irql = pcr->current_irql;
 
-  if (old_irql > 2) {
+  if (old_irql > IRQL_DISPATCH) {
     XELOGE("KeRaiseIrqlToDpcLevel - old_irql > 2");
   }
 
   // oddly, this does not set the current interrupt priority
-  pcr->current_irql = 2;
+  pcr->current_irql = IRQL_DISPATCH;
 
   return old_irql;
 }
@@ -1246,7 +1245,7 @@ void xeKfLowerIrql(PPCContext* ctx, unsigned char new_irql) {
 
   kernel_state()->SetCurrentInterruptPriority(ctx, kpcr, new_irql);
 
-  if (new_irql < 2) {
+  if (new_irql < IRQL_DISPATCH) {
     // the called function does a ton of other stuff including changing the
     // irql and interrupt_related
 
@@ -1263,7 +1262,7 @@ void KfLowerIrql_entry(dword_t new_irql, const ppc_context_t& ctx) {
 DECLARE_XBOXKRNL_EXPORT2(KfLowerIrql, kThreading, kImplemented, kHighFrequency);
 XE_COMPARISON_NOINLINE
 unsigned char xeKfRaiseIrql(PPCContext* ctx, unsigned char new_irql) {
-  X_KPCR* v1 = ctx->TranslateVirtualGPR<X_KPCR*>(ctx->r[13]);
+  X_KPCR* v1 = GetKPCR(ctx);
 
   uint32_t old_irql = v1->current_irql;
   v1->current_irql = new_irql;
@@ -1497,6 +1496,7 @@ void xeExecuteDPCList2(
 void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
                                       unsigned int software_interrupt_mask,
                                       cpu::ppc::PPCContext* context) {
+  xenia_assert(new_irql < IRQL_DISPATCH);
   // need to save/restore registers, dpcs/apcs may clobber
   // todo: might really only need to save lr
   cpu::ppc::PPCGprSnapshot savegp;
@@ -1608,9 +1608,6 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
   uint32_t scratch_address = old_stack_pointer;
   current_thread->kernel_aux_stack_current_ += 16;
 
-  //uint32_t scratch_address = old_stack_pointer - 16;
-  //ctx->r[1] = old_stack_pointer - 32;
-
   while (!user_apc_queue.empty(ctx)) {
     uint32_t apc_ptr = user_apc_queue.flink_ptr;
 
@@ -1661,7 +1658,6 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
     unlocked_irql = xeKeKfAcquireSpinLock(ctx, &current_thread->apc_lock);
   }
   current_thread->kernel_aux_stack_current_ = old_stack_pointer;
- // ctx->r[1] = old_stack_pointer;
 
   xeKeKfReleaseSpinLock(ctx, &current_thread->apc_lock, unlocked_irql);
   ctx->RestoreGPRSnapshot(&savegplr);
@@ -1669,6 +1665,8 @@ X_STATUS xeProcessApcQueue(PPCContext* ctx) {
 }
 
 X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
+  xenia_assert(GetKPCR(ctx)->current_irql == IRQL_APC);
+
   if (!ctx) {
     ctx = cpu::ThreadState::Get()->context();
   }
@@ -1703,7 +1701,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
       v8->flink_ptr = v7;
       v7->blink_ptr = v8;
       apc->enqueued = 0;
-      xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, 1);
+      xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, IRQL_APC);
       uint64_t kernel_args[] = {
           ctx->HostToGuestVirtual(apc), scratch_address + 0,
           scratch_address + 4,          scratch_address + 8,
@@ -1723,7 +1721,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
       v11->flink_ptr = v10;
       v10->blink_ptr = v11;
       apc->enqueued = 0;
-      xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, 1);
+      xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, IRQL_APC);
       uint64_t kernel_args[] = {
           ctx->HostToGuestVirtual(apc), scratch_address + 0,
           scratch_address + 4,          scratch_address + 8,
@@ -1738,11 +1736,11 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
       uint32_t arg2 = xe::load_and_swap<uint32_t>(scratch_ptr + 12);
       if (normal_routine) {
         kthread->executing_kernel_apc = 1;
-        xeKfLowerIrql(ctx, 0);
+        xeKfLowerIrql(ctx, IRQL_PASSIVE);
         uint64_t normal_args[] = {normal_context, arg1, arg2};
         ctx->processor->Execute(ctx->thread_state(), normal_routine,
                                 normal_args, xe::countof(normal_args));
-        xeKfRaiseIrql(ctx, 1);
+        xeKfRaiseIrql(ctx, IRQL_APC);
       }
       xeKeKfAcquireSpinLock(ctx, &kthread->apc_lock);
       kthread->executing_kernel_apc = 0;
@@ -1750,7 +1748,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
   }
   kthread->kernel_aux_stack_current_ = old_stack_pointer;
 
-  xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, 1);
+  xeKeKfReleaseSpinLock(ctx, &kthread->apc_lock, IRQL_APC);
   ctx->RestoreGPRSnapshot(&savegplr);
   return 0;
 }
@@ -2005,8 +2003,7 @@ static void DPCIPIFunction(void* ud) {
 uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
                             PPCContext* ctx) {
   bool result = false;
-
-  auto old_irql = xeKfRaiseIrql(ctx, 124);
+  auto old_irql = xeKfRaiseIrql(ctx, IRQL_HIGHEST);
 
   X_KPRCB* target_prcb;
   auto inserted_cpunum = dpc->desired_cpu_number;
@@ -2064,7 +2061,7 @@ DECLARE_XBOXKRNL_EXPORT2(KeInsertQueueDpc, kThreading, kStub, kSketchy);
 uint32_t xeKeRemoveQueueDpc(XDPC* dpc, PPCContext* ctx) {
   bool result = false;
 
-  auto old_irql = xeKfRaiseIrql(ctx, 124);
+  auto old_irql = xeKfRaiseIrql(ctx, IRQL_HIGHEST);
   auto selected_cpu_number = dpc->selected_cpu_number;
   if (selected_cpu_number) {
     // need to hold the dpc lock, find the pcr it belongs to
