@@ -34,6 +34,7 @@ X_KPCR* GetKPCR();
 X_KPCR* GetKPCR(cpu::ppc::PPCContext* context);
 X_KTHREAD* GetKThread();
 X_KTHREAD* GetKThread(cpu::ppc::PPCContext* context);
+X_KTHREAD* GetKThread(cpu::ppc::PPCContext* context, X_KPCR* pcr);
 
 class XThread : public XObject {
  public:

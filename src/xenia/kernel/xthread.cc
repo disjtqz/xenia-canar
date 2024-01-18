@@ -52,6 +52,9 @@ X_KTHREAD* GetKThread() {
 X_KTHREAD* GetKThread(PPCContext* context) {
   return context->TranslateVirtual(GetKPCR(context)->prcb_data.current_thread);
 }
+X_KTHREAD* GetKThread(cpu::ppc::PPCContext* context, X_KPCR* pcr) {
+  return context->TranslateVirtual(pcr->prcb_data.current_thread);
+}
 const uint32_t XAPC::kSize;
 
 using xe::cpu::ppc::PPCOpcode;
