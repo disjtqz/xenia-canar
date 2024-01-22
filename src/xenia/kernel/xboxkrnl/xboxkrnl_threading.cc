@@ -345,9 +345,8 @@ DECLARE_XBOXKRNL_EXPORT1(KeSetPriorityThread, kThreading, kImplemented);
 
 uint32_t xeKeGetCurrentProcessType(cpu::ppc::PPCContext* context) {
   auto pcr = GetKPCR(context);
-  
-  if (!pcr->prcb_data.dpc_active)
-    return GetKThread(context, pcr)->process_type;
+
+  if (!pcr->prcb_data.dpc_active) return GetKThread(context, pcr)->process_type;
   return pcr->processtype_value_in_dpc;
 }
 void xeKeSetCurrentProcessType(uint32_t type, cpu::ppc::PPCContext* context) {
@@ -1493,6 +1492,31 @@ void xeExecuteDPCList2(
   } while (!dpc_list.empty(context));
 }
 
+void xeKeRetireDpcList(PPCContext* context) {
+  auto kpcr = GetKPCR(context);
+  xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
+  unsigned int is_dpc_active = kpcr->prcb_data.dpc_active;
+  if (is_dpc_active) {
+    xenia_assert(kpcr->unk_0A == 0);
+    xenia_assert(kpcr->processtype_value_in_dpc == 0);
+  }
+
+  context->DisableEI();
+  unsigned int timer_ready = kpcr->timer_pending;
+
+  if (!kpcr->prcb_data.queued_dpcs_list_head.empty(context) || timer_ready) {
+    xeExecuteDPCList2(context, timer_ready,
+                      kpcr->prcb_data.queued_dpcs_list_head, 0);
+    kpcr->prcb_data.dpc_active = is_dpc_active;
+  }
+  context->EnableEI();
+}
+
+void KeRetireDpcList_entry(const ppc_context_t& context) {
+  xeKeRetireDpcList(context);
+}
+DECLARE_XBOXKRNL_EXPORT1(KeRetireDpcList, kThreading, kImplemented);
+
 void xeDispatchProcedureCallInterrupt(unsigned int new_irql,
                                       unsigned int software_interrupt_mask,
                                       cpu::ppc::PPCContext* context) {
@@ -1707,7 +1731,7 @@ X_STATUS xeProcessKernelApcQueue(PPCContext* ctx) {
           scratch_address + 4,          scratch_address + 8,
           scratch_address + 12,
       };
-      
+
       ctx->processor->Execute(ctx->thread_state(),
                               xe::load_and_swap<uint32_t>(scratch_ptr + 16),
                               kernel_args, xe::countof(kernel_args));
@@ -2167,9 +2191,8 @@ void ExAcquireReadWriteLockShared_entry(pointer_t<X_ERWLOCK> lock_ptr,
   lock_ptr->readers_waiting_count++;
 
   xeKeKfReleaseSpinLock(ppc_context, &lock_ptr->spin_lock, old_irql);
-  xeKeWaitForSingleObject(
-      ppc_context, &lock_ptr->reader_semaphore.header,
-      7, 0, 0, nullptr);
+  xeKeWaitForSingleObject(ppc_context, &lock_ptr->reader_semaphore.header, 7, 0,
+                          0, nullptr);
 }
 DECLARE_XBOXKRNL_EXPORT2(ExAcquireReadWriteLockShared, kThreading, kImplemented,
                          kBlocking);
