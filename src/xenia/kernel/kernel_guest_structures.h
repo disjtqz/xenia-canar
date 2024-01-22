@@ -299,7 +299,7 @@ struct X_KPCR {
       uint8_t apc_software_interrupt_state;  // 0x9
     };
   };
-  uint8_t unk_0A[2];                 // 0xA
+  xe::be<uint16_t> unk_0A;                 // 0xA
   uint8_t processtype_value_in_dpc;  // 0xC
   uint8_t timeslice_ended;           // 0xD
   uint8_t timer_pending;             // 0xE
