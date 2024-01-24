@@ -221,7 +221,9 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
 
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
   auto context = cpu::ThreadState::GetContext();
-
+  if (!context || this_hw_thread(context) != this) {
+    this->wake_idle_event_->Set();
+  }
   if (!wait_done) {
     return true;
   } else {

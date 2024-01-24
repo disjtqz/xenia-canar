@@ -1351,7 +1351,7 @@ void KernelState::EmulateCPInterrupt(uint32_t interrupt_callback,
   hwthread->TrySendInterruptFromHost(
       CPInterruptIPI, params,
       source != 0);  // do not block if we're the vsync interrupt and on cpu 2!
-               // we will freeze
+                     // we will freeze
 }
 
 X_KSPINLOCK* KernelState::GetDispatcherLock(cpu::ppc::PPCContext* context) {
@@ -1560,9 +1560,14 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
   auto cpu_thread = context->processor->GetCPUThread(
       context->kernel_state->GetPCRCpuNum(kpcr));
   auto interrupt_controller = cpu_thread->interrupt_controller();
+
+  //cpus 0 and 2 both have some very high priority timing related tasks to do (clock interrupt, gpu interrupt)
+  uint64_t nanosleep_interval = kernel_state()->GetPCRCpuNum(kpcr) == 0 ||
+                                        kernel_state()->GetPCRCpuNum(kpcr) == 2
+                                    ? 20 * 1000
+                                    : 200 * 1000;
   while (true) {
     kpcr->prcb_data.running_idle_thread = kpcr->prcb_data.idle_thread;
-    uint32_t spin_count = 0;
     while (!kpcr->generic_software_interrupt) {
       Clock::QpcParams current_qpc_params = Clock::GetQpcParams();
       auto current_quick_timestamp = Clock::QueryQuickCounter();
@@ -1577,19 +1582,12 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       xenia_assert(GetKThread(context) == kthread);
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
       context->CheckInterrupt();
-#if 0
-
-      cpu::HWThread::ThreadDelay();
-      ++spin_count;
-      // todo: check whether a timed interrupt would be missed due to wait
-      // if (!(spin_count & (0xF))) {
-      auto cpu_thread = context->processor->GetCPUThread(
-          context->kernel_state->GetPCRCpuNum(kpcr));
-      cpu_thread->IdleSleep(1000 * 20);  // 20 microseconds
-                                         //  }
-
-      _mm_pause();
-#endif
+      if (!kpcr->generic_software_interrupt) {
+        // todo: check whether a timed interrupt would be missed due to wait
+        auto cpu_thread = context->processor->GetCPUThread(
+            context->kernel_state->GetPCRCpuNum(kpcr));
+        cpu_thread->IdleSleep(nanosleep_interval);
+      }
     }
 
     /*
