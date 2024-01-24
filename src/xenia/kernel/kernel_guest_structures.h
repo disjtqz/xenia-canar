@@ -34,6 +34,19 @@ enum {
   DISPATCHER_MANUAL_RESET_TIMER = 8,
   DISPATCHER_AUTO_RESET_TIMER = 9,
 };
+
+// https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/ntos/ke/kthread_state.htm
+enum : uint8_t {
+  KTHREAD_STATE_INITIALIZED = 0,
+  KTHREAD_STATE_READY = 1,
+  KTHREAD_STATE_RUNNING = 2,
+  KTHREAD_STATE_STANDBY = 3,
+  KTHREAD_STATE_TERMINATED = 4,
+  KTHREAD_STATE_WAITING = 5,
+  KTHREAD_STATE_UNKNOWN = 6,  //"Transition" except that makes no sense here, so
+                              //6 likely has a different meaning on xboxkrnl
+};
+
 static constexpr uint32_t XE_FLAG_THREAD_INITIALLY_SUSPENDED = 1,
                           XE_FLAG_SYSTEM_THREAD = 2,
                           XE_FLAG_PRIORITY_CLASS1 = 0x20,
@@ -299,7 +312,7 @@ struct X_KPCR {
       uint8_t apc_software_interrupt_state;  // 0x9
     };
   };
-  xe::be<uint16_t> unk_0A;                 // 0xA
+  xe::be<uint16_t> unk_0A;           // 0xA
   uint8_t processtype_value_in_dpc;  // 0xC
   uint8_t timeslice_ended;           // 0xD
   uint8_t timer_pending;             // 0xE

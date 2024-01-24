@@ -233,7 +233,7 @@ static void ThreadSwitchHelper(PPCContext* context, X_KPROCESS* process) {
   auto v3 = &GetKPCR(context)->prcb_data;
   for (auto&& i : process->thread_list.IterateForward(context)) {
     if (i.a_prcb_ptr.xlat() == v3 && i.another_prcb_ptr.xlat() != v3 &&
-        i.thread_state != 6) {
+        i.thread_state != KTHREAD_STATE_UNKNOWN) {
       xboxkrnl::xeHandleReadyThreadOnDifferentProcessor(context, &i);
     }
   }
@@ -331,11 +331,11 @@ void KernelState::SetupProcessorIdleThread(uint32_t which_processor_index) {
   XELOGD("Setting up processor {} idle thread", which_processor_index);
   X_KPCR_PAGE* page_for = this->KPCRPageForCpuNumber(which_processor_index);
   X_KTHREAD* thread = &page_for->idle_process_thread;
-  thread->thread_state = 2;
+  thread->thread_state = KTHREAD_STATE_RUNNING;
 
   thread->priority = 31;
-  thread->wait_irql = 2;
-  thread->may_queue_apcs = 1;
+  thread->wait_irql = IRQL_DISPATCH;
+  thread->may_queue_apcs = true;
 
   auto prcb_guest = memory()->HostToGuestVirtual(&page_for->pcr.prcb_data);
   thread->a_prcb_ptr = prcb_guest;

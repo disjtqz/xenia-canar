@@ -1447,7 +1447,7 @@ X_STATUS KernelState::ContextSwitch(PPCContext* context, X_KTHREAD* guest,
   auto pre_swap = [this, context, guest]() {
     auto kpcr = GetKPCR();
 
-    guest->thread_state = 2;
+    guest->thread_state = KTHREAD_STATE_RUNNING;
     auto stkbase = guest->stack_base;
     auto stklim = guest->stack_limit;
     // it sets r1 to this? i dont think we need, because we have different

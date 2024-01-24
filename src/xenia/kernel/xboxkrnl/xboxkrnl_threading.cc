@@ -414,7 +414,6 @@ static void do_tls_asserts(PPCContext* context) {
 dword_result_t KeTlsAlloc_entry(const ppc_context_t& context) {
   do_tls_asserts(context);
   uint32_t slot = kernel_state()->AllocateTLS(context);
-  // XThread::GetCurrentThread()->SetTLSValue(slot, 0);
 
   return slot;
 }
@@ -1935,7 +1934,7 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
     X_STATUS wait_status;
     auto target_thread_state = apc_thread->thread_state;
     if (apc_mode) {
-      if (target_thread_state == 5 && apc_thread->processor_mode == 1 &&
+      if (target_thread_state == KTHREAD_STATE_WAITING && apc_thread->processor_mode == 1 &&
           apc_thread->alertable) {
         wait_status = X_STATUS_USER_APC;
         apc_thread->user_apc_pending = 1;
@@ -1943,7 +1942,8 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
       }
     } else {
       apc_thread->deferred_apc_software_interrupt_state = 1;
-      if (target_thread_state == 2) {
+      //if the thread is already running, we need to send it an IPI if it is on a different processor
+      if (target_thread_state == KTHREAD_STATE_RUNNING) {
         auto thread_processor = apc_thread->current_cpu;
         if (thread_processor == GetKPCR(context)->prcb_data.current_cpu) {
           GetKPCR(context)->apc_software_interrupt_state = 1;
@@ -1954,7 +1954,7 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
         }
         goto LABEL_26;
       }
-      if (target_thread_state == 5 && !apc_thread->wait_irql &&
+      if (target_thread_state == KTHREAD_STATE_WAITING && apc_thread->wait_irql == IRQL_PASSIVE &&
           (!apc->normal_routine || !apc_thread->apc_disable_count &&
                                        !apc_thread->executing_kernel_apc)) {
         wait_status = X_STATUS_KERNEL_APC;

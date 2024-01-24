@@ -146,7 +146,7 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
            "xeHandleReadyThreadOnDifferentProcessor kthread = {}, "
            "thread_state = {}",
            (void*)kthread, kthread->thread_state);
-  if (kthread->thread_state != 2) {
+  if (kthread->thread_state != KTHREAD_STATE_RUNNING) {
     // xe::FatalError("Doing some fpu/vmx shit here?");
     // it looks like its saving the fpu and vmx state
     // we don't have to do this i think, because we already have different
@@ -156,7 +156,7 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
 
   xenia_assert(kthread->a_prcb_ptr.xlat() == v3);
   switch (kthread->thread_state) {
-    case 1: {  // ready
+    case KTHREAD_STATE_READY: { 
       auto v23 = kthread->ready_prcb_entry.flink_ptr;
       auto v24 = kthread->ready_prcb_entry.blink_ptr;
       v24->flink_ptr = v23;
@@ -167,14 +167,14 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
       }
       break;
     }
-    case 2: {  // running
+    case KTHREAD_STATE_RUNNING: {  // running
       if (!v3->next_thread) {
         auto v22 = xeScanForReadyThread(context, v3, 0);
         if (!v22) {
           v22 = v3->idle_thread.xlat();
           v3->running_idle_thread = v22;
         }
-        v22->thread_state = 3;
+        v22->thread_state = KTHREAD_STATE_STANDBY;
         v3->next_thread = v22;
         GetKPCR(context)->generic_software_interrupt = 2;
       }
@@ -182,13 +182,13 @@ void xeHandleReadyThreadOnDifferentProcessor(PPCContext* context,
           context, &kpcr->prcb_data.enqueued_processor_threads_lock, 0, false);
       return;
     }
-    case 3: {  // standby
+    case KTHREAD_STATE_STANDBY: {  // standby
       auto v21 = xeScanForReadyThread(context, v3, 0);
       if (!v21) {
         v21 = v3->idle_thread.xlat();
         v3->running_idle_thread = v21;
       }
-      v21->thread_state = 3;
+      v21->thread_state = KTHREAD_STATE_STANDBY;
       v3->next_thread = v21;
       break;
     }
@@ -220,7 +220,7 @@ static void insert_8009CFE0(PPCContext* context, X_KTHREAD* thread,
   auto priority = thread->priority;
   auto thread_prcb = context->TranslateVirtual(thread->a_prcb_ptr);
   auto thread_ready_list_entry = &thread->ready_prcb_entry;
-  thread->thread_state = 1;
+  thread->thread_state = KTHREAD_STATE_READY;
   auto& list_for_priority = thread_prcb->ready_threads_by_priority[priority];
   if (was_preempted) {
     auto v6 = list_for_priority.flink_ptr;
@@ -248,7 +248,7 @@ static void insert_8009D048(PPCContext* context, X_KTHREAD* thread) {
     thread->was_preempted = 0;
     insert_8009CFE0(context, thread, unk);
   } else {
-    thread->thread_state = 6;
+    thread->thread_state = KTHREAD_STATE_UNKNOWN;
     auto kpcr = GetKPCR(context);
 
     thread->ready_prcb_entry.flink_ptr =
@@ -321,7 +321,7 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
 
     prcb_for_thread->running_idle_thread = 0U;
   label_6:
-    kthread->thread_state = 3;
+    kthread->thread_state = KTHREAD_STATE_STANDBY;
     prcb_for_thread->next_thread = context->HostToGuestVirtual(kthread);
 
     xboxkrnl::xeKeKfReleaseSpinLock(
@@ -355,13 +355,13 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
     return;
   }
 
-  kthread->thread_state = 3;
+  kthread->thread_state = KTHREAD_STATE_STANDBY;
 
   prcb_for_thread->next_thread = context->HostToGuestVirtual(kthread);
   uint32_t v10 = next_thread->priority;
   auto v11 = context->TranslateVirtual(next_thread->a_prcb_ptr);
 
-  next_thread->thread_state = 1;
+  next_thread->thread_state = KTHREAD_STATE_READY;
   v11->ready_threads_by_priority[v10].InsertHead(next_thread, context);
 
   v11->has_ready_thread_by_priority |= (1 << v10);
@@ -392,7 +392,7 @@ static void xeProcessQueuedThreads(PPCContext* context,
         context->TranslateVirtual<X_LIST_ENTRY*>(first_ready_thread);
     first_ready_thread = ready_thread->flink_ptr;
     // xeEnqueueThreadPostWait sets it to 6
-    xenia_assert(ready_thread.GetAdjacent()->thread_state == 6);
+    xenia_assert(ready_thread.GetAdjacent()->thread_state == KTHREAD_STATE_UNKNOWN);
 
     uint32_t prcb =
         static_cast<uint32_t>(context->r[13]) + offsetof(X_KPCR, prcb_data);
@@ -441,7 +441,7 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
       } else {
         auto v7 = xeScanForReadyThread(context, prcb, current_prio);
         if (v7) {
-          v7->thread_state = 3;
+          v7->thread_state = KTHREAD_STATE_STANDBY;
           prcb->next_thread = v7;
         }
       }
@@ -506,7 +506,7 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
         return nullptr;
       }
     }
-    v12->thread_state = 3;
+    v12->thread_state = KTHREAD_STATE_STANDBY;
     prcb->next_thread = v12;
   }
 
@@ -622,7 +622,7 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
            "xeEnqueueThreadPostWait - thread {}, wait_result {:04X}, "
            "priority_increment {}",
            (void*)thread, wait_result, priority_increment);
-  xenia_assert(thread->thread_state == 5);
+  xenia_assert(thread->thread_state == KTHREAD_STATE_WAITING);
   thread->wait_result = thread->wait_result | wait_result;
   auto kpcr = GetKPCR(context);
   xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
@@ -691,7 +691,7 @@ void xeEnqueueThreadPostWait(PPCContext* context, X_KTHREAD* thread,
       }
     }
   }
-  thread->thread_state = 6;
+  thread->thread_state = KTHREAD_STATE_UNKNOWN;
 
 #if 0
   thread->ready_prcb_entry.flink_ptr = prcb->enqueued_threads_list.next;
@@ -871,7 +871,7 @@ void scheduler_80097F90(PPCContext* context, X_KTHREAD* thread) {
         } else {
           X_KTHREAD* v9 = xeScanForReadyThread(context, pcrb, v8);
           if (v9) {
-            v9->thread_state = 3;
+            v9->thread_state = KTHREAD_STATE_STANDBY;
             pcrb->next_thread = v9;
           }
         }
@@ -1176,7 +1176,7 @@ X_STATUS xeKeWaitForSingleObject(PPCContext* context, X_DISPATCH_HEADER* object,
     this_thread->alertable = alertable;
     this_thread->processor_mode = processor_mode;
     this_thread->wait_reason = reason2;
-    this_thread->thread_state = 5;
+    this_thread->thread_state = KTHREAD_STATE_WAITING;
     v14 = xeSchedulerSwitchThread2(context);
 
     if (v14 == X_STATUS_USER_APC) {
@@ -1225,7 +1225,7 @@ void xeKeSetAffinityThread(PPCContext* context, X_KTHREAD* thread,
              ->pcr.prcb_data;
 
     if (old_cpu == GetKPCR(context)->prcb_data.current_cpu) {
-      if (thread->thread_state != 6) {
+      if (thread->thread_state != KTHREAD_STATE_UNKNOWN) {
         xeHandleReadyThreadOnDifferentProcessor(context, thread);
       }
     } else {
@@ -1292,7 +1292,7 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
   bool v7 = (xe::lzcnt(thread_prcb->unk_mask_64 & (1 << priority)) & 0x20) == 0;
   X_KTHREAD* new_next_thread;
   switch (thread_state) {
-    case 1: {
+    case KTHREAD_STATE_READY: {
       auto v17 = &thread->ready_prcb_entry;
       auto v18 = thread->ready_prcb_entry.flink_ptr;
       auto v19 = thread->ready_prcb_entry.blink_ptr;
@@ -1302,14 +1302,14 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
         thread_prcb->has_ready_thread_by_priority =
             thread_prcb->has_ready_thread_by_priority & (~(1 << prio));
       }
-      thread->thread_state = 6;
+      thread->thread_state = KTHREAD_STATE_UNKNOWN;
       auto kpcr = GetKPCR(context);
       v17->flink_ptr = kpcr->prcb_data.enqueued_threads_list.next;
       kpcr->prcb_data.enqueued_threads_list.next =
           context->HostToGuestVirtual(v17);
       break;
     }
-    case 2: {
+    case KTHREAD_STATE_RUNNING: {
       if (thread_prcb->next_thread) {
         return;
       }
@@ -1320,16 +1320,16 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
         new_next_thread =
             xeScanForReadyThread(context, thread_prcb.xlat(), priority);
         if (new_next_thread) {
-          new_next_thread->thread_state = 3;
+          new_next_thread->thread_state = KTHREAD_STATE_STANDBY;
           thread_prcb->next_thread = new_next_thread;
           return;
         }
       }
       break;
     }
-    case 3: {
+    case KTHREAD_STATE_STANDBY: {
       if (!v7) {
-        thread->thread_state = 1;
+        thread->thread_state = KTHREAD_STATE_READY;
         auto v8 = &thread_prcb->ready_threads_by_priority[priority];
         auto v9 = v8->flink_ptr;
         thread->ready_prcb_entry.blink_ptr = v8;
@@ -1344,18 +1344,18 @@ void xeKeChangeThreadPriority(PPCContext* context, X_KTHREAD* thread,
           new_next_thread = thread_prcb->idle_thread.xlat();
           thread_prcb->running_idle_thread = new_next_thread;
         }
-        new_next_thread->thread_state = 3;
+        new_next_thread->thread_state = KTHREAD_STATE_STANDBY;
         thread_prcb->next_thread = new_next_thread;
         return;
       }
       if (priority < prio) {
         auto v11 = xeScanForReadyThread(context, thread_prcb.xlat(), priority);
         if (v11) {
-          v11->thread_state = 3;
+          v11->thread_state = KTHREAD_STATE_STANDBY;
           thread_prcb->next_thread = v11;
           int v12 = thread->priority;
           auto v13 = thread->a_prcb_ptr;
-          thread->thread_state = 1;
+          thread->thread_state = KTHREAD_STATE_READY;
           int v14 = 1 << v12;
           auto v15 = &v13->ready_threads_by_priority[v12];
           auto v16 = v15->flink_ptr;
@@ -1439,7 +1439,7 @@ X_STATUS xeKeDelayExecutionThread(PPCContext* context, char mode,
     thread->alertable = alertable;
     thread->processor_mode = mode;
     thread->wait_reason = 1;
-    thread->thread_state = 5;
+    thread->thread_state = KTHREAD_STATE_WAITING;
 
     result = xeSchedulerSwitchThread2(context);
     if (result == X_STATUS_USER_APC) {
@@ -1699,7 +1699,7 @@ X_STATUS xeKeWaitForMultipleObjects(
     thread->processor_mode = mode;
     thread->wait_reason = reason;
     auto v35 = (unsigned char)thread->wait_irql;
-    thread->thread_state = 5;
+    thread->thread_state = KTHREAD_STATE_WAITING;
     result = xeSchedulerSwitchThread2(context);
     if (result == X_STATUS_USER_APC) {
       xeProcessUserApcs(context);

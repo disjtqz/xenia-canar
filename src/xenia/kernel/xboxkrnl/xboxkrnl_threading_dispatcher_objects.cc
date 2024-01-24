@@ -585,7 +585,7 @@ uint32_t xeKeRemoveQueue(PPCContext* context, X_KQUEUE* queue,
     this_thread->alertable = 0;
     this_thread->processor_mode = wait_mode;
     this_thread->wait_reason = 4;
-    this_thread->thread_state = 5;
+    this_thread->thread_state = KTHREAD_STATE_WAITING;
 
     auto result = xeSchedulerSwitchThread2(context);
     this_thread->wait_reason = 0;

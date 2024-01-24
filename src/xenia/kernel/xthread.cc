@@ -282,7 +282,7 @@ void XThread::InitializeGuestObject() {
   guest_thread->stack_limit = (this->stack_limit_);
   guest_thread->stack_kernel = (this->stack_base_ - 240);
   guest_thread->tls_address = this->tls_dynamic_address_;
-  guest_thread->thread_state = 0;
+  guest_thread->thread_state = KTHREAD_STATE_INITIALIZED;
 
   guest_thread->process_type_dup = process_type;
   guest_thread->process_type = process_type;
@@ -310,7 +310,7 @@ void XThread::InitializeGuestObject() {
 
   guest_thread->host_xthread_stash = reinterpret_cast<void*>(this);
 
-  guest_thread->thread_state = 0;
+  guest_thread->thread_state = KTHREAD_STATE_INITIALIZED;
 
   // priority related values
   guest_thread->unk_C8 = process->unk_18;
@@ -558,7 +558,7 @@ X_STATUS XThread::Exit(int exit_code) {
 
   xboxkrnl::xeKeKfReleaseSpinLock(cpu_context, &kprocess->thread_list_spinlock,
                                   0, false);
-  kthread->thread_state = 4;
+  kthread->thread_state = KTHREAD_STATE_TERMINATED;
 
   util::XeInsertHeadList(
       &GetKPCR(cpu_context)->prcb_data.terminating_threads_list,
