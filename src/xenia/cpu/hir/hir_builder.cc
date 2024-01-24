@@ -83,6 +83,19 @@ void HIRBuilder::Reset() {
 }
 
 bool HIRBuilder::Finalize() {
+  // add interrupt checks to the front of each block
+  for (auto block = block_head_; block != nullptr; block = block->next) {
+    auto first_nonfake = block->instr_head;
+    for (; first_nonfake && first_nonfake->IsFake();
+         first_nonfake = first_nonfake->next) {
+    }
+    if (first_nonfake) {
+      auto interrupt_instruction = AppendInstr(OPCODE_CHECK_INTERRUPT_info, 0);
+
+      interrupt_instruction->MoveBefore(first_nonfake);
+    }
+  }
+
   // Scan blocks in order and add fallthrough branches. These are needed for
   // analysis passes to work. We may have also added blocks out of order and
   // need to ensure they fall through in the right order.

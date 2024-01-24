@@ -133,7 +133,6 @@ bool PPCHIRBuilder::Emit(GuestFunction* function, uint32_t flags) {
     Label* label = label_list_[offset];
     if (label) {
       MarkLabel(label);
-      CheckInterrupt();
     }
 
     Instr* first_instr = 0;
