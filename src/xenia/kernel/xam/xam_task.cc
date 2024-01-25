@@ -87,6 +87,47 @@ static uint32_t get_cpunum_from_arg1(uint32_t dword8) {
   }
   return 5;
 }
+/*
+    used for XamTaskSchedule, but on initialization Xam also calls this to create 8 different threads. 
+    two seem to be for specific tasks, and the other 6 probably execute pooled tasks (task type 4, used by h4)
+*/
+static X_KTHREAD* XamThreadCreate(PPCContext* context, uint32_t arg1_from_flags,
+                         uint32_t callback, uint32_t message, XAM_TASK_ARGS* optional_args=nullptr) {
+  uint32_t dword8 = arg1_from_flags;
+  xe::be<uint32_t> kthreaad_u;
+
+  uint32_t create_result = xboxkrnl::ExCreateThread(
+      &kthreaad_u, 65536, nullptr, 0, callback, message,
+      XE_FLAG_THREAD_INITIALLY_SUSPENDED | XE_FLAG_RETURN_KTHREAD_PTR |
+          XE_FLAG_SYSTEM_THREAD);
+
+  auto resulting_kthread = context->TranslateVirtual<X_KTHREAD*>(kthreaad_u);
+
+  if (XFAILED(create_result)) {
+    // Failed!
+    XELOGE("XAM task creation failed: {:08X}", create_result);
+    xboxkrnl::xeKeLeaveCriticalRegion(context);
+    return nullptr;
+  }
+  uint32_t cpunum;
+  if (optional_args && optional_args->flags & 0x80000000) {
+    cpunum = optional_args->value2;
+  } else {
+    cpunum = get_cpunum_from_arg1(arg1_from_flags);
+  }
+
+  if (arg1_from_flags & 0x80000) {
+    xboxkrnl::xeKeSetPriorityClassThread(context, resulting_kthread, 1);
+  }
+
+  xboxkrnl::xeKeSetBasePriorityThread(context, resulting_kthread, 0);
+  uint32_t old_aff;
+  xboxkrnl::xeKeSetAffinityThread(context, resulting_kthread, 1U << cpunum,
+                                  &old_aff);
+
+  xboxkrnl::xeKeResumeThread(context, resulting_kthread);
+  return resulting_kthread;
+}
 
 dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
                                      pointer_t<XTASK_MESSAGE> message,
@@ -123,39 +164,11 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
     uint32_t arg1_from_flags =
         xe::rotate_right<uint32_t>(1, 4) & 0xFF07FFFF | args.flags & 0xF80000;
 
-    uint32_t dword8 = arg1_from_flags;
-    xe::be<uint32_t> kthreaad_u;
-
-    uint32_t create_result = xboxkrnl::ExCreateThread(
-        &kthreaad_u, 65536, nullptr, 0, callback, message,
-        XE_FLAG_THREAD_INITIALLY_SUSPENDED | XE_FLAG_RETURN_KTHREAD_PTR |
-            XE_FLAG_SYSTEM_THREAD);
-
-    auto resulting_kthread = ctx->TranslateVirtual<X_KTHREAD*>(kthreaad_u);
-
-    if (XFAILED(create_result)) {
-      // Failed!
-      XELOGE("XAM task creation failed: {:08X}", create_result);
-      xboxkrnl::xeKeLeaveCriticalRegion(ctx);
-      return create_result;
+    X_KTHREAD* resulting_kthread =
+        XamThreadCreate(ctx, arg1_from_flags, callback, message, &args);
+    if (!resulting_kthread) {
+      return;
     }
-    uint32_t cpunum;
-    if (args.flags & 0x80000000) {
-      cpunum = args.value2;
-    } else {
-      cpunum = get_cpunum_from_arg1(arg1_from_flags);
-    }
-
-    if (arg1_from_flags & 0x80000) {
-      xboxkrnl::xeKeSetPriorityClassThread(ctx, resulting_kthread, 1);
-    }
-
-    xboxkrnl::xeKeSetBasePriorityThread(ctx, resulting_kthread, 0);
-    uint32_t old_aff;
-    xboxkrnl::xeKeSetAffinityThread(ctx, resulting_kthread, 1U << cpunum,
-                                    &old_aff);
-
-    xboxkrnl::xeKeResumeThread(ctx, resulting_kthread);
 
     // this is done in the destructor of the thread param in xam
     xboxkrnl::xeObDereferenceObject(ctx,
