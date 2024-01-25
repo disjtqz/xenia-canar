@@ -130,6 +130,11 @@ struct Xma2ExtraData {
 static_assert_size(Xma2ExtraData, 34);
 #pragma pack(pop)
 
+struct XmaContextBools {
+  volatile bool is_allocated_ = false;
+  volatile bool is_enabled_ = false;
+};
+
 class XmaContext {
  public:
   static const uint32_t kBytesPerPacket = 2048;
@@ -163,11 +168,11 @@ class XmaContext {
 
   uint32_t id() { return id_; }
   uint32_t guest_ptr() { return guest_ptr_; }
-  bool is_allocated() { return is_allocated_; }
-  bool is_enabled() { return is_enabled_; }
+  bool is_allocated();
+  bool is_enabled();
 
-  void set_is_allocated(bool is_allocated) { is_allocated_ = is_allocated; }
-  void set_is_enabled(bool is_enabled) { is_enabled_ = is_enabled; }
+  void set_is_allocated(bool is_allocated);
+  void set_is_enabled(bool is_enabled);
 
  private:
   static void SwapInputBuffer(XMA_CONTEXT_DATA* data);
@@ -205,8 +210,6 @@ class XmaContext {
   uint32_t id_ = 0;
   uint32_t guest_ptr_ = 0;
   xe_mutex lock_;
-  volatile bool is_allocated_ = false;
-  volatile bool is_enabled_ = false;
   // bool is_dirty_ = true;
 
   // ffmpeg structures

@@ -18,9 +18,9 @@
 #include "xenia/base/string_buffer.h"
 #include "xenia/cpu/processor.h"
 #include "xenia/cpu/thread_state.h"
-#include "xenia/kernel/xthread.h"
-#include "xenia/kernel/kernel_state.h"
 #include "xenia/emulator.h"
+#include "xenia/kernel/kernel_state.h"
+#include "xenia/kernel/xthread.h"
 extern "C" {
 #include "third_party/FFmpeg/libavutil/log.h"
 }  // extern "C"
@@ -103,8 +103,7 @@ void av_log_callback(void* avcl, int level, const char* fmt, va_list va) {
   StringBuffer buff;
   buff.AppendVarargs(fmt, va);
   xe::logging::AppendLogLineFormat(LogSrc::Apu, log_level, level_char,
-                                   "ffmpeg: {}",
-                                   buff.to_string_view());
+                                   "ffmpeg: {}", buff.to_string_view());
 }
 
 X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
@@ -144,12 +143,24 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
   assert_not_null(work_event_);
   threading::Thread::CreationParameters crparams{};
   crparams.stack_size = 16 * 1024 * 1024;
-  worker_thread_ = threading::Thread::Create(crparams, std::bind(&XmaDecoder::WorkerThreadMain, this));
+  worker_thread_ = threading::Thread::Create(
+      crparams, std::bind(&XmaDecoder::WorkerThreadMain, this));
   Emulator::Get()->RegisterGuestHardwareBlockThread(worker_thread_.get());
   worker_thread_->set_name("XMA Decoder");
   worker_thread_->set_affinity_mask(0b11000000);
 
   return X_STATUS_SUCCESS;
+}
+XmaContextBools* XmaDecoder::BoolsForContext(XmaContext* context) {
+  size_t delta_to_context_bools =
+      offsetof(XmaDecoder, contexts_) - offsetof(XmaDecoder, context_bools_);
+
+  size_t delta_to_context_base = context->id() * sizeof(XmaContext);
+
+  return reinterpret_cast<XmaContextBools*>(
+      ((reinterpret_cast<uintptr_t>(context) - delta_to_context_base) -
+       delta_to_context_bools) +
+      context->id() * sizeof(XmaContextBools));
 }
 
 void XmaDecoder::WorkerThreadMain() {
@@ -158,6 +169,10 @@ void XmaDecoder::WorkerThreadMain() {
     // Okay, let's loop through XMA contexts to find ones we need to decode!
     bool did_work = false;
     for (uint32_t n = 0; n < kContextCount; n++) {
+      if (!this->context_bools_[n].is_enabled_ ||
+          !this->context_bools_[n].is_allocated_) {
+        continue;
+      }
       XmaContext& context = contexts_[n];
       did_work = context.Work() || did_work;
 

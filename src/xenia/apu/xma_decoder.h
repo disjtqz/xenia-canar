@@ -50,7 +50,7 @@ class XmaDecoder {
   bool is_paused() const { return paused_; }
   void Pause();
   void Resume();
-
+  static XmaContextBools* BoolsForContext(XmaContext* context);
  protected:
   int GetContextId(uint32_t guest_ptr);
 
@@ -78,14 +78,18 @@ class XmaDecoder {
   xe::threading::Fence pause_fence_;   // Signaled when worker paused.
   xe::threading::Fence resume_fence_;  // Signaled when resume requested.
 
-  XmaRegisterFile register_file_;
-
-  static const uint32_t kContextCount = 320;
-  XmaContext contexts_[kContextCount];
   BitMap context_bitmap_;
 
   uint32_t context_data_first_ptr_ = 0;
   uint32_t context_data_last_ptr_ = 0;
+  static const uint32_t kContextCount = 320;
+  XmaContextBools context_bools_[kContextCount];
+
+  XmaRegisterFile register_file_;
+
+  
+  XmaContext contexts_[kContextCount];
+
 };
 
 }  // namespace apu

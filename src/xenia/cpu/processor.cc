@@ -407,6 +407,21 @@ bool Processor::DemandFunction(Function* function) {
   return true;
 }
 
+static void PerformSavegplr(ppc::PPCContext* context) {
+
+  auto std = [context](uint32_t register_, int offset) {
+    *context->TranslateVirtualGPR<uint64_t*>(context->r[1] + offset) =
+        xe::byte_swap(context->r[register_]);
+  };
+  context->r[12] = static_cast<uint64_t>(context->lr);
+
+  for (uint32_t i = 14; i < 32; ++i) {
+    std(i, -(0x98 - ((static_cast<int32_t>(i) - 14) * 8)));
+  }
+  *context->TranslateVirtualGPR<uint32_t*>(context->r[1] - 8) =
+      xe::byte_swap(static_cast<uint32_t>(context->r[12]));
+}
+
 bool Processor::Execute(ThreadState* thread_state, uint32_t address) {
   SCOPE_profile_cpu_f("cpu");
 

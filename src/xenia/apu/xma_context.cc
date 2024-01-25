@@ -92,6 +92,20 @@ int XmaContext::Setup(uint32_t id, Memory* memory, uint32_t guest_ptr) {
   return 0;
 }
 
+bool XmaContext::is_allocated() {
+  return XmaDecoder::BoolsForContext(this)->is_allocated_;
+}
+bool XmaContext::is_enabled() {
+  return XmaDecoder::BoolsForContext(this)->is_enabled_;
+}
+
+void XmaContext::set_is_allocated(bool is_allocated) {
+  XmaDecoder::BoolsForContext(this)->is_allocated_ = is_allocated;
+}
+void XmaContext::set_is_enabled(bool is_enabled) {
+  XmaDecoder::BoolsForContext(this)->is_enabled_ = is_enabled;
+}
+
 bool XmaContext::Work() {
   if (!is_enabled() || !is_allocated()) {
     return false;
@@ -168,7 +182,7 @@ void XmaContext::Disable() {
 void XmaContext::Release() {
   // Lock it in case the decoder thread is working on it now.
   std::lock_guard<xe_mutex> lock(lock_);
-  assert_true(is_allocated_ == true);
+  assert_true(is_allocated() == true);
 
   set_is_allocated(false);
   auto context_ptr = memory()->TranslateVirtual(guest_ptr());

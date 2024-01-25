@@ -162,7 +162,12 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
                                     ctx->HostToGuestVirtual(resulting_kthread));
 
     xboxkrnl::NtClose(XThread::FromGuest(resulting_kthread)->handle());
-  } else {
+  } 
+  else if (what == 4) {
+    //pooled task? goes on the xam worker threads i think
+    xenia_assert(false && "pooled tasks are unsupported");
+  }
+  else {
     xenia_assert(false);  // unhandled task type
   }
 
