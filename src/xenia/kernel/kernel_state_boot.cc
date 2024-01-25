@@ -692,7 +692,7 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
 #if XE_USE_TIMED_INTERRUPTS_FOR_CLOCK == 1
   cpu::CpuTimedInterrupt clock_cti;
   clock_cti.destination_microseconds_ =
-      interrupt_controller->CreateRelativeUsTimestamp(1000ULL);  // one second
+      interrupt_controller->CreateRelativeUsTimestamp(1000ULL);  // one millisecond
 
   clock_cti.ud_ = reinterpret_cast<void*>(hwthread);
   clock_cti.enqueue_ = ClockInterruptEnqueueProc;
