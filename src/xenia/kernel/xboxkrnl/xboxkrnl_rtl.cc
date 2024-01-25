@@ -519,6 +519,7 @@ static void AssertValidCriticalSection(X_RTL_CRITICAL_SECTION* cs) {
   xenia_assert(cs->header.wait_list.blink_ptr != 0 &&
                cs->header.wait_list.flink_ptr != 0);
   xenia_assert(cs->recursion_count >= 0);
+  xenia_assert(static_cast<int32_t>(cs->lock_count) > -2);
 }
 
 void xeRtlInitializeCriticalSection(X_RTL_CRITICAL_SECTION* cs,
@@ -599,6 +600,7 @@ void xeRtlEnterCriticalSection(PPCContext* context,
   while (spin_count--) {
     if (context->processor->GuestAtomicCAS32(context, 0xFFFFFFFFU, 0,
                                              &cs->lock_count)) {
+      assert_true(cs->owning_thread == 0);
       // Acquired.
       cs->owning_thread = cur_thread;
       cs->recursion_count = 1;
@@ -611,6 +613,7 @@ void xeRtlEnterCriticalSection(PPCContext* context,
   if (context->processor->GuestAtomicIncrement32(context, &cs->lock_count) +
           1 !=
       0) {
+    xenia_assert(cs->owning_thread != cur_thread);
     // Create a full waiter.
     xeKeWaitForSingleObject(context, &cs->header, 8, 0, 0, nullptr);
   }
