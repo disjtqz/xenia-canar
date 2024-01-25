@@ -21,6 +21,7 @@ enum Irql : uint8_t {
   IRQL_DISPATCH = 2,
   IRQL_DPC = 3,
   IRQL_AUDIO = 68,  // used a few times in the audio driver
+  IRQL_CLOCK = 116, //irql used by the clock interrupt
   IRQL_HIGHEST = 124
 };
 

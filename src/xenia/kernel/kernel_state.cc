@@ -988,7 +988,7 @@ cpu::HWThread* KernelState::HWThreadFor(PPCContext* context) {
 // length of a guest timer tick is normally 1 millisecond
 void KernelState::SystemClockInterrupt() {
   // todo: set interrupt priority, irql
-  auto context = cpu::ThreadState::Get()->context();
+  auto context = cpu::ThreadState::GetContext();
 
   auto kpcr = GetKPCR(context);
 
@@ -997,80 +997,55 @@ void KernelState::SystemClockInterrupt() {
   auto ic = context->kernel_state->InterruptControllerFromPCR(context, kpcr);
 
   uint32_t old_irql = kpcr->current_irql;
-  kpcr->current_irql = 0x74;
-  ic->WriteRegisterOffset(0x8, 0x74);
+  kpcr->current_irql = IRQL_CLOCK;
+  ic->WriteRegisterOffset(0x8, IRQL_CLOCK);
 
   // only cpu 0 updates timestamp bundle + timers
   if (cpu_num == 0) {
-    X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle =
-        memory_->TranslateVirtual<X_TIME_STAMP_BUNDLE*>(GetKeTimestampBundle());
-// uint32_t uptime_ms = Clock::QueryGuestUptimeMillis();
-// uint64_t time_imprecise = static_cast<uint64_t>(uptime_ms) * 1000000ULL;
-#if 1
+    auto globals = GetKernelGuestGlobals(context);
+    X_TIME_STAMP_BUNDLE* lpKeTimeStampBundle = &globals->KeTimestampBundle;
 
     uint64_t time_imprecise = (lpKeTimeStampBundle->interrupt_time += 10000ULL);
     lpKeTimeStampBundle->system_time += 10000ULL;
     lpKeTimeStampBundle->tick_count += 1;
-#else
-    uint64_t time_imprecise = Clock::QueryGuestSystemTime();
-    uint32_t ticks = (uint32_t)Clock::QueryGuestTickCount();
-    // truncate system time so its precision matches with original hardware
-    time_imprecise /= 10000ULL;
-    time_imprecise *= 10000ULL;
-    lpKeTimeStampBundle->system_time = time_imprecise;
-    lpKeTimeStampBundle->interrupt_time = time_imprecise;
-    lpKeTimeStampBundle->tick_count = ticks;
-#endif
+
     /*
       check timers!
     */
 
-    auto globals = GetKernelGuestGlobals(context);
-
-    // auto old_msr = context->msr;
-
-    // context->DisableEI();
-
     /*
-    on real hw, how does the kernel guarantee that no other thread is writing
-    the timers at this point? this dispatcher lock acquire is a hack
+        on real hw, how does the kernel guarantee that no other thread is
+       writing the timers at this point? this lock acquire is a hack
     */
+    xboxkrnl::xeKeKfAcquireSpinLock(context, &globals->timer_table_spinlock,
+                                    false);
 
-    auto dispatcher = &globals->timer_table_spinlock;
-
-    bool dispatcher_held = false;
-    if (dispatcher->pcr_of_owner == (uint32_t)context->r[13]) {
-      dispatcher_held = true;
-    }
-    if (!dispatcher_held) {
-      xboxkrnl::xeKeKfAcquireSpinLock(context, dispatcher, false);
-    }
-    if (!kpcr->timer_pending) {
+    if (!kpcr->timer_pending && !globals->running_timers.empty(context)) {
       for (auto& timer : globals->running_timers.IterateForward(context)) {
         if (&timer != nullptr) {
           if (timer.due_time <= time_imprecise) {
-            kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
-            kpcr->generic_software_interrupt = 2;
+            kpcr->timer_pending =
+                IRQL_DISPATCH;  // actual clock interrupt does a lot more
+            kpcr->generic_software_interrupt = IRQL_DISPATCH;
             break;
           }
         }
       }
     }
-    if (!dispatcher_held) {
-      xboxkrnl::xeKeKfReleaseSpinLock(context, dispatcher, 0, false);
-    }
-    // context->msr = old_msr;
+    xboxkrnl::xeKeKfReleaseSpinLock(context, &globals->timer_table_spinlock, 0,
+                                    false);
   }
 
-  auto current_thread = kpcr->prcb_data.current_thread.xlat();
-  
+  auto current_thread =
+      context->TranslateVirtual(kpcr->prcb_data.current_thread);
+
   auto idle_thread = &reinterpret_cast<X_KPCR_PAGE*>(kpcr)->idle_process_thread;
   if (idle_thread != current_thread) {
-    auto v16 = current_thread->quantum - 3;
-    current_thread->quantum = v16;
-    if (v16 <= 0) {
-      kpcr->timeslice_ended = 2;
-      kpcr->generic_software_interrupt = 2;
+    auto quantum_decremented = current_thread->quantum - 3;
+    current_thread->quantum = quantum_decremented;
+    if (quantum_decremented <= 0) {
+      kpcr->timeslice_ended = IRQL_DISPATCH;
+      kpcr->generic_software_interrupt = IRQL_DISPATCH;
     }
   }
 
@@ -1563,7 +1538,8 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
       context->kernel_state->GetPCRCpuNum(kpcr));
   auto interrupt_controller = cpu_thread->interrupt_controller();
 
-  //cpus 0 and 2 both have some very high priority timing related tasks to do (clock interrupt, gpu interrupt)
+  // cpus 0 and 2 both have some very high priority timing related tasks to do
+  // (clock interrupt, gpu interrupt)
   uint64_t nanosleep_interval = kernel_state()->GetPCRCpuNum(kpcr) == 0 ||
                                         kernel_state()->GetPCRCpuNum(kpcr) == 2
                                     ? 20 * 1000
