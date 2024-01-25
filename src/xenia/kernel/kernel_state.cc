@@ -1045,13 +1045,14 @@ void KernelState::SystemClockInterrupt() {
     if (!dispatcher_held) {
       xboxkrnl::xeKeKfAcquireSpinLock(context, dispatcher, false);
     }
-
-    for (auto& timer : globals->running_timers.IterateForward(context)) {
-      if (&timer != nullptr) {
-        if (timer.due_time <= time_imprecise) {
-          kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
-          kpcr->generic_software_interrupt = 2;
-          break;
+    if (!kpcr->timer_pending) {
+      for (auto& timer : globals->running_timers.IterateForward(context)) {
+        if (&timer != nullptr) {
+          if (timer.due_time <= time_imprecise) {
+            kpcr->timer_pending = 2;  // actual clock interrupt does a lot more
+            kpcr->generic_software_interrupt = 2;
+            break;
+          }
         }
       }
     }
@@ -1062,7 +1063,8 @@ void KernelState::SystemClockInterrupt() {
   }
 
   auto current_thread = kpcr->prcb_data.current_thread.xlat();
-  auto idle_thread = kpcr->prcb_data.idle_thread.xlat();
+  
+  auto idle_thread = &reinterpret_cast<X_KPCR_PAGE*>(kpcr)->idle_process_thread;
   if (idle_thread != current_thread) {
     auto v16 = current_thread->quantum - 3;
     current_thread->quantum = v16;
