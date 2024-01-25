@@ -167,7 +167,7 @@ dword_result_t XamTaskSchedule_entry(lpvoid_t callback,
     X_KTHREAD* resulting_kthread =
         XamThreadCreate(ctx, arg1_from_flags, callback, message, &args);
     if (!resulting_kthread) {
-      return;
+      return X_STATUS_UNSUCCESSFUL;
     }
 
     // this is done in the destructor of the thread param in xam
