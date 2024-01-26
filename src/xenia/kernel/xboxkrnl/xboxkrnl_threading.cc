@@ -1099,8 +1099,8 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock,
   while (!processor->GuestAtomicCAS32(
       ctx, 0, static_cast<uint32_t>(ctx->r[13]),
       ctx->HostToGuestVirtual(&lock->pcr_of_owner.value))) {
-    ctx->CheckInterrupt();
-  }
+      ctx->CheckInterrupt();
+    }
 
   return old_irql;
 }
@@ -1380,7 +1380,8 @@ void xeHandleTimers(PPCContext* context, uint32_t timer_related) {
     }
 
     if (timer->period) {
-      XeInsertGlobalTimer(context, timer, -10000LL * timer->period);
+      int timer_insert_result = XeInsertGlobalTimer(context, timer, -10000LL * timer->period);
+      xenia_assert(timer_insert_result != 0);
     }
 
     auto dpc = context->TranslateVirtual(timer->dpc);
