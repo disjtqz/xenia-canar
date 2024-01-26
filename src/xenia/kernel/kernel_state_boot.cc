@@ -78,17 +78,19 @@ void KernelState::SetProcessTLSVars(X_KPROCESS* process, int num_slots,
 
   // set remainder of bitset
   if (((num_slots + 3) & 0x1C) != 0)
-    process->tls_slot_bitmap[count_div32] = -1
+    process->tls_slot_bitmap[count_div32] = static_cast<uint32_t>(-1)
                                             << (32 - ((num_slots + 3) & 0x1C));
 }
 void AllocateThread(PPCContext* context) {
   uint32_t thread_mem_size = static_cast<uint32_t>(context->r[3]);
   uint32_t a2 = static_cast<uint32_t>(context->r[4]);
   uint32_t a3 = static_cast<uint32_t>(context->r[5]);
-  if (thread_mem_size <= 0xFD8) thread_mem_size += 8;
+  if (thread_mem_size <= 0xFD8) {
+    thread_mem_size += 8;
+  }
   uint32_t result =
       xboxkrnl::xeAllocatePoolTypeWithTag(context, thread_mem_size, a2, a3);
-  if (((unsigned short)result & 0xFFF) != 0) {
+  if ((result & 0xFFF) != 0) {
     result += 2;
   }
 
@@ -103,11 +105,11 @@ void FreeThread(PPCContext* context) {
 }
 
 void SimpleForwardAllocatePoolTypeWithTag(PPCContext* context) {
-  uint32_t a1 = static_cast<uint32_t>(context->r[3]);
-  uint32_t a2 = static_cast<uint32_t>(context->r[4]);
-  uint32_t a3 = static_cast<uint32_t>(context->r[5]);
+  uint32_t size = static_cast<uint32_t>(context->r[3]);
+  uint32_t tag = static_cast<uint32_t>(context->r[4]);
+  uint32_t pool_selector = static_cast<uint32_t>(context->r[5]);
   context->r[3] = static_cast<uint64_t>(
-      xboxkrnl::xeAllocatePoolTypeWithTag(context, a1, a2, a3));
+      xboxkrnl::xeAllocatePoolTypeWithTag(context, size, tag, pool_selector));
 }
 void SimpleForwardFreePool(PPCContext* context) {
   xboxkrnl::xeFreePool(context, static_cast<uint32_t>(context->r[3]));
@@ -115,7 +117,7 @@ void SimpleForwardFreePool(PPCContext* context) {
 
 void DeleteMutant(PPCContext* context) {
   xboxkrnl::xeKeReleaseMutant(
-      context, context->TranslateVirtualGPR<X_KMUTANT*>(context->r[3]), 1, 1,
+      context, context->TranslateVirtualGPR<X_KMUTANT*>(context->r[3]), 1, true,
       0);
 }
 void DeleteTimer(PPCContext* context) {
@@ -320,7 +322,7 @@ void KernelState::SetupProcessorPCR(uint32_t which_processor_index) {
   pcr->interrupt_handlers[0x1E] =
       kernel_trampoline_group_.NewLongtermTrampoline(IPIInterruptProc);
 
-  pcr->current_irql = 0;
+  pcr->current_irql = IRQL_PASSIVE;
   pcr->thread_fpu_related = -1;
   pcr->msr_mask = -1;
   pcr->thread_vmx_related = -1;
@@ -402,7 +404,7 @@ void KernelState::BootInitializeStatics() {
 
   // init unknown object
 
-  block->XboxKernelDefaultObject.type = 1;
+  block->XboxKernelDefaultObject.type = DISPATCHER_AUTO_RESET_EVENT;
 
   block->XboxKernelDefaultObject.signal_state = 1;
   util::XeInitializeListHead(
@@ -553,7 +555,7 @@ void KernelState::BootInitializeStatics() {
 }
 static void SetupIdleThreadPriority(cpu::ppc::PPCContext* context,
                                     X_KPCR* kpcr) {
-  xboxkrnl::xeKeSetPriorityThread(context, kpcr->prcb_data.idle_thread.xlat(),
+  xboxkrnl::xeKeSetPriorityThread(context, context->TranslateVirtual(kpcr->prcb_data.idle_thread),
                                   0);
   kpcr->prcb_data.idle_thread->priority = 18;
   if (!kpcr->prcb_data.next_thread) {
@@ -573,7 +575,7 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
       &block->UsbdBootEnumerationDoneEvent.header.wait_list, context);
   xboxkrnl::xeKeSetEvent(context, &block->UsbdBootEnumerationDoneEvent, 1, 0);
 
-  block->title_terminated_event.header.type = 1;
+  block->title_terminated_event.header.type = DISPATCHER_AUTO_RESET_EVENT;
   util::XeInitializeListHead(&block->title_terminated_event.header.wait_list,
                              context);
 
@@ -587,7 +589,7 @@ void KernelState::BootCPU0(cpu::ppc::PPCContext* context, X_KPCR* kpcr) {
   xenia_assert(create_res == 0);
   xboxkrnl::NtClose(handle_ptr);
   // this is deliberate, does not change the interrupt priority!
-  kpcr->current_irql = 2;
+  kpcr->current_irql = IRQL_DISPATCH;
   SetupIdleThreadPriority(context, kpcr);
 }
 
@@ -611,7 +613,7 @@ void KernelState::BootInitializeXam(cpu::ppc::PPCContext* context) {
   uint32_t trampoline_freepool =
       kernel_trampoline_group_.NewLongtermTrampoline(SimpleForwardFreePool);
 
-  globals->XboxKernelDefaultObject.type = 1;
+  globals->XboxKernelDefaultObject.type = DISPATCHER_AUTO_RESET_EVENT;
   globals->XboxKernelDefaultObject.signal_state = 1;
 
   util::XeInitializeListHead(&globals->XboxKernelDefaultObject.wait_list,
@@ -629,7 +631,7 @@ void KernelState::BootInitializeXam(cpu::ppc::PPCContext* context) {
   globals->XamEnumeratorObjectType.free_proc = trampoline_freepool;
   globals->XamEnumeratorObjectType.unknown_size_or_object_ =
       context->HostToGuestVirtual(&globals->XamDefaultObject);
-  globals->dispatch_queue_event_.header.type = 1;
+  globals->dispatch_queue_event_.header.type = DISPATCHER_AUTO_RESET_EVENT;
   util::XeInitializeListHead(&globals->dispatch_queue_event_.header.wait_list,
                              context);
 
@@ -640,7 +642,7 @@ void KernelState::BootCPU1Through5(cpu::ppc::PPCContext* context,
                                    X_KPCR* kpcr) {
   // todo: sets priority here! need to fill that in
 
-  xboxkrnl::xeKfLowerIrql(context, 2);
+  xboxkrnl::xeKfLowerIrql(context, IRQL_DISPATCH);
   SetupIdleThreadPriority(context, kpcr);
 }
 
@@ -683,6 +685,7 @@ void KernelState::HWThreadBootFunction(cpu::ppc::PPCContext* context,
   kpcr->prcb_data.processor_mask = 1U << cpunum;
 
   if (cpunum == 0) {
+    ks->InitProcessorStack(kpcr);
     ks->BootCPU0(context, kpcr);
   } else {
     ks->BootCPU1Through5(context, kpcr);
@@ -760,8 +763,8 @@ void KernelState::BootInitializeCPU0InSystemThread(
   for (unsigned i = 1; i < 6; ++i) {
     SetupKPCRPageForCPU(i);
   }
-
-  xboxkrnl::xeKfLowerIrql(context, 1);
+  
+  xboxkrnl::xeKfLowerIrql(context, IRQL_APC);
   for (unsigned i = 1; i < 6; ++i) {
     auto cpu_thread = processor()->GetCPUThread(i);
     uint64_t mftb_time = processor()->GetCPUThread(0)->mftb();
