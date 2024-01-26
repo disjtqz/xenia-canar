@@ -661,7 +661,7 @@ struct X_POOL_ALLOC_HEADER {
 };
 
 uint32_t xeAllocatePoolTypeWithTag(PPCContext* context, uint32_t size,
-                                   uint32_t tag, uint32_t zero) {
+                                   uint32_t tag, uint32_t pool_selector) {
   if (size <= 0xFD8) {
     uint32_t adjusted_size = size + sizeof(X_POOL_ALLOC_HEADER);
 
