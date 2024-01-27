@@ -573,9 +573,9 @@ typedef struct alignas(64) PPCContext_s {
   void DisableEI() { msr &= ~0x8000ULL; }
   void EnableEI() { msr |= 0x8000ULL; }
 
-  void CheckInterrupt();
+  bool CheckInterrupt();
   XE_NOINLINE
-  static void ReallyDoInterrupt(PPCContext_s* context);
+  static bool ReallyDoInterrupt(PPCContext_s* context);
   void TakeGPRSnapshot(PPCGprSnapshot* out);
   void RestoreGPRSnapshot(const PPCGprSnapshot* in);
 

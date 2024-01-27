@@ -182,6 +182,41 @@ uint64_t XenonInterruptController::CreateRelativeUsTimestamp(
          microseconds;
 }
 
+uint64_t XenonInterruptController::ClampSleepMicrosecondsForTimedInterrupt(
+    uint64_t sleep_microseconds) {
+  uint64_t current_microseconds =
+      Clock::host_tick_count_platform() / tick_microsecond_frequency;
+
+  uint64_t sleep_expiration = current_microseconds + sleep_microseconds;
+  uint64_t minimum_event_time = sleep_expiration;
+  for (uint32_t timed_interrupt_slot = 0;
+       timed_interrupt_slot < MAX_CPU_TIMED_INTERRUPTS;
+       ++timed_interrupt_slot) {
+    if (!(timed_event_slots_bitmap_ & (1U << timed_interrupt_slot))) {
+      continue;
+    }
+
+    minimum_event_time = std::min<uint64_t>(
+        minimum_event_time,
+        timed_events_[timed_interrupt_slot].destination_microseconds_);
+
+  }
+
+  if (minimum_event_time == sleep_expiration) {
+      //input delay is fine, no events would be missed
+    return sleep_microseconds;
+  } else {
+    uint64_t delta_to_event = minimum_event_time - current_microseconds;
+
+    
+    //compute delta * 0.75
+    //onehalf + onefourth
+    //we do this because most of the time the kernel takes a good deal longer
+    //than our provided interval
+    return (delta_to_event >> 2) + (delta_to_event >> 1);
+  }
+}
+
 void XenonInterruptController::SetEOI(uint64_t value) {
   auto context = cpu::ThreadState::GetContext();
   uint32_t cpunum = (context->r[13] >> 12) & 0x7;

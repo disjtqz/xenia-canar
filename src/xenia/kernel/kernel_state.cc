@@ -1544,10 +1544,10 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
 
   // cpus 0 and 2 both have some very high priority timing related tasks to do
   // (clock interrupt, gpu interrupt)
-  uint64_t nanosleep_interval = kernel_state()->GetPCRCpuNum(kpcr) == 0 ||
+  uint64_t microsleep_interval = kernel_state()->GetPCRCpuNum(kpcr) == 0 ||
                                         kernel_state()->GetPCRCpuNum(kpcr) == 2
-                                    ? 20 * 1000
-                                    : 200 * 1000;
+                                    ? 20 
+                                    : 200;
   while (true) {
     kpcr->prcb_data.running_idle_thread = kpcr->prcb_data.idle_thread;
     while (!kpcr->generic_software_interrupt) {
@@ -1563,12 +1563,22 @@ void KernelState::KernelIdleProcessFunction(cpu::ppc::PPCContext* context) {
                        ->GetEOI() == 1);
       xenia_assert(GetKThread(context) == kthread);
       xenia_assert(kpcr->current_irql == IRQL_DISPATCH);
-      context->CheckInterrupt();
-      if (!kpcr->generic_software_interrupt) {
-        // todo: check whether a timed interrupt would be missed due to wait
-        auto cpu_thread = context->processor->GetCPUThread(
-            context->kernel_state->GetPCRCpuNum(kpcr));
-        cpu_thread->IdleSleep(nanosleep_interval);
+      //if we don't execute any interrupt functions, and we don't have a software interrupt available, go to sleep
+      if (!context->CheckInterrupt()) {
+        if (!kpcr->generic_software_interrupt) {
+          // todo: check whether a timed interrupt would be missed due to wait
+          auto cpu_thread = context->processor->GetCPUThread(
+              context->kernel_state->GetPCRCpuNum(kpcr));
+
+          uint64_t appropriate_sleep =
+              interrupt_controller->ClampSleepMicrosecondsForTimedInterrupt(
+                  microsleep_interval);
+
+          //if less than 5 microseconds just skip sleeping
+          if (appropriate_sleep > 5) {
+            cpu_thread->IdleSleep(appropriate_sleep*1000ULL);
+          }
+        }
       }
     }
 
@@ -1593,15 +1603,13 @@ void KernelState::KernelDecrementerInterrupt(void* ud) {
       context->kernel_state->GetPCRCpuNum(kpcr));
   cpu->SetDecrementerTicks(r6);
   if (r5 == 0) {
-    KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
     return;
   }
-  KernelState::HWThreadFor(context)->interrupt_controller()->SetEOI(1);
   kpcr->generic_software_interrupt = r7;
   kpcr->background_scheduling_1B = r7;
   kpcr->timeslice_ended = r7;
   uint32_t r4 = kpcr->software_interrupt_state;
-  if (r3 < 2 && r3 < r4) {
+  if (r3 < IRQL_DISPATCH && r3 < r4) {
     xboxkrnl::xeDispatchProcedureCallInterrupt(r3, r4, context);
   }
 }

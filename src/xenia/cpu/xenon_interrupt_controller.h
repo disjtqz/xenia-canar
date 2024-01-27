@@ -126,6 +126,10 @@ class XenonInterruptController {
   uint64_t GetEOI();
   bool CanRunInterruptAtIrql(uint8_t irql);
   void SetEOIWriteMirror(uintptr_t* v) { eoi_write_mirror_ = v; }
+
+  //check whether a sleep would miss a timed interrupt, and if so return a more appropriate time to sleep for
+  //that won't cause us to miss anything
+  uint64_t ClampSleepMicrosecondsForTimedInterrupt(uint64_t microseconds);
 };
 
 }  // namespace cpu

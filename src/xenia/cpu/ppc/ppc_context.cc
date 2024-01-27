@@ -265,7 +265,7 @@ static PPCInterruptRequest* SelectInterruptRequest(
 }
 
 XE_NOINLINE
-void PPCContext::ReallyDoInterrupt(PPCContext* context) {
+bool PPCContext::ReallyDoInterrupt(PPCContext* context) {
   auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
   auto interrupt_controller = context->GetExternalInterruptController();
   if (interrupt_controller->queued_interrupts_.depth()) {
@@ -282,22 +282,24 @@ void PPCContext::ReallyDoInterrupt(PPCContext* context) {
       }
       uintptr_t result = ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
       interrupt_controller->FreeInterruptRequest(ireq);
+      return true;
     } else {
       // requeue
       interrupt_controller->queued_interrupts_.Push(&ireq->list_entry_);
-      return;
+      return false;
     }
   }
+  return false;
 }
 
-void PPCContext::CheckInterrupt() {
+bool PPCContext::CheckInterrupt() {
   auto controller = GetExternalInterruptController();
   CheckTimedInterrupt();
 
   if (!controller->queued_interrupts_.depth()) {
-    return;
+    return false;
   } else {
-    ReallyDoInterrupt(this);
+    return ReallyDoInterrupt(this);
   }
 }
 void PPCContext::AssertCurrent() {
