@@ -14,6 +14,14 @@
 #include "xenia/cpu/thread.h"
 namespace xe {
 namespace cpu {
+// index is irql >> 2
+static constexpr int interrupt_priorities[32] = {
+    -1, -1, -1, -1, -1, 3,  13, -1, 2,  1,  -1, 4,   5,  6, 7,  -1,
+    11, 12, -1, 10, -1, 69, 66, -1, -1, 64, 68, 131, -1, 0, -1, -1};
+
+int XenonInterruptController::KernelIrqlToInterruptPriority(uint8_t irql) {
+  return interrupt_priorities[irql >> 2];
+}
 
 XenonInterruptController::XenonInterruptController(HWThread* thread,
                                                    Processor* processor)
@@ -68,17 +76,19 @@ void XenonInterruptController::InterruptFunction(void* ud) {
 
 void XenonInterruptController::SendExternalInterrupt(
     ExternalInterruptArgs& args) {
-  // SetInterruptSource(args.source_);
-  while (!owner_->TrySendInterruptFromHost(
-      &XenonInterruptController::InterruptFunction, &args)) {
-  }
+  xenia_assert(false);
 }
 
 void XenonInterruptController::WriteRegisterOffset(uint32_t offset,
                                                    uint64_t value) {
   xenia_assert(offset + 8 <= sizeof(data_));
+
   *reinterpret_cast<uint64_t*>(reinterpret_cast<char*>(&data_[0]) + offset) =
       value;
+  if (offset == 8) {
+    current_interrupt_priority_ =
+        KernelIrqlToInterruptPriority(static_cast<uint8_t>(value));
+  }
 }
 uint64_t XenonInterruptController::ReadRegisterOffset(uint32_t offset) {
   xenia_assert(offset + 8 <= sizeof(data_));
@@ -96,6 +106,7 @@ ppc::PPCInterruptRequest* XenonInterruptController::AllocateInterruptRequest() {
 }
 void XenonInterruptController::FreeInterruptRequest(
     ppc::PPCInterruptRequest* request) {
+  request->list_entry_.next_ = nullptr;
   // limit the number of available interrupts in the list to a sane value
   // if we hit this number, the guest has probably frozen and isn't processing
   // the interrupts we're sending
@@ -182,6 +193,16 @@ void XenonInterruptController::SetEOI(uint64_t value) {
   if (eoi_written_ && eoi_write_mirror_) {
     *eoi_write_mirror_ = 2;
     eoi_write_mirror_ = nullptr;
+  }
+}
+
+bool XenonInterruptController::CanRunInterruptAtIrql(uint8_t irql) {
+  int32_t prio = KernelIrqlToInterruptPriority(irql);
+
+  if (current_interrupt_priority_ == -1 && prio == -1) {
+    return true;
+  } else {
+    return prio > current_interrupt_priority_;
   }
 }
 

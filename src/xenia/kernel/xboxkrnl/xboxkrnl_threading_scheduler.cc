@@ -333,8 +333,13 @@ void xeReallyQueueThread(PPCContext* context, X_KTHREAD* kthread) {
           do a non-blocking host IPI here. we need to be sure the original cpu
          this thread belonged to has given it up before we continue
       */
+      cpu::SendInterruptArguments interrupt_args;
+      interrupt_args.ipi_func = HandleCpuThreadDisownedIPI;
+      interrupt_args.ud = reinterpret_cast<void*>(kthread);
+      interrupt_args.irql_ = 0; //randomly chosen irql
+      interrupt_args.wait_done = false;
       context->processor->GetCPUThread(old_cpu_for_thread)
-          ->SendGuestIPI(HandleCpuThreadDisownedIPI, (void*)kthread);
+          ->SendGuestIPI(interrupt_args);
     }
     return;
   }
@@ -463,7 +468,8 @@ X_KTHREAD* xeSelectThreadDueToTimesliceExpiration(PPCContext* context) {
     unk_mask = 0xEDB403FF;
   } else {
     if (!pcr->background_scheduling_1B) {
-      auto result = prcb->next_thread.xlat();
+      
+      auto result = context->TranslateVirtual(prcb->next_thread);
       if (result) {
         // not releasing the spinlock! this appears to be intentional
         return result;
@@ -1878,8 +1884,12 @@ void xeKeEnterBackgroundMode(PPCContext* context) {
     for (uint32_t i = 0; i < 6; ++i) {
       if (((1 << i) & BackgroundProcessors) != 0) {
         auto CPUThread = context->processor->GetCPUThread(i);
-
-        CPUThread->SendGuestIPI(BackgroundModeIPI, nullptr);
+        cpu::SendInterruptArguments interrupt_args;
+        interrupt_args.ipi_func = BackgroundModeIPI;
+        interrupt_args.ud = nullptr;
+        interrupt_args.wait_done = false;
+        interrupt_args.irql_ = 0;//randomly chosen irql
+        CPUThread->SendGuestIPI(interrupt_args);
       }
     }
   }

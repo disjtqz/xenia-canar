@@ -145,12 +145,18 @@ struct GuestInterruptWrapper {
   void (*ipi_func)(void*);
   void* ud;
   HWThread* thiz;
+  bool internal_;
 };
 // todo: handle interrupt controller/irql shit, that matters too
 // theres a special mmio region 0x7FFF (or 0xFFFF, cant tell)
 static bool may_run_interrupt_proc(ppc::PPCContext_s* context) {
   return context->ExternalInterruptsEnabled() &&
          this_hw_thread(context)->interrupt_controller()->GetEOI() != 0;
+}
+static bool internal_may_run_interrupt_proc(ppc::PPCContext_s* context) {
+
+  // despite not using the external interrupt controller, EI still controls whether the decrementer interrupt happens
+  return context->ExternalInterruptsEnabled();
 }
 
 uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
@@ -160,36 +166,44 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
 
   ppc::PPCGprSnapshot snap;
   context->TakeGPRSnapshot(&snap);
+  if (!interrupt_wrapper->internal_) {  // is it an external interrupt? most are
+    auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
-  auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
-
-  bool cr2 = kpcr->use_alternative_stack == 0;
-  auto old_irql = kpcr->current_irql;
-  bool cr3;
-  context->DisableEI();
-  if (cr2) {
-    cr3 = 1 < old_irql;
-    if (!cr3) {
-      kpcr->current_irql = kernel::IRQL_DISPATCH;
+    bool cr2 = kpcr->use_alternative_stack == 0;
+    
+    auto old_irql = kpcr->current_irql;
+    bool cr3;
+    context->DisableEI();
+    if (cr2) {
+      cr3 = 1 < old_irql;
+      if (!cr3) {
+        kpcr->current_irql = kernel::IRQL_DISPATCH;
+      }
+      kpcr->use_alternative_stack = kpcr->alt_stack_base_ptr;
+      context->r[1] = kpcr->alt_stack_base_ptr;
     }
-    kpcr->use_alternative_stack = kpcr->alt_stack_base_ptr;
-  }
-  this_hw_thread(context)->interrupt_controller()->SetEOI(0);
+    this_hw_thread(context)->interrupt_controller()->SetEOI(0);
 
-  interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
-  this_hw_thread(context)->interrupt_controller()->SetEOI(1);
-  // xenia_assert(interrupt_wrapper->thiz->interrupt_controller()->GetEOI());
-  kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
+    interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
+    this_hw_thread(context)->interrupt_controller()->SetEOI(1);
+    // xenia_assert(interrupt_wrapper->thiz->interrupt_controller()->GetEOI());
+    kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
-  context->RestoreGPRSnapshot(&snap);
-  
-  if (cr2) {
-    kpcr->use_alternative_stack = 0;
-    if (!cr3) {
-      context->kernel_state->GenericExternalInterruptEpilog(context, old_irql);
+    context->RestoreGPRSnapshot(&snap);
+
+    if (cr2) {
+      kpcr->use_alternative_stack = 0;
+      if (!cr3) {
+        context->kernel_state->GenericExternalInterruptEpilog(context,
+                                                              old_irql);
+      }
     }
+  } else {
+    // internal interrupt, does not get dispatched the same way
+    interrupt_wrapper->ipi_func(interrupt_wrapper->ud);
+    context->RestoreGPRSnapshot(&snap);
   }
-
+  context->AssertInterruptsOn();
   return 2;
 }
 
@@ -200,8 +214,10 @@ void HWThread::ThreadDelay() {
     _mm_pause();
   }
 }
-bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
-                                        bool wait_done) {
+bool HWThread::TrySendInterruptFromHost(SendInterruptArguments& arguments) {
+  auto ipi_func = arguments.ipi_func;
+  auto ud = arguments.ud;
+  auto wait_done = arguments.wait_done;
   ppc::PPCInterruptRequest* request =
       this->interrupt_controller()->AllocateInterruptRequest();
   GuestInterruptWrapper* wrapper =
@@ -210,15 +226,22 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
   wrapper->ipi_func = ipi_func;
   wrapper->ud = ud;
   wrapper->thiz = this;
+  wrapper->internal_ = arguments.internal_interrupt_;
+
   // ipi wrapper returns 0 if current context has interrupts disabled
   volatile uintptr_t result_from_call = 0;
 
   request->func_ = IPIWrapperFunction;
   request->ud_ = (void*)wrapper;
-  request->may_run_ = may_run_interrupt_proc;
+  request->may_run_ = arguments.internal_interrupt_
+                          ? internal_may_run_interrupt_proc
+                          : may_run_interrupt_proc;
   request->result_out_ = (uintptr_t*)&result_from_call;
   request->wait = wait_done;
-
+  request->interrupt_serial_number_ =
+      this->interrupt_controller()->interrupt_serial_number_++;
+  request->internal_interrupt_ = arguments.internal_interrupt_;
+  request->irql_ = arguments.irql_;
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
   auto context = cpu::ThreadState::GetContext();
   if (!context || this_hw_thread(context) != this) {
@@ -235,16 +258,22 @@ bool HWThread::TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
 
   return true;
 }
-bool HWThread::SendGuestIPI(void (*ipi_func)(void*), void* ud) {
+bool HWThread::SendGuestIPI(SendInterruptArguments& arguments) {
   // todo: pool this structure!
-  return TrySendInterruptFromHost(ipi_func, ud, false);
+  return TrySendInterruptFromHost(arguments);
 }
 
 void HWThread::DecrementerInterruptEnqueueProc(
     XenonInterruptController* controller, uint32_t slot, void* ud) {
   auto thiz = reinterpret_cast<HWThread*>(ud);
-  thiz->SendGuestIPI(thiz->decrementer_interrupt_callback_,
-                     thiz->decrementer_ud_);
+
+  cpu::SendInterruptArguments interrupt_arguments{};
+  interrupt_arguments.ipi_func = thiz->decrementer_interrupt_callback_;
+  interrupt_arguments.ud = thiz->decrementer_ud_;
+  interrupt_arguments.wait_done = false;
+  interrupt_arguments.irql_ = 0;
+  interrupt_arguments.internal_interrupt_ = true;
+  thiz->SendGuestIPI(interrupt_arguments);
 
   controller->FreeTimedInterruptSlot(slot);
   thiz->decrementer_interrupt_slot_ = ~0u;

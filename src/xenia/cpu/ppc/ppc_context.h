@@ -37,7 +37,7 @@ namespace ppc {
 
 struct alignas(64) PPCContext_s;
 
-#if defined(DEBUG) || 1
+#if defined(DEBUG) 
 #define XE_TRACE_LAST_INTERRUPT_ADDR 1
 #endif
 struct PPCInterruptRequest {
@@ -48,6 +48,10 @@ struct PPCInterruptRequest {
   void* ud_;
   uintptr_t* result_out_;
   bool wait;
+  uint8_t irql_;
+  bool internal_interrupt_;
+  uint64_t interrupt_serial_number_;
+
   uintptr_t extra_data_[4];
 };
 // Map:

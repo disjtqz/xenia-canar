@@ -1325,9 +1325,13 @@ void KernelState::EmulateCPInterrupt(uint32_t interrupt_callback,
   auto hwthread = processor_->GetCPUThread(cpu);
   // while (!hwthread->TrySendInterruptFromHost(CPInterruptIPI, params)) {
   // }
+  cpu::SendInterruptArguments interrupt_args{};
+  interrupt_args.ipi_func = CPInterruptIPI;
+  interrupt_args.ud = params;
+  interrupt_args.wait_done = source != 0;
+  interrupt_args.irql_ = source == 0 ? 88 : 84;
   hwthread->TrySendInterruptFromHost(
-      CPInterruptIPI, params,
-      source != 0);  // do not block if we're the vsync interrupt and on cpu 2!
+      interrupt_args);  // do not block if we're the vsync interrupt and on cpu 2!
                      // we will freeze
 }
 

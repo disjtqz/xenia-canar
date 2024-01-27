@@ -196,8 +196,14 @@ void AudioSystem::WorkerThreadMain() {
       msg->client_callback_ = client_callback_in_;
       msg->client_callback_arg_ = client_callback_arg_in_;
       guest_worker_messages_.Push(&msg->list_entry);
-      processor()->GetCPUThread(4)->SendGuestIPI(
-          &kernel::KernelState::AudioInterrupt, nullptr);
+      {
+        cpu::SendInterruptArguments interrupt_arguments{};
+        interrupt_arguments.ipi_func = &kernel::KernelState::AudioInterrupt;
+        interrupt_arguments.ud = nullptr;
+        interrupt_arguments.wait_done = false;
+        interrupt_arguments.irql_ = kernel::IRQL_AUDIO;
+        processor()->GetCPUThread(4)->SendGuestIPI(interrupt_arguments);
+      }
 #if AUDIOSYSTEM_NOWAIT_FOR_CALLBACK == 0
       threading::Wait(signal_event_.get(), false);
 #endif

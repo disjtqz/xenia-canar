@@ -125,6 +125,7 @@ void GraphicsSystem::AddConstantRegisterValue(uint32_t gpu_register,
 }
 void GraphicsSystem::SetupVsync() {
 #if XE_USE_TIMED_INTERRUPTS_FOR_VSYNC
+  //1000 microseconds = one millisecond, 1000 milliseconds = 1 second
   vsync_relative_ts_ = cvars::vsync ? (1000ULL * 1000ULL) / cvars::vsync_fps
                                     : (1000ULL * 1000ULL);
   auto vsync_target_thread = processor()->GetCPUThread(2);
@@ -134,7 +135,7 @@ void GraphicsSystem::SetupVsync() {
   cpu::CpuTimedInterrupt vsync_cti;
   vsync_cti.destination_microseconds_ =
       interrupt_controller->CreateRelativeUsTimestamp(
-          vsync_relative_ts_);  // one second
+          vsync_relative_ts_); // one second / vsync_fps
 
   vsync_cti.ud_ = reinterpret_cast<void*>(this);
   vsync_cti.enqueue_ = &GraphicsSystem::VsyncInterruptEnqueueProcedure;
