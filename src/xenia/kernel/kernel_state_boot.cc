@@ -163,8 +163,13 @@ static void GuestClockInterruptForwarder(void* ud) {
 static void HWClockCallback(cpu::Processor* processor) {
   for (unsigned thrd = 0; thrd < 6; ++thrd) {
     auto thrd0 = processor->GetCPUThread(thrd);
+    cpu::SendInterruptArguments interrupt_arguments;
+    interrupt_arguments.ipi_func = GuestClockInterruptForwarder;
+    interrupt_arguments.ud = kernel_state();
+    interrupt_arguments.wait_done = false;
+    interrupt_arguments.irql_ = IRQL_CLOCK;
 
-    while (!thrd0->SendGuestIPI(GuestClockInterruptForwarder, kernel_state())) {
+    while (!thrd0->SendGuestIPI(interrupt_arguments) ) {
     }
   }
 }
@@ -659,7 +664,12 @@ void ClockInterruptEnqueueProc(cpu::XenonInterruptController* controller,
 
   auto thiz = reinterpret_cast<cpu::HWThread*>(ud);
 
-  thiz->SendGuestIPI(GuestClockInterruptForwarder, kernel_state());
+  cpu::SendInterruptArguments interrupt_arguments;
+  interrupt_arguments.ipi_func = GuestClockInterruptForwarder;
+  interrupt_arguments.ud = kernel_state();
+  interrupt_arguments.irql_ = IRQL_CLOCK;
+  interrupt_arguments.wait_done = false;
+  thiz->SendGuestIPI(interrupt_arguments);
 
   // don't free our slot, we repeat forever
 }

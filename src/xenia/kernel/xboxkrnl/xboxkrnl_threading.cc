@@ -1950,8 +1950,13 @@ void xeKeInsertQueueApcHelper(cpu::ppc::PPCContext* context, XAPC* apc,
           GetKPCR(context)->apc_software_interrupt_state = 1;
         } else {
           // THIS IS DEFINITELY BADLY IMPLEMENTED!
+          cpu::SendInterruptArguments arguments;
+          arguments.ipi_func = SendRunKernelApcIPI;
+          arguments.ud = apc_thread;
+          arguments.wait_done = false;
+          arguments.irql_ = 0;//randomly picked this irql
           context->processor->GetCPUThread(thread_processor)
-              ->SendGuestIPI(SendRunKernelApcIPI, apc_thread);
+              ->SendGuestIPI(arguments);
         }
         goto LABEL_26;
       }
@@ -2068,8 +2073,12 @@ uint32_t xeKeInsertQueueDpc(XDPC* dpc, uint32_t arg1, uint32_t arg2,
       // kernel sends an ipi here. i havent been able to figure out what the
       // args to it mean, but presumably the IPI just triggers running the dpc
       // list on the
-      ctx->processor->GetCPUThread(cpunum)->SendGuestIPI(DPCIPIFunction,
-                                                         nullptr);
+      cpu::SendInterruptArguments arguments{};
+      arguments.ipi_func = DPCIPIFunction;
+      arguments.ud = nullptr;
+      arguments.irql_ = 0;//randomly chosen irql
+      arguments.wait_done = false;
+      ctx->processor->GetCPUThread(cpunum)->SendGuestIPI(arguments);
     }
   }
 

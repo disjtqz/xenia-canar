@@ -40,8 +40,9 @@ struct CpuTimedInterrupt {
 class XenonInterruptController {
  public:
   threading::AtomicListHeader queued_interrupts_;
+  volatile uint64_t interrupt_serial_number_ = 0ULL;
   uint64_t next_event_quick_timestamp_ = ~0ULL;
-
+  int32_t current_interrupt_priority_ = -1;
   // technically has a whole page, but I think only a little bit of it (0x100) is used. at least, from kernel space
   union {
     struct {
@@ -72,6 +73,8 @@ class XenonInterruptController {
     uint64_t data_[32];  // 0x100 bytes
   };
 
+  static int KernelIrqlToInterruptPriority(uint8_t irql);
+
  private:
   const uint32_t cpu_number_;
   uint32_t pad_;
@@ -79,7 +82,7 @@ class XenonInterruptController {
   Processor* const processor_;
   uint64_t tick_microsecond_frequency;
   threading::AtomicListHeader free_interrupt_requests_;
-
+  
   uint32_t eoi_written_ = 1;
   uint32_t timed_event_slots_bitmap_=0;
   CpuTimedInterrupt timed_events_[4];
@@ -121,8 +124,12 @@ class XenonInterruptController {
   uint64_t CreateRelativeUsTimestamp(uint64_t microseconds);
   void SetEOI(uint64_t value);
   uint64_t GetEOI();
-
+  bool CanRunInterruptAtIrql(uint8_t irql);
   void SetEOIWriteMirror(uintptr_t* v) { eoi_write_mirror_ = v; }
+
+  //check whether a sleep would miss a timed interrupt, and if so return a more appropriate time to sleep for
+  //that won't cause us to miss anything
+  uint64_t ClampSleepMicrosecondsForTimedInterrupt(uint64_t microseconds);
 };
 
 }  // namespace cpu

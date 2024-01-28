@@ -52,6 +52,9 @@ PPCTranslator::PPCTranslator(PPCFrontend* frontend) : frontend_(frontend) {
   compiler_->AddPass(std::make_unique<passes::ControlFlowAnalysisPass>());
   compiler_->AddPass(std::make_unique<passes::ControlFlowSimplificationPass>());
 
+  // add interrupt checks after control flow simplification
+  compiler_->AddPass(std::make_unique<passes::InterruptInjectionPass>());
+
   // Passes are executed in the order they are added. Multiple of the same
   // pass type may be used.
   if (validate) compiler_->AddPass(std::make_unique<passes::ValidationPass>());

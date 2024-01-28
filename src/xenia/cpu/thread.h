@@ -88,6 +88,17 @@ static constexpr uint64_t TIMEBASE_FREQUENCY = 49875000ULL;
 
 static constexpr int32_t DECREMENTER_DISABLE = 0x7FFFFFFF;
 
+struct SendInterruptArguments {
+  void (*ipi_func)(void*);
+
+  void* ud;
+  bool wait_done = false;
+  //means the interrupt actually does not use the external interrupt codepath (decrementer does this)
+  //currently does nothing
+  bool internal_interrupt_ = false;
+  uint8_t irql_ = 4;
+};
+
 class HWThread {
   void ThreadFunc();
 
@@ -177,8 +188,7 @@ class HWThread {
 
   void YieldToScheduler();
 
-  bool TrySendInterruptFromHost(void (*ipi_func)(void*), void* ud,
-                                bool wait_done = false);
+  bool TrySendInterruptFromHost(SendInterruptArguments& arguments);
 
   void IdleSleep(int64_t nanoseconds);
 
@@ -193,7 +203,7 @@ class HWThread {
   }
   // SendGuestIPI is designed to run on a guest thread
   // it ought to be nonblocking, unlike TrySendHostIPI
-  bool SendGuestIPI(void (*ipi_func)(void*), void* ud);
+  bool SendGuestIPI(SendInterruptArguments& arguments);
   XenonInterruptController* interrupt_controller() {
     return interrupt_controller_.get();
   }

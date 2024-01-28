@@ -195,50 +195,111 @@ bool PPCContext::CompareRegWithString(const char* name, const char* value,
     return false;
   }
 }
-XE_NOINLINE
-void PPCContext::ReallyDoInterrupt(PPCContext* context) {
-  auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
-  auto interrupt_controller = context->GetExternalInterruptController();
-  if (interrupt_controller->queued_interrupts_.depth()) {
-    auto xchged = interrupt_controller->queued_interrupts_.Pop();
-    if (xchged) {
-      auto current = xchged;
 
-      while (current) {
-        
-        auto ireq = reinterpret_cast<PPCInterruptRequest*>(current);
+static PPCInterruptRequest* SelectInterruptRequest(
+    PPCContext* context, kernel::X_KPCR* kpcr,
+    cpu::XenonInterruptController* interrupt_controller) {
+  std::vector<PPCInterruptRequest*> requests{};
+  requests.reserve(interrupt_controller->queued_interrupts_.depth());
 
-        auto ireq_deref = *ireq;
-        bool run_interrupt = true;
-        if (ireq_deref.may_run_) {
-          run_interrupt = ireq_deref.may_run_(context);
-        }
-        if (run_interrupt) {
-          if (ireq_deref.wait) {
-            interrupt_controller->SetEOIWriteMirror(ireq_deref.result_out_);
+  auto xchged = interrupt_controller->queued_interrupts_.Flush();
+
+  if (xchged) {
+    auto current = xchged;
+    PPCInterruptRequest* internal_interrupt = nullptr;
+    while (current) {
+      auto ireq = reinterpret_cast<PPCInterruptRequest*>(current);
+      requests.push_back(ireq);
+
+      current = current->next_;
+    }
+
+    if (requests.size() > 1) {
+      std::sort(
+          requests.begin(), requests.end(),
+          [](PPCInterruptRequest* x, PPCInterruptRequest* y) {
+            auto prio_x =
+                cpu::XenonInterruptController::KernelIrqlToInterruptPriority(
+                    x->irql_);
+            auto prio_y =
+                cpu::XenonInterruptController::KernelIrqlToInterruptPriority(
+                    y->irql_);
+
+            if (prio_x == prio_y) {
+              return x->interrupt_serial_number_ < y->interrupt_serial_number_;
+            } else {
+              return prio_x < prio_y;
+            }
+          });
+    }
+
+    for (auto&& ireq : requests) {
+      // if an internal interrupt is available, immediately select it. i'm not
+      // confident that it runs before any external interrupt,
+      // but the only internal interrupt is the decrementer one which is very
+      // simple and wont mess anything up by running at any point in time.
+      if (ireq->internal_interrupt_) {
+        if (ireq->may_run_(context)) {
+          for (auto&& requeue_request : requests) {
+            if (requeue_request == ireq) {
+              continue;
+            }
+            interrupt_controller->queued_interrupts_.Push(
+                &requeue_request->list_entry_);
           }
-          uintptr_t result =
-              ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
-          interrupt_controller->FreeInterruptRequest(ireq);
-        } else {
-          // requeue
-          interrupt_controller->queued_interrupts_.Push(current);
-          return;
+          return ireq;
         }
-        current = interrupt_controller->queued_interrupts_.Pop();
       }
     }
+
+    // reinsert to list
+    for (size_t i = 1; i < requests.size(); ++i) {
+      interrupt_controller->queued_interrupts_.Push(&requests[i]->list_entry_);
+    }
+
+    return requests[0];
+
+  } else {
+    return nullptr;
   }
 }
 
-void PPCContext::CheckInterrupt() {
+XE_NOINLINE
+bool PPCContext::ReallyDoInterrupt(PPCContext* context) {
+  auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
+  auto interrupt_controller = context->GetExternalInterruptController();
+  if (interrupt_controller->queued_interrupts_.depth()) {
+    auto ireq = SelectInterruptRequest(context, kpcr, interrupt_controller);
+
+    auto ireq_deref = *ireq;
+    bool run_interrupt = true;
+    if (ireq_deref.may_run_) {
+      run_interrupt = ireq_deref.may_run_(context);
+    }
+    if (run_interrupt) {
+      if (ireq_deref.wait) {
+        interrupt_controller->SetEOIWriteMirror(ireq_deref.result_out_);
+      }
+      uintptr_t result = ireq_deref.func_(context, &ireq_deref, ireq_deref.ud_);
+      interrupt_controller->FreeInterruptRequest(ireq);
+      return true;
+    } else {
+      // requeue
+      interrupt_controller->queued_interrupts_.Push(&ireq->list_entry_);
+      return false;
+    }
+  }
+  return false;
+}
+
+bool PPCContext::CheckInterrupt() {
   auto controller = GetExternalInterruptController();
   CheckTimedInterrupt();
 
   if (!controller->queued_interrupts_.depth()) {
-    return;
+    return false;
   } else {
-    ReallyDoInterrupt(this);
+    return ReallyDoInterrupt(this);
   }
 }
 void PPCContext::AssertCurrent() {

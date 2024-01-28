@@ -24,5 +24,6 @@
 #include "xenia/cpu/compiler/passes/simplification_pass.h"
 #include "xenia/cpu/compiler/passes/validation_pass.h"
 #include "xenia/cpu/compiler/passes/value_reduction_pass.h"
+#include "xenia/cpu/compiler/passes/interrupt_check_injection_pass.h"
 
 #endif  // XENIA_CPU_COMPILER_COMPILER_PASSES_H_
