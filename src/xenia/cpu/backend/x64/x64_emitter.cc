@@ -227,8 +227,8 @@ bool X64Emitter::Emit(HIRBuilder* builder, EmitFunctionInfo& func_info) {
     locals_page_delta_ = 65536;
   } else {
     // extremely unlikely, fall back to stack
-    stack_size =
-        xe::align<size_t>(StackLayout::GUEST_STACK_SIZE + stack_offset, 16);
+    stack_size = StackLayout::GUEST_STACK_SIZE + stack_offset;
+
     locals_page_delta_ = 0;
   }
 
@@ -1845,17 +1845,18 @@ void X64Emitter::EnsureSynchronizedGuestAndHostStack() {
 }
 void X64Emitter::EmitEmulatedInterruptCheck() {
   Xbyak::Label& after_interrupt_check = NewCachedLabel();
+  Xbyak::Label& after_interrupt_check_pop = NewCachedLabel();
   auto interval_ptr = GetBackendCtxPtr(offsetof(X64BackendContext, flags) + 3);
   interval_ptr.setBit(8);
   inc(interval_ptr);
 
   jnz(after_interrupt_check);
 
-
-
-  
   Xbyak::Label& rerun_due_to_timer = NewCachedLabel();
-
+  push(rax);
+  push(rcx);
+  push(rdx);
+  push(rax);
   L(rerun_due_to_timer);
   rdtsc();
   mov(ecx, dword[GetContextReg() + offsetof(ppc::PPCContext, r[13])]);
@@ -1885,15 +1886,22 @@ void X64Emitter::EmitEmulatedInterruptCheck() {
 
   // cmp(qword[rax + offsetof(kernel::X_KPCR, emulated_interrupt)], rax);
 
-  Xbyak::Label& do_emulated_interrupt_label = AddToTail(
-      [&after_interrupt_check](X64Emitter& e, Xbyak::Label& our_tail_label) {
+  Xbyak::Label& do_emulated_interrupt_label =
+      AddToTail([&after_interrupt_check_pop](X64Emitter& e,
+                                             Xbyak::Label& our_tail_label) {
         e.L(our_tail_label);
 
         e.call(e.backend()->emulated_interrupt_helper_);
 
-        e.jmp(after_interrupt_check, e.T_NEAR);
+        e.jmp(after_interrupt_check_pop, e.T_NEAR);
       });
   jnz(do_emulated_interrupt_label, CodeGenerator::T_NEAR);
+
+  L(after_interrupt_check_pop);
+  pop(rax);
+  pop(rdx);
+  pop(rcx);
+  pop(rax);
 
   L(after_interrupt_check);
 }
