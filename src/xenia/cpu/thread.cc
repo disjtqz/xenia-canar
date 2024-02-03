@@ -21,6 +21,12 @@ DEFINE_bool(enable_cpu_timing_fences, false,
             "If true, introduce artificial delays to try to better match "
             "original cpu/kernel timing",
             "CPU");
+
+DEFINE_bool(
+    no_idle_sleeping_for_hw_threads, false,
+    "If true, do not make the os thread sleep when a hw thread has no work. "
+    "Reduces latency for interrupts at the cost of much higher cpu usage.",
+    "CPU");
 namespace xe {
 namespace cpu {
 
@@ -154,8 +160,8 @@ static bool may_run_interrupt_proc(ppc::PPCContext_s* context) {
          this_hw_thread(context)->interrupt_controller()->GetEOI() != 0;
 }
 static bool internal_may_run_interrupt_proc(ppc::PPCContext_s* context) {
-
-  // despite not using the external interrupt controller, EI still controls whether the decrementer interrupt happens
+  // despite not using the external interrupt controller, EI still controls
+  // whether the decrementer interrupt happens
   return context->ExternalInterruptsEnabled();
 }
 
@@ -170,7 +176,7 @@ uintptr_t HWThread::IPIWrapperFunction(ppc::PPCContext_s* context,
     auto kpcr = context->TranslateVirtualGPR<kernel::X_KPCR*>(context->r[13]);
 
     bool cr2 = kpcr->use_alternative_stack == 0;
-    
+
     auto old_irql = kpcr->current_irql;
     bool cr3;
     context->DisableEI();
@@ -243,9 +249,11 @@ bool HWThread::TrySendInterruptFromHost(SendInterruptArguments& arguments) {
   request->internal_interrupt_ = arguments.internal_interrupt_;
   request->irql_ = arguments.irql_;
   this->interrupt_controller()->queued_interrupts_.Push(&request->list_entry_);
-  auto context = cpu::ThreadState::GetContext();
-  if (!context || this_hw_thread(context) != this) {
-    this->wake_idle_event_->Set();
+  if (!cvars::no_idle_sleeping_for_hw_threads) {
+    auto context = cpu::ThreadState::GetContext();
+    if (!context || this_hw_thread(context) != this) {
+      this->wake_idle_event_->Set();
+    }
   }
   if (!wait_done) {
     return true;
@@ -311,7 +319,9 @@ void HWThread::SetDecrementerInterruptCallback(void (*decr)(void* ud),
   decrementer_ud_ = ud;
 }
 void HWThread::IdleSleep(int64_t nanoseconds) {
-  threading::NanoWait(wake_idle_event_.get(), false, nanoseconds);
+  if (!cvars::no_idle_sleeping_for_hw_threads) {
+    threading::NanoWait(wake_idle_event_.get(), false, nanoseconds);
+  }
 }
 
 uint64_t HWThread::mftb() const {
